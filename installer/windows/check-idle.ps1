@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$InstallRoot,
     [switch]$IgnoreCurrentProcess,
+    [switch]$IgnoreTray,
     [ValidateSet('Check','ProbeUninstall','StopForUninstall')][string]$Action='Check'
 )
 $ErrorActionPreference='Stop'
@@ -16,8 +17,16 @@ function Test-StudioArgument([string]$CommandLine,[string]$Role) {
     return [regex]::IsMatch($CommandLine,('(?:^|\s)(?:"'+$path+'"|'+$path+')(?=\s|$)'),[Text.RegularExpressions.RegexOptions]::IgnoreCase)
 }
 function Get-StudioProcesses {
-    foreach ($taskProcess in (Get-CimInstance -ClassName Win32_Process -Filter "Name LIKE 'python%.exe' OR Name = 'powershell.exe' OR Name = 'pwsh.exe'")) {
+    foreach ($taskProcess in (Get-CimInstance -ClassName Win32_Process -Filter "Name LIKE 'python%.exe' OR Name = 'powershell.exe' OR Name = 'pwsh.exe' OR Name = 'TRELLIS Studio Tray.exe' OR Name = 'caddy.exe'")) {
         if ($IgnoreCurrentProcess -and $taskProcess.ProcessId -eq $PID) { continue }
+        if($taskProcess.ExecutablePath -ieq (Join-Path $taskRoot 'TRELLIS Studio Tray.exe')) {
+            if(-not $IgnoreTray){[pscustomobject]@{Role='tray'; Id=$taskProcess.ProcessId; Parent=$taskProcess.ParentProcessId}}
+            continue
+        }
+        if($taskProcess.ExecutablePath -ieq (Join-Path $taskRoot 'bin\caddy\caddy.exe')) {
+            [pscustomobject]@{Role='proxy'; Id=$taskProcess.ProcessId; Parent=$taskProcess.ParentProcessId}
+            continue
+        }
         foreach ($role in $taskScripts.Keys) {
             if (Test-StudioArgument $taskProcess.CommandLine $role) {
                 [pscustomobject]@{ Role=$role; Id=$taskProcess.ProcessId; Parent=$taskProcess.ParentProcessId }
@@ -61,7 +70,7 @@ function Assert-ListenerOwner($Listener,[string]$Role) {
 
 if ($Action -eq 'Check') {
     $running=@(Get-StudioProcesses)
-    if (@($running | Where-Object Role -in @('server','serverSetup')).Count) {
+    if (@($running | Where-Object Role -in @('server','serverSetup','proxy')).Count) {
         throw 'TRELLIS Server is running from this folder. Use Stop TRELLIS Server before changing this installation.'
     }
     if ($running.Count) { throw "TRELLIS Studio is running from this folder (process $($running[0].Id))." }
@@ -73,8 +82,8 @@ try {
     Assert-NoComponentLock
     $running=@(Get-StudioProcesses)
     if (-not $running.Count) { exit 0 }
-    if (@($running | Where-Object Role -in @('server','serverSetup')).Count) {
-        throw 'Use Stop TRELLIS Server and close any local setup before uninstalling.'
+    if (@($running | Where-Object Role -in @('server','serverSetup','proxy','tray')).Count) {
+        throw 'Stop the server or Desktop from its tray menu, quit the tray icon and close setup before uninstalling.'
     }
     if (@($running | Where-Object { $_.Role -notin @('app','bridge') }).Count) { throw 'The launcher or component installer is still running.' }
     $connections=@(Get-NetTCPConnection -State Listen -LocalAddress '127.0.0.1' -ErrorAction SilentlyContinue)

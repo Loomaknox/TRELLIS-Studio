@@ -224,7 +224,8 @@ class Store:
         admin = row['role'] == 'admin'
         result.update(social_links=json.loads(row['social_links']), credits_reserved=0 if admin else reserved[0],
                       credits_available=None if admin else max(0, row['credits'] - reserved[0]),
-                      storage_reserved_bytes=reserved[1] + storage, totp_enabled=bool(row['totp_secret']))
+                      storage_reserved_bytes=reserved[1] + storage, totp_enabled=bool(row['totp_secret']),
+                      mfa_required=admin)
         if admin:
             result['disk_limit_bytes'] = None
         return result
@@ -548,6 +549,8 @@ class Store:
     def disable_totp(self, identifier, current_password, code):
         with self.transaction() as connection:
             user = self._user(connection, identifier, active=True)
+            if user['role'] == 'admin':
+                raise StoreError('Administrators must use two-factor authentication.', 403, 'mfa_required')
             if not password_matches(current_password, user['password']):
                 raise StoreError('Current password is incorrect.', 403)
             self._consume_factor(connection, user, code)

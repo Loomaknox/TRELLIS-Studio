@@ -4,7 +4,7 @@ import json
 
 def prepare_pipeline_config(root, job, resolution):
     root=Path(root);job=Path(job)
-    if resolution not in (512,1024,1536):raise ValueError('Résolution 3D non prise en charge.')
+    if resolution not in (512,1024,1536):raise ValueError('Unsupported 3D resolution.')
     kind={512:'512',1024:'1024_cascade',1536:'1536_cascade'}[resolution]
     folder=job/'pipeline-config';folder.mkdir(exist_ok=True)
     source=root/'models'/'trellis2'
@@ -14,7 +14,7 @@ def prepare_pipeline_config(root, job, resolution):
             del config['args']['models'][key];continue
         prefix=source/value
         for suffix in ('.json','.safetensors'):
-            if not Path(str(prefix)+suffix).is_file():raise FileNotFoundError('Poids manquants : '+str(prefix)+suffix)
+            if not Path(str(prefix)+suffix).is_file():raise FileNotFoundError('Missing model weights: '+str(prefix)+suffix)
         # The loader accepts a standalone local prefix as its fallback. Absolute
         # prefixes work with workspace data on another drive and deep Windows paths.
         config['args']['models'][key]=str(prefix.resolve())

@@ -1,0 +1,264 @@
+{
+  "schema": 1,
+  "id": "kimodo-cpu-75ed52d2-v1",
+  "runtime": "kimodo.cpp",
+  "source_revision": "75ed52d2d3ec767a9bac79d11060b65d99f61a89",
+  "ggml_revision": "8c63e70982c95ceb862e3a1073a2c1beef75d60a",
+  "model": "SOMA-RP v1.1",
+  "backend": "CPU",
+  "fps": 30,
+  "artifacts": [
+    {
+      "key": "runtime",
+      "filename": "kimodo-cpp-75ed52d.zip",
+      "url": "https://codeload.github.com/localai-org/kimodo.cpp/zip/75ed52d2d3ec767a9bac79d11060b65d99f61a89",
+      "bytes": 365078,
+      "sha256": "d323a9a98b783b0566d752eddf1258a8d4885f27989c630d39b8890ebcb37eab",
+      "kind": "zip",
+      "target": "source/runtime",
+      "cache_candidates": [
+        "kimodo-cpp-75ed52d.zip"
+      ],
+      "strip_root": true
+    },
+    {
+      "key": "ggml",
+      "filename": "ggml-8c63e709.zip",
+      "url": "https://codeload.github.com/ggml-org/ggml/zip/8c63e70982c95ceb862e3a1073a2c1beef75d60a",
+      "bytes": 4857866,
+      "sha256": "b029d986468ea08a7aa5b9dfb17355691fb119e64126a87d556b3a6c35a13adf",
+      "kind": "zip",
+      "target": "source/ggml",
+      "cache_candidates": [
+        "ggml-8c63e709.zip"
+      ],
+      "strip_root": true
+    },
+    {
+      "key": "cmake",
+      "filename": "cmake-3.31.8-linux.tar.gz",
+      "url": "https://github.com/Kitware/CMake/releases/download/v3.31.8/cmake-3.31.8-linux-x86_64.tar.gz",
+      "bytes": 55012213,
+      "sha256": "630615d8e98ac33eba7fbe472626dff5c899c85af3c024585ae109166a6909d0",
+      "kind": "tar",
+      "target": "tools/cmake",
+      "cache_candidates": [
+        "cmake-3.31.8-linux.tar.gz"
+      ],
+      "strip_root": true
+    },
+    {
+      "key": "zig",
+      "filename": "zig-linux-0.14.1.tar.xz",
+      "url": "https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz",
+      "bytes": 49086504,
+      "sha256": "24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c",
+      "kind": "tar",
+      "target": "tools/zig",
+      "cache_candidates": [
+        "zig-linux-0.14.1.tar.xz"
+      ],
+      "strip_root": true
+    },
+    {
+      "key": "ninja",
+      "filename": "ninja-linux.zip",
+      "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-linux.zip",
+      "bytes": 134040,
+      "sha256": "5749cbc4e668273514150a80e387a957f933c6ed3f5f11e03fb30955e2bbead6",
+      "kind": "zip",
+      "target": "tools/ninja",
+      "cache_candidates": [
+        "ninja-linux.zip"
+      ],
+      "strip_root": false
+    },
+    {
+      "key": "motion",
+      "filename": "kimodo-soma-rp-v1.1-f32.gguf",
+      "url": "https://huggingface.co/LocalAI-io/Kimodo-SOMA-RP-v1.1-GGML/resolve/65f8b8ab34ee7524161cc87b20ae4cb4f5d3a12d/models/kimodo-soma-rp-v1.1-f32.gguf?download=true",
+      "bytes": 1133166784,
+      "sha256": "3bf1229f4c1eff1d28f5196a854113da2df9a11a5e21c60694630903bf948ee4",
+      "kind": "file",
+      "target": "weights/kimodo-soma-rp-v1.1-f32.gguf",
+      "cache_candidates": [
+        "weights/Kimodo-SOMA-RP-v1.1-GGML/models/kimodo-soma-rp-v1.1-f32.gguf",
+        "models/kimodo-soma-rp-v1.1-f32.gguf",
+        "kimodo-soma-rp-v1.1-f32.gguf"
+      ]
+    },
+    {
+      "key": "Kimodo-SOMA-RP-v1.1-GGML-MANIFEST.json",
+      "filename": "MANIFEST.json",
+      "url": "https://huggingface.co/LocalAI-io/Kimodo-SOMA-RP-v1.1-GGML/resolve/65f8b8ab34ee7524161cc87b20ae4cb4f5d3a12d/MANIFEST.json",
+      "bytes": 421,
+      "sha256": "4193b2fe8dea3be8d485c4b1c3daf360b7b8478c99e56234ae51f4b353cf268f",
+      "kind": "file",
+      "target": "licenses/Kimodo-SOMA-RP-v1.1-GGML/MANIFEST.json",
+      "cache_candidates": [
+        "weights/Kimodo-SOMA-RP-v1.1-GGML/MANIFEST.json",
+        "MANIFEST.json"
+      ]
+    },
+    {
+      "key": "Kimodo-SOMA-RP-v1.1-GGML-NOTICE",
+      "filename": "NOTICE",
+      "url": "https://huggingface.co/LocalAI-io/Kimodo-SOMA-RP-v1.1-GGML/resolve/65f8b8ab34ee7524161cc87b20ae4cb4f5d3a12d/NOTICE",
+      "bytes": 163,
+      "sha256": "778107843e1cb26e19aeaabb54977a6c7e6553b099a4b6b7c4c5cfed96c21eb4",
+      "kind": "file",
+      "target": "licenses/Kimodo-SOMA-RP-v1.1-GGML/NOTICE",
+      "cache_candidates": [
+        "weights/Kimodo-SOMA-RP-v1.1-GGML/NOTICE",
+        "NOTICE"
+      ]
+    },
+    {
+      "key": "Kimodo-SOMA-RP-v1.1-GGML-README.md",
+      "filename": "README.md",
+      "url": "https://huggingface.co/LocalAI-io/Kimodo-SOMA-RP-v1.1-GGML/resolve/65f8b8ab34ee7524161cc87b20ae4cb4f5d3a12d/README.md",
+      "bytes": 1028,
+      "sha256": "0570085e7668fc3c0393036639935c9f1a71d0a57ba2b8f917d827bc13aa19cd",
+      "kind": "file",
+      "target": "licenses/Kimodo-SOMA-RP-v1.1-GGML/README.md",
+      "cache_candidates": [
+        "weights/Kimodo-SOMA-RP-v1.1-GGML/README.md",
+        "README.md"
+      ]
+    },
+    {
+      "key": "Kimodo-SOMA-RP-v1.1-GGML-SHA256SUMS",
+      "filename": "SHA256SUMS",
+      "url": "https://huggingface.co/LocalAI-io/Kimodo-SOMA-RP-v1.1-GGML/resolve/65f8b8ab34ee7524161cc87b20ae4cb4f5d3a12d/SHA256SUMS",
+      "bytes": 102,
+      "sha256": "f17655973f9c1c198e4d6396e39f062e07f9de0241bf9197d7fd231297891ba2",
+      "kind": "file",
+      "target": "licenses/Kimodo-SOMA-RP-v1.1-GGML/SHA256SUMS",
+      "cache_candidates": [
+        "weights/Kimodo-SOMA-RP-v1.1-GGML/SHA256SUMS",
+        "SHA256SUMS"
+      ]
+    },
+    {
+      "key": "tokenizer",
+      "filename": "tokenizer.gguf",
+      "url": "https://huggingface.co/LocalAI-io/Llama-3-Kimodo-GGML/resolve/f583f3ee2b093f6d9ec524463b4152622abf11a6/tokenizer.gguf?download=true",
+      "bytes": 7295054,
+      "sha256": "81614aca62a98846c02b72cc2e5378e5bdce8b4d507b88f96eb1faa90dae607e",
+      "kind": "file",
+      "target": "weights/tokenizer.gguf",
+      "cache_candidates": [
+        "weights/Llama-3-Kimodo-GGML/tokenizer.gguf",
+        "tokenizer.gguf",
+        "tokenizer.gguf"
+      ]
+    },
+    {
+      "key": "text",
+      "filename": "Llama-3-Kimodo-Q8_0.gguf",
+      "url": "https://huggingface.co/LocalAI-io/Llama-3-Kimodo-GGML/resolve/f583f3ee2b093f6d9ec524463b4152622abf11a6/Llama-3-Kimodo-Q8_0.gguf?download=true",
+      "bytes": 8142058752,
+      "sha256": "b26d0e74b115b33a7f2df5aca04426548365e99217cd590986f8abc4172e4c5c",
+      "kind": "file",
+      "target": "weights/Llama-3-Kimodo-Q8_0.gguf",
+      "cache_candidates": [
+        "weights/Llama-3-Kimodo-GGML/Llama-3-Kimodo-Q8_0.gguf",
+        "Llama-3-Kimodo-Q8_0.gguf",
+        "Llama-3-Kimodo-Q8_0.gguf"
+      ]
+    },
+    {
+      "key": "Llama-3-Kimodo-GGML-LICENSE-META-LLAMA-3.txt",
+      "filename": "LICENSE-META-LLAMA-3.txt",
+      "url": "https://huggingface.co/LocalAI-io/Llama-3-Kimodo-GGML/resolve/f583f3ee2b093f6d9ec524463b4152622abf11a6/LICENSE-META-LLAMA-3.txt",
+      "bytes": 7801,
+      "sha256": "475211637354ce4c14b9c3dacccbefbaba735fe1b0db97d6c4fd11cd1356819f",
+      "kind": "file",
+      "target": "licenses/Llama-3-Kimodo-GGML/LICENSE-META-LLAMA-3.txt",
+      "cache_candidates": [
+        "weights/Llama-3-Kimodo-GGML/LICENSE-META-LLAMA-3.txt",
+        "LICENSE-META-LLAMA-3.txt"
+      ]
+    },
+    {
+      "key": "Llama-3-Kimodo-GGML-MANIFEST.json",
+      "filename": "MANIFEST.json",
+      "url": "https://huggingface.co/LocalAI-io/Llama-3-Kimodo-GGML/resolve/f583f3ee2b093f6d9ec524463b4152622abf11a6/MANIFEST.json",
+      "bytes": 2268,
+      "sha256": "b9dad85ad192032b8eff1138aee95c33de0f2a8f9419dffdc6d5ef9d7e828e0e",
+      "kind": "file",
+      "target": "licenses/Llama-3-Kimodo-GGML/MANIFEST.json",
+      "cache_candidates": [
+        "weights/Llama-3-Kimodo-GGML/MANIFEST.json",
+        "MANIFEST.json"
+      ]
+    },
+    {
+      "key": "Llama-3-Kimodo-GGML-NOTICE",
+      "filename": "NOTICE",
+      "url": "https://huggingface.co/LocalAI-io/Llama-3-Kimodo-GGML/resolve/f583f3ee2b093f6d9ec524463b4152622abf11a6/NOTICE",
+      "bytes": 148,
+      "sha256": "97b5a240c05ff37063fcd1701ab047b2ef51dca2447b215d10735af3bfc97eff",
+      "kind": "file",
+      "target": "licenses/Llama-3-Kimodo-GGML/NOTICE",
+      "cache_candidates": [
+        "weights/Llama-3-Kimodo-GGML/NOTICE",
+        "NOTICE"
+      ]
+    },
+    {
+      "key": "Llama-3-Kimodo-GGML-README.md",
+      "filename": "README.md",
+      "url": "https://huggingface.co/LocalAI-io/Llama-3-Kimodo-GGML/resolve/f583f3ee2b093f6d9ec524463b4152622abf11a6/README.md",
+      "bytes": 2000,
+      "sha256": "b8d6adea203bab248503ada778bd21fa7a407102f67d90863ff07d69178c17b7",
+      "kind": "file",
+      "target": "licenses/Llama-3-Kimodo-GGML/README.md",
+      "cache_candidates": [
+        "weights/Llama-3-Kimodo-GGML/README.md",
+        "README.md"
+      ]
+    },
+    {
+      "key": "Llama-3-Kimodo-GGML-SHA256SUMS",
+      "filename": "SHA256SUMS",
+      "url": "https://huggingface.co/LocalAI-io/Llama-3-Kimodo-GGML/resolve/f583f3ee2b093f6d9ec524463b4152622abf11a6/SHA256SUMS",
+      "bytes": 629,
+      "sha256": "c8ce76b6862dc7c3f6c6d6e6ab1d6e1ebfeae32a19e90d4de7110c5f378067ff",
+      "kind": "file",
+      "target": "licenses/Llama-3-Kimodo-GGML/SHA256SUMS",
+      "cache_candidates": [
+        "weights/Llama-3-Kimodo-GGML/SHA256SUMS",
+        "SHA256SUMS"
+      ]
+    },
+    {
+      "key": "nvidia-license",
+      "filename": "NVIDIA-Open-Model-License.txt",
+      "url": "https://huggingface.co/nvidia/Kimodo-SOMA-RP-v1.1/resolve/6c9233af1180b8151e3c4703477104af5dce9dd5/LICENSE",
+      "bytes": 10229,
+      "sha256": "11ccdcb47db87ac30b63765b5e5154403026c4fbb52c19919d99d912ec454e19",
+      "kind": "file",
+      "target": "licenses/NVIDIA-Open-Model-License.txt",
+      "cache_candidates": [
+        "NVIDIA-Open-Model-License.txt"
+      ]
+    },
+    {
+      "key": "ninja-license",
+      "filename": "Ninja-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/ninja-build/ninja/3441b633c2fe2c494e958780ba0f4227b1327634/COPYING",
+      "bytes": 11358,
+      "sha256": "eb7e9ab9690124c5c9f42bdc81383d886a3dede26345b6ed15bbad7caf81f7ea",
+      "kind": "file",
+      "target": "licenses/Ninja-LICENSE.txt",
+      "cache_candidates": [
+        "Ninja-LICENSE.txt"
+      ]
+    }
+  ],
+  "license_urls": [
+    "https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/",
+    "https://huggingface.co/LocalAI-io/Llama-3-Kimodo-GGML/blob/f583f3ee2b093f6d9ec524463b4152622abf11a6/LICENSE-META-LLAMA-3.txt"
+  ]
+}

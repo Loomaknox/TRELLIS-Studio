@@ -65,8 +65,8 @@ export async function createAdvancedControls(container){
   }
   function sync(){
     const remesh=inputs.get('mesh_mode')?.value==='remesh';
-    for(const key of ['remesh_project','remesh_band'])if(inputs.has(key))inputs.get(key).closest('label').hidden=!remesh;
-    for(const key of ['structure_steps','shape_steps','texture_steps'])if(inputs.has(key))inputs.get(key).placeholder='0 = profil';
+    for(const key of ['remesh_project','remesh_band','remesh_resolution'])if(inputs.has(key))inputs.get(key).closest('label').hidden=!remesh;
+    for(const key of ['structure_steps','shape_steps','texture_steps'])if(inputs.has(key))inputs.get(key).placeholder='0 = profile';
   }
   function apply(values={}){
     if(!ready)return;

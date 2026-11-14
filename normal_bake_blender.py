@@ -59,6 +59,14 @@ def bake(directory, size):
         vertices += to_blender(inputs["translation"].reshape(1, 3))[0]
         master_faces = np.load(directory / "master-faces.npy", mmap_mode="r", allow_pickle=False)
         master = build_object("Decoded master", vertices, master_faces)
+        # A selected finished HD donor already has authored/exported split normals.
+        # Preserve those across UV seams instead of recomputing normals per island.
+        normal_path = directory / 'master-normals.npy'
+        if normal_path.is_file():
+            master_normals = np.load(normal_path, allow_pickle=False)
+            if bool(inputs['master_y_up']):
+                master_normals = to_blender(master_normals)
+            master.data.normals_split_custom_set_from_vertices(master_normals)
         voxel = float(inputs["voxel_m"])
         del vertices, master_faces
 

@@ -1,27 +1,29 @@
-import {createStudioWorkbench} from './studio-workbench.js?v=3.3.6';
-import {createViewerLighting} from './viewer-lighting.js?v=3.3.6';
-import {createStudioTools} from './studio-tools.js?v=3.3.6';
-import {createAssetDetails,assetTypeName} from './asset-details.js?v=3.3.6';
-import {createPrintCopy} from './print-copy.js?v=3.3.6';
-import {createAnimationStudio} from './animation-studio.js?v=3.3.6';
-import {createRigSetupViewer} from './rig-setup-viewer.js?v=3.3.6';
-import {createModelImport} from './import-model.js?v=3.3.6';
-import {createMultiviewInputs} from './multiview-inputs.js?v=3.3.6';
-import {createReferencePreview} from './reference-preview.js?v=3.3.6';
+import {createStudioWorkbench} from './studio-workbench.js?v=3.4.0-motion1';
+import {createViewerLighting} from './viewer-lighting.js?v=3.4.0';
+import {createHologramViewer} from './hologram-viewer.js?v=3.4.0-quality2';
+import {createGenerationWait} from './generation-wait.js?v=3.4.0';
+import {createStudioTools} from './studio-tools.js?v=3.4.0';
+import {createAssetDetails,assetTypeName} from './asset-details.js?v=3.4.0';
+import {createPrintCopy} from './print-copy.js?v=3.4.0';
+import {createAnimationStudio} from './animation-studio.js?v=3.4.0-motion2';
+import {createRigSetupViewer} from './rig-setup-viewer.js?v=3.4.0';
+import {createModelImport} from './import-model.js?v=3.4.0';
+import {createMultiviewInputs} from './multiview-inputs.js?v=3.4.0';
+import {createReferencePreview} from './reference-preview.js?v=3.4.0';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { createAdvancedControls } from './advanced-controls.js?v=3.3.6';
-import { createProfileControls } from './profiles.js?v=3.3.6';
-import {createCardMenu,updateCardStatus,icon} from './card-menu.js?v=3.3.6';
-import {createCardTurntables} from './card-turntable.js?v=3.3.6';
+import { createAdvancedControls } from './advanced-controls.js?v=3.4.0-quality2';
+import { createProfileControls } from './profiles.js?v=3.4.0';
+import {createCardMenu,updateCardStatus,icon} from './card-menu.js?v=3.4.0';
+import {createCardTurntables} from './card-turntable.js?v=3.4.0';
 const $=id=>document.getElementById(id);
 const cardTurntables=createCardTurntables($('libraryGrid'));
 let cardTurntablesAvailable=false;
 const cardMenu=createCardMenu({version:reuseJob,remove:requestDelete,details:openDetails,print:j=>printCopy.open(j),compare:j=>studioTools.compare.open(j),diagnostics:j=>studioTools.diagnostics.open(j),export:j=>studioTools.exports.open(j),history:j=>workbench.history.open(j),folder:j=>workbench.workspace.move(j),lod:j=>workbench.prepare.open(j,'lod'),game:j=>workbench.prepare.open(j,'game'),refinish:openRefinish,finishingBoard:j=>workbench.finishingBoard.open(j)});
 const labels={done:'Completed',running:'Generating',error:'Failed',cancelled:'Cancelled',queued:'Queued'},reviews={review:'To review',retouch:'Needs changes',retained:'Retained',rejected:'Rejected'};
-let studioTools,viewerLighting,workbench,rigSetupViewer;
+let studioTools,viewerLighting,hologramViewer,workbench,rigSetupViewer;
 let selectedId=null,loadedId=null,loadingId=null,activeId=null,records=[],busy=false,ready=false,shutDown=false,features=false;
 let page=0,trashMode=false,trashRecords=[],metadataId=null,inspectId=null,inspectVersion=0,textureOpen=false,refreshing=false;
 let submittingGeneration=false,restoringReferences=false;
@@ -34,6 +36,7 @@ const clock=new THREE.Clock();
 let renderer,scene,camera,controls,model,grid,profileControls,rotating=false,wire=false,loadVersion=0;
 const categoryName=value=>({Mobilier:'Furniture',Industriel:'Industrial','Mobilier urbain':'Street furniture',Autre:'Other'}[value]||value);
 const viewport=$('viewport'),nameOf=j=>j.metadata?.display_name||j.settings?.name||'Untitled',jobOf=()=>records.find(j=>j.id===selectedId);
+const generationWait=createGenerationWait(viewport,{getMode:()=>$('materialMode').value,setMode:mode=>{$('materialMode').value=mode;document.querySelectorAll('[data-material]').forEach(button=>button.setAttribute('aria-pressed',button.dataset.material===mode));materials();}});
 const formatTriangles=count=>Number.isSafeInteger(count)&&count>0?`${count.toLocaleString('en-US')} triangles`:'Count unavailable';
 const detailControls=await createAssetDetails();
 const printCopy=createPrintCopy({api,startJob:startStudioJob});
@@ -88,21 +91,27 @@ try{
   const pmrem=new THREE.PMREMGenerator(renderer),room=new RoomEnvironment();scene.environment=pmrem.fromScene(room,.04).texture;room.dispose();pmrem.dispose();scene.add(new THREE.HemisphereLight(0xffffff,0x48545d,.9));
   grid=new THREE.GridHelper(10,20,0x7d929a,0x596970);grid.material.transparent=true;grid.material.opacity=.22;scene.add(grid);grid.visible=false;
   viewerLighting=createViewerLighting({scene,renderer,getModel:()=>model});
+  hologramViewer=createHologramViewer(viewport,{camera});
   rigSetupViewer=createRigSetupViewer({scene,camera,controls,viewport,getModel:()=>model,stopRotation(){rotating=false;$('rotate').setAttribute('aria-pressed','false');}});
   new ResizeObserver(()=>{const w=Math.max(1,viewport.clientWidth),h=Math.max(1,viewport.clientHeight);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}).observe(viewport);
-  renderer.setAnimationLoop(()=>{if(document.hidden||textureOpen||document.getElementById('compareDialog')?.open||document.body.classList.contains('library-mode'))return;if(rotating&&model)model.rotation.y+=.004;if(mixer&&clipPlaying){mixer.update(Math.min(clock.getDelta(),.1));if(clipAction){$('clipTime').value=clipAction.time;$('clipTimeValue').value=clipAction.time.toFixed(1)+' s';}}else clock.getDelta();if(skeletonHelper&&boneDots){boneDots.visible=skeletonHelper.visible;model?.updateMatrixWorld(true);skeletonHelper.bones.forEach((bone,index)=>{boneDotPosition.setFromMatrixPosition(bone.matrixWorld);boneDotMatrix.makeTranslation(boneDotPosition.x,boneDotPosition.y,boneDotPosition.z);boneDots.setMatrixAt(index,boneDotMatrix);});boneDots.instanceMatrix.needsUpdate=true;}controls.update();rigSetupViewer?.update();renderer.render(scene,camera);});
+  renderer.setAnimationLoop(()=>{if(document.hidden||textureOpen||document.getElementById('compareDialog')?.open||document.body.classList.contains('library-mode'))return;if(rotating&&model)model.rotation.y+=.004;if(mixer&&clipPlaying){mixer.update(Math.min(clock.getDelta(),.1));if(clipAction){$('clipTime').value=clipAction.time;$('clipTimeValue').value=clipAction.time.toFixed(1)+' s';}}else clock.getDelta();if(skeletonHelper&&boneDots){boneDots.visible=skeletonHelper.visible;model?.updateMatrixWorld(true);skeletonHelper.bones.forEach((bone,index)=>{boneDotPosition.setFromMatrixPosition(bone.matrixWorld);boneDotMatrix.makeTranslation(boneDotPosition.x,boneDotPosition.y,boneDotPosition.z);boneDots.setMatrixAt(index,boneDotMatrix);});boneDots.instanceMatrix.needsUpdate=true;}controls.update();rigSetupViewer?.update();hologramViewer?.update(performance.now());renderer.render(scene,camera);});
 }catch(e){$('viewerError').hidden=false;errorAt('viewerError',e);}
 function disposeModel(root){if(!root)return;const mats=new Set(),textures=new Set();root.traverse(x=>{x.geometry?.dispose();for(const m of [...(Array.isArray(x.material)?x.material:[x.material]),...(x.userData.baseMaterials||[])]){if(!m)continue;mats.add(m);for(const v of Object.values(m))if(v?.isTexture)textures.add(v);}});textures.forEach(x=>x.dispose());mats.forEach(x=>x.dispose());}
-function clearModel(){animationStudio?.closeRig();rigSetupViewer?.close();viewerLighting?.clear();if(boneDots){scene.remove(boneDots);boneDots.geometry.dispose();boneDots.material.dispose();boneDots=null;}if(predictedSkeleton){scene.remove(predictedSkeleton);predictedSkeleton.geometry.dispose();predictedSkeleton.material.dispose();predictedSkeleton=null;predictedId=null;}mixer?.stopAllAction();mixer=null;clips=[];clipAction=null;$('animationPlayer').hidden=true;if(skeletonHelper){scene.remove(skeletonHelper);skeletonHelper.geometry.dispose();skeletonHelper.material.dispose();skeletonHelper=null;}if(model){scene.remove(model);disposeModel(model);}model=null;loadedId=null;loadingId=null;}
+function clearModel(){hologramViewer?.clear();animationStudio?.closeRig();rigSetupViewer?.close();viewerLighting?.clear();if(boneDots){scene.remove(boneDots);boneDots.geometry.dispose();boneDots.material.dispose();boneDots=null;}if(predictedSkeleton){scene.remove(predictedSkeleton);predictedSkeleton.geometry.dispose();predictedSkeleton.material.dispose();predictedSkeleton=null;predictedId=null;}mixer?.stopAllAction();mixer=null;clips=[];clipAction=null;$('animationPlayer').hidden=true;if(skeletonHelper){scene.remove(skeletonHelper);skeletonHelper.geometry.dispose();skeletonHelper.material.dispose();skeletonHelper=null;}if(model){scene.remove(model);disposeModel(model);}model=null;loadedId=null;loadingId=null;}
 function fit(angle){if(!model||!camera)return;model.updateMatrixWorld(true);model.traverse(x=>{if(x.isSkinnedMesh){x.skeleton.update();x.computeBoundingBox();}});const box=new THREE.Box3().setFromObject(model,true),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),d=Math.max(size.x,size.y,size.z,.01)*1.8,views={front:[0,.05,1],back:[0,.05,-1],left:[-1,.05,0],right:[1,.05,0],top:[0,1,0]};camera.up.set(0,angle==='top'?0:1,angle==='top'?-1:0);camera.position.copy(center).add(new THREE.Vector3(...(views[angle]||[.8,.55,1])).multiplyScalar(d));camera.near=Math.max(.001,d/1000);camera.far=Math.max(100,d*100);camera.updateProjectionMatrix();controls.target.copy(center);controls.minDistance=d*.1;controls.maxDistance=d*8;controls.update();viewerLighting?.fit();}
 function materials(){
  const mode=$('materialMode').value;
+ hologramViewer?.setModel(model,mode==='hologram');
+ const badge=viewport.querySelector('.viewport-badge>span:last-child');
+ if(badge)badge.textContent=' / '+({pbr:'PBR',clay:'CLAY',normal:'NORMALS',hologram:'HOLOGRAM · PREVIEW'}[mode]||'PBR');
  model?.traverse(mesh=>{
   if(!mesh.isMesh)return;
   const base=mesh.userData.baseMaterials;
   const current=Array.isArray(mesh.material)?mesh.material:[mesh.material];
   for(const material of current)if(!base.includes(material))material.dispose();
-  const chosen=mode==='pbr'?base:base.map(({side})=>{
+  const chosen=mode==='pbr'?base:base.map(source=>{
+   const {side}=source;
+   if(mode==='hologram')return hologramViewer.material(source);
    if(mode==='clay')return new THREE.MeshStandardMaterial({color:0xa8b4b5,roughness:.7,metalness:0,side});
    return new THREE.MeshNormalMaterial({side});
   });
@@ -226,7 +235,7 @@ function renderRigJobNotice(job) {
   button.onclick = source ? () => selectJob(source.id) : null;
 }
 
-function renderSelected(){const j=jobOf();studioTools?.update(j,records,trashMode);workbench?.update(j);detailControls.update(j);animationStudio?.update();$('animateModel').disabled=!j||(j.state!=='done'&&j.operation!=='animation');downloads(j);fillMetadata(j);renderRigJobNotice(j);settingsDownload.hidden=!j;if(j)settingsDownload.href=`/api/jobs/${j.id}/files/settings.json`;$('favorite').disabled=!j||!features;$('favorite').textContent=j?.metadata?.favorite?'★':'☆';$('favorite').setAttribute('aria-pressed',!!j?.metadata?.favorite);$('saveMetadata').disabled=!j||!features;$('viewTextures').disabled=!j||j.state!=='done'||!features;
+function renderSelected(){const j=jobOf();generationWait.update(j,{hasModel:!!model&&loadedId===j?.id,referenceUrl:j?`/api/jobs/${j.id}/files/prepared.png`:''});studioTools?.update(j,records,trashMode);workbench?.update(j);detailControls.update(j);animationStudio?.update();$('animateModel').disabled=!j||(j.state!=='done'&&j.operation!=='animation');downloads(j);fillMetadata(j);renderRigJobNotice(j);settingsDownload.hidden=!j;if(j)settingsDownload.href=`/api/jobs/${j.id}/files/settings.json`;$('favorite').disabled=!j||!features;$('favorite').textContent=j?.metadata?.favorite?'★':'☆';$('favorite').setAttribute('aria-pressed',!!j?.metadata?.favorite);$('saveMetadata').disabled=!j||!features;$('viewTextures').disabled=!j||j.state!=='done'||!features;
   if(!j){$('modelTitle').textContent='Your next model';$('stats').textContent='';$('sourceThumb').hidden=true;$('assetDetails').replaceChildren(node('dt','','Model'),node('dd','','No model selected'));$('textureSummary').textContent='Select a completed model.';$('textureGallery').replaceChildren();if(model||loadingId){++loadVersion;clearModel();}$('empty').hidden=false;return;}
   $('modelTitle').textContent=nameOf(j);const terrain=j.settings.asset_type==='terrain_unity',external=['imported','rigged','print'].includes(j.settings.asset_type),pixal=j.settings.engine==='pixal3d';$('engineLabel').textContent=external?(j.settings.asset_type==='print'?'3D PRINT COPY':j.settings.asset_type==='rigged'?'RIG & ANIMATION':'IMPORTED MODEL'):terrain?'PROCEDURAL TERRAIN':pixal?`PIXAL3D · ${j.settings.views?.length||0} VIEWS`:`TRELLIS.2 · ${resolutionOf(j)}³`;$('downloadGlb').title=j.settings.asset_type==='print'?'Download print preview GLB in metres':terrain?'Download terrain GLB':'Download PBR GLB with all animations';$('sourceThumb').hidden=terrain||external;if(!terrain&&!external&&$('sourcePreview').dataset.id!==j.id){$('sourcePreview').src=`/api/jobs/${j.id}/files/input.png`;$('sourcePreview').dataset.id=j.id;}
   $('exportHint').textContent=j.settings.asset_type==='print'?'The STL uses millimetres. The Blender package includes the static source and the topology report.':terrain?'The Blender package contains the terrain mesh; the Unity export keeps a native Terrain.':'GLB includes UVs and materials. The Blender package also provides separate textures and UV layouts.';const r=j.result;$('stats').textContent=j.state==='done'||(j.operation==='animation'&&r)?(r?(terrain?`${r.dimensions_m?.[0]||j.settings.size_m} m square · elevation ${r.height_m} m · ${r.resolution}² map`:`${Number(r.triangles||0).toLocaleString('en-US')} triangles${r.bones?' · '+r.bones+' bones':''} · ${Number(r.height_m||0).toLocaleString('en-US',{maximumFractionDigits:2})} m`):'Completed model · ready to inspect'):'';
@@ -315,7 +324,7 @@ $('form').onsubmit=async event=>{
 };
 $('cancel').onclick=async()=>{if(!activeId)return;try{await api(`/api/jobs/${activeId}/cancel`,{method:'POST'});await refresh();}catch(e){errorAt('notice',e);}};
 function revealNewCreation(){trashMode=false;page=0;$('librarySearch').value='';$('libraryFilter').value='all';document.body.classList.remove('collection-collapsed','library-mode');$('toggleCollection').setAttribute('aria-pressed','true');showCollection(false);$('libraryGrid').scrollTop=0;}
-document.querySelectorAll('[data-material]').forEach(b=>b.onclick=()=>{$('materialMode').value=b.dataset.material;document.querySelectorAll('[data-material]').forEach(x=>x.setAttribute('aria-pressed',x===b));materials();});
+document.querySelectorAll('[data-material]').forEach(b=>b.onclick=()=>{generationWait.userModeChanged();$('materialMode').value=b.dataset.material;if(b.dataset.material==='hologram')hologramViewer?.restart();document.querySelectorAll('[data-material]').forEach(x=>x.setAttribute('aria-pressed',x===b));materials();});
 function ranges(){$('roughnessValue').textContent=Math.round(Number($('roughness').value)*100)+' %';$('flatValue').textContent=Math.round(Number($('flatZone').value)*100)+' %';}$('roughness').oninput=ranges;$('flatZone').oninput=ranges;
 $('terrainForm').onsubmit=async e=>{e.preventDefault();if(busy)return;busy=true;updateButtons();$('notice').textContent='Creating terrain and textures…';const data={name:$('terrainName').value,terrain_style:$('terrainStyle').value,size_m:Number($('terrainSize').value),height_m:Number($('terrainHeight').value),seed:Number($('terrainSeed').value),roughness:Number($('roughness').value),flat_zone:Number($('flatZone').value),resolution:Number($('terrainResolution').value),terrain_palette:$('terrainPalette').value,parent_id:$('terrainForm').dataset.parentId||''};try{const v=await api('/api/terrain',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});selectedId=v.id;metadataId=null;$('notice').textContent='Terrain created.';setView(false);await refresh();}catch(e){busy=false;errorAt('notice',e);updateButtons();}};
 async function reuseJob(j){
@@ -550,7 +559,7 @@ refinishForm.onsubmit = async event => {
 
 async function refreshLog(){if(!selectedId)return;try{const d=await api(`/api/jobs/${selectedId}/log`);$('log').textContent=d.text||'No log entries yet.';}catch{}}
 async function refresh(){if(shutDown||refreshing)return;refreshing=true;try{const[status,jobs]=await Promise.all([api('/api/status'),api('/api/jobs')]);features=!!status.studio_version;cardTurntablesAvailable=status.features?.includes('library_turntable')===true;syncCapabilities(status);ready=status.ready;activeId=status.active;busy=!!activeId;records=jobs;if(pendingSelection){const pending=records.find(j=>j.id===pendingSelection);if(pending?.state==='done'){if(pending.operation_error)errorAt('animationNotice',pending.operation_error);selectedId=pendingSelection;pendingSelection=null;metadataId=null;inspectId=null;}else if(pending&&['error','cancelled'].includes(pending.state)){errorAt('animationNotice',isStoppedRig(pending)?rigJobError(pending):pending.error||pending.stage);pendingSelection=null;}}if(selectedId&&!records.some(j=>j.id===selectedId)){selectedId=null;metadataId=null;inspectId=null;++inspectVersion;}syncVersionNotice(status);$('runtime').textContent=ready?`LOCAL · ${status.ram_free_gib} GB RAM available`:'WORKSHOP · generation engine not installed';$('hardware').textContent=status.gpu||'Local compute';updateButtons();renderNavigation();renderSelected();renderLibrary();if(document.querySelector('.journal').open)refreshLog();refreshRigPreview();}catch(error){console.error('Studio refresh failed:',error);$('runtime').textContent='Disconnected · restart TRELLIS';ready=false;multiview.setCapabilities({message:'Studio is disconnected. Restart TRELLIS Studio.'});updateButtons();}finally{refreshing=false;}}
-$('shutdown').onclick=async()=>{try{await api('/api/shutdown',{method:'POST'});shutDown=true;ready=false;busy=false;renderer?.setAnimationLoop(null);clearModel();renderer?.dispose();$('notice').textContent='Run Open TRELLIS.cmd to restart the studio.';$('runtime').textContent='STUDIO STOPPED';$('shutdown').disabled=true;downloads(null);$('downloadHeight').hidden=true;updateButtons();}catch(e){errorAt('notice',e);}};
+$('shutdown').onclick=async()=>{try{await api('/api/shutdown',{method:'POST'});shutDown=true;ready=false;busy=false;renderer?.setAnimationLoop(null);generationWait.dispose();clearModel();hologramViewer?.dispose();renderer?.dispose();$('notice').textContent='Run Open TRELLIS.cmd to restart the studio.';$('runtime').textContent='STUDIO STOPPED';$('shutdown').disabled=true;downloads(null);$('downloadHeight').hidden=true;updateButtons();}catch(e){errorAt('notice',e);}};
 function showCollection(details){$('libraryView').hidden=details;$('inspectorPanel').hidden=!details;$('collectionPanel').classList.toggle('details-open',details);}
 function openDetails(j){if(!j)return;selectJob(j.id);document.body.classList.remove('library-mode','collection-collapsed');$('openLibrary').setAttribute('aria-pressed','false');showCollection(true);}
 $('backToCollection').onclick=()=>showCollection(false);

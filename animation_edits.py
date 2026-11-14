@@ -22,7 +22,7 @@ def recover(folder):
     if not marker.is_file():return
     data=json.loads(marker.read_text(encoding='utf-8'))
     stage=(folder/data['stage']).resolve()
-    if stage.parent!=folder.resolve() or not stage.name.startswith('.animation-'):raise ValueError('Zone de récupération invalide.')
+    if stage.parent!=folder.resolve() or not stage.name.startswith('.animation-'):raise ValueError('Invalid recovery area.')
     names=data.get('files',FILES)
     allowed=(*FILES,'status.json','motion-report.json',*(f'LODs/LOD{i}.glb' for i in range(5)))
     if any(name not in allowed for name in names):raise ValueError('Invalid recovery file.')
@@ -46,7 +46,7 @@ def recover(folder):
     marker.unlink()
 
 
-def publish_operation(folder, operation, state, revision):
+def publish_operation(folder, operation, state, revision, allow_active=False):
     """Publish an already verified server animation update with a reversible commit."""
     if not ID.fullmatch(operation.name) or not folder.is_dir() or folder.resolve() != folder:
         raise ValueError('The source model is no longer available.')
@@ -62,7 +62,9 @@ def publish_operation(folder, operation, state, revision):
     current = read(folder/'status.json', {})
     if current.get('last_animation_operation') == operation.name:
         return
-    if current.get('state') != 'done' or str((folder/'model.glb').stat().st_mtime_ns) != revision:
+    editable = current.get('state') == 'done' or (allow_active and current.get('operation') == 'animation'
+                                                and current.get('state') in ('queued', 'running'))
+    if not editable or str((folder/'model.glb').stat().st_mtime_ns) != revision:
         raise ValueError('The source model changed while the animation update was running.')
     removed = state.get('removed_files', [])
     if not isinstance(removed, list) or any(name != 'motion-report.json' for name in removed):
@@ -71,6 +73,14 @@ def publish_operation(folder, operation, state, revision):
                        if (operation/f'LODs/LOD{i}.glb').is_file())]
     if 'motion-report.json' not in removed and (operation/'motion-report.json').is_file():
         files.append('motion-report.json')
+    if 'updated_files' in state:
+        files = state['updated_files']
+        allowed = {*FILES, 'motion-report.json', *(f'LODs/LOD{i}.glb' for i in range(5))}
+        if (not isinstance(files, list) or len(files) != len(set(files))
+                or not {'model.glb','result.json','settings.json'} <= set(files) or not set(files) <= allowed):
+            raise ValueError('Invalid animation update files.')
+        if (folder/'model.blend').is_file() and 'model.blend' not in files:
+            raise ValueError('The model’s Blender companion was not refreshed.')
     result = state.get('result')
     if not isinstance(result, dict) or any(not (operation/name).is_file() for name in files):
         raise ValueError('The completed animation update is missing output files.')

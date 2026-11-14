@@ -114,6 +114,13 @@ def run():
                      json=dict(status='active', disk_limit_bytes=128 * MIB, credit_delta=1, reason='Fixture'))
             alice, _ = login(base, 'alice')
             bob, _ = login(base, 'bob')
+            # This test simulates workers; its queue checks do not require model downloads.
+            for client, user_id in ((alice, alice_id), (bob, bob_id)):
+                call(base, 'GET', '/api/jobs', client=client)
+                studio = state.runtime.workspaces[user_id].studio
+                original_status = studio.status
+                studio.generation_capabilities = lambda: ([512, 1024], [1024, 2048])
+                studio.status = lambda original=original_status: {**original(), 'ready': True}
             call(base, 'GET', '/server/api/admin/users', 403, alice)
             call(base, 'PATCH', '/server/api/admin/users/' + alice_id, 403, alice, json={'disk_limit_bytes': 2**32})
             call(base, 'PATCH', '/server/api/me', 400, alice, json={'credits': 100})
@@ -123,7 +130,9 @@ def run():
 
             call(base, 'PATCH', '/server/api/admin/queue', client=admin, json={'paused': True})
             stream = io.BytesIO()
-            Image.new('RGB', (32, 32), '#e0bb90').save(stream, format='PNG')
+            fixture = Image.new('RGBA', (32, 32), (0, 0, 0, 0))
+            fixture.paste('#e0bb90', (2, 2, 30, 30))
+            fixture.save(stream, format='PNG')
             png = stream.getvalue()
             call(base, 'POST', '/server/api/profile/avatar', client=alice, files={'file': ('avatar.png', png, 'image/png')})
             call(base, 'GET', '/server/api/avatar/' + alice_id, client=alice)

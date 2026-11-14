@@ -76,6 +76,7 @@ overrides are documented in the `Generation` schema; unknown fields are rejected
 | Queue | `GET/PATCH /queue`, `PATCH /queue/{id}`, `POST /queue/{id}/retry`, `POST /jobs/{id}/cancel` |
 | Preparation | `GET /models/{id}/diagnostics`, `/models/{id}/diagnostics/report`. `POST /models/{id}/lods`, `/game-copy`, `/print-copy`, `/refinish`. `GET/POST/PATCH /models/{id}/finishing-board`. |
 | Animation | `POST /models/{id}/rig`. `GET`, `POST` and `DELETE /models/{id}/animations` list, add or remove clips on the selected model. Desktop provides `/motion-edits`. |
+| My animations | `GET/POST /my-animations`, `GET /my-animations/{id}`, `POST /my-animations/{id}/cancel`, `GET /my-animations/{id}/files/{filename}`. `POST /models/{id}/my-animations` appends a saved motion to the selected rigged model, keeping its ID. |
 | History | `GET /models/{id}/history`, `POST /models/{id}/versions`, `/checkpoints`, `/restore-version` |
 | Collections | `GET /workspace`, `POST /folders`, `/folders/assign`, `/views` |
 | Export | `POST /exports`, `GET /exports/{id}`, `GET /exports/{id}/download`, `POST /exports/{id}/cancel` |
@@ -99,6 +100,9 @@ embedded name to `DELETE /models/{id}/animations` with `{"clip":"TS_walk_2.5s"}`
 For duplicate or unnamed clips, send the returned `index` with the expected `clip`
 name or `null`. Pass the list's `revision` to reject a selection from an earlier
 version of the GLB. Poll `status_url` from either write response until the update finishes.
+On Desktop, a failed or cancelled animation update can return `state: "done"`
+with `operation_error`: the model remains usable, but the requested update did
+not succeed. Check this field as well as `state`.
 
 To edit an embedded motion on Desktop, pass its actual stored clip name from the
 model record. Motion edits create a checkpoint and update the prepared LODs.
@@ -118,12 +122,153 @@ omitting `landmarks` preserves the previous rig workflow. Check the
 `rig_landmarks` feature in `/status` before submitting points to a running server.
 
 Generation, LOD, game preparation, print preparation and rigging create linked
-versions as described in the reference. Metadata and animation updates operate on
-the selected record. Model deletion moves the record to restorable trash.
+versions as described in the reference. Metadata, standard animation updates and
+generated-motion application operate on the selected record. Model deletion moves
+the record to restorable trash. The explicitly named `/animation-copy` endpoint
+remains available for clients that deliberately request a separate version.
 
 `POST /models/{id}/versions` duplicates imported, rigged and printing models.
 For a generated variant, reuse its source image and stored recipe in `/generations`,
 with `overrides.parent_id` set to the original ID. This schedules a new computation.
+
+## Reusable generated animations
+
+**My animations** stores generated humanoid body motions independently of any
+character. It is separate from the standard catalogue returned by `/animations`.
+Saved motions persist across restarts and remain available when another model is
+selected. On Server, the library, its status and downloadable files belong to the
+authenticated account's private workspace; another account cannot access them by
+knowing an animation ID. These files count toward the owner's disk quota.
+
+Read `GET /my-animations` first. Its `GeneratedAnimationLibrary` response contains
+`animations`, `engine` and the duration limits `min_duration`, `max_duration`,
+`step`. The engine fields are `ready`, `label`, `backend`, `experimental` and
+`message`. Generation requires an administrator-configured optional local CPU
+runtime. An unconfigured installation returns HTTP 503 for a generation request;
+listing and applying already completed motions remain available. Readiness reports
+the configuration, not a guarantee that a subsequent calculation will succeed.
+
+Send `POST /my-animations` with a `GeneratedAnimationCreate` object:
+
+| Field | Meaning |
+| --- | --- |
+| `prompt` | Required movement description, 3–1000 characters. Use English for the current engine. Whitespace is normalized. |
+| `name` | Optional display name, 1–80 characters. If omitted, a name is derived from the prompt. |
+| `duration` | Requested seconds, 2–10 in 0.5-second steps; default `5`. |
+| `seed` | Integer from `0` to `2147483647`; default `42`. |
+
+Unknown fields are rejected. HTTP 202 returns `GeneratedAnimationAccepted` with
+`id`, `state` and `status_url`. Poll that URL, or `GET /my-animations/{id}`, until
+`state` is `done`, `error` or `cancelled`; intermediate states are `queued` and
+`running`. Use `stage` for the current operation and `progress` for reported
+progress, without extrapolating an estimated completion percentage. The library
+currently permits up to 500 entries and eight queued/running generations.
+
+A `GeneratedAnimationItem` includes `id`, `name`, `prompt`, `duration`, `seed`,
+`fps`, `frames`, `created`, `clip_name`, `provenance`, `state`, `stage`, `progress`,
+optional `error`, `preview_root`, `preview_url` and `files`. Motions use 30 fps.
+Completed entries expose a real animated `preview.glb`, canonical `motion.npz`
+and `skeleton.json` through the `files` URLs. The preview clip name is
+`clip_name`. Downloads require the same authentication as the library and are
+available only after completion. Filesystem paths and runtime configuration are
+not exposed by these routes.
+
+Cancel only the requested generation with `POST /my-animations/{id}/cancel`.
+The response is `{"ok":true}`; poll the item again to confirm its state. Cancelling
+an already terminal item leaves it unchanged, including completed saved motions.
+To generate a different attempt, submit a new creation request and retain its new
+ID. Do not blindly repeat a timed-out POST: inspect the personal library first.
+
+On **Server**, a new motion generation reserves **one generation credit** for a
+non-administrator account. It is spent once on successful completion; failure or
+cancellation releases the reservation. Applying a saved motion costs **zero
+generation credits** and uses disk quota for the updated model and temporary
+transfer files. Generation and application run through the workspace compute queue. Administrators have the
+same unlimited-credit policy as other generation operations; Desktop has no
+account credit accounting.
+
+To reuse a completed motion, send `POST /models/{model_id}/my-animations` with a
+`GeneratedAnimationApply` object:
+
+```json
+{
+  "animation_id": "0123456789abcdef0123456789abcdef",
+  "in_place": false
+}
+```
+
+`in_place` defaults to `false`. Setting it to `true` suppresses horizontal root
+travel. It is **not a copy-versus-update option**: both values append to the
+selected model and keep its ID and collection card. Geometry, materials, skinning
+and existing clips are retained, and the saved motion is reused without new
+inference. The target must have a compatible humanoid rig. An unfinished motion,
+unrigged target or duplicate clip returns HTTP 409; incompatible rigs can also
+fail during the queued transfer. Failed or cancelled transfers preserve the
+previous model. Temporary transaction backups are removed after a successful
+commit; this does not automatically create a persistent history checkpoint.
+
+Application returns HTTP 202 with an `AnimationAccepted` object. Its `id` is the
+selected model ID. On Server it also includes `operation_id`, and `status_url`
+points to `/api/v1/animation-operations/{operation_id}`. On Desktop, `status_url`
+points to `/api/v1/jobs/{model_id}`. Poll the **returned status URL**, not the
+saved motion or the Server model's existing `done` state. After completion,
+refresh the same model to read its new revision and animation list. The model
+retains the motion ID, readable name and embedded clip name under
+`settings.generated_animation_clips`. Its display name, favourite state and
+folder membership remain unchanged.
+
+Treat `error`, `cancelled`, or a nonempty `operation_error` as an unsuccessful
+update. In particular, Desktop preserves model availability by reporting a failed
+or cancelled animation edit as `state: "done"` plus `operation_error`.
+
+This example reuses the authenticated `session` from above:
+
+```python
+import time
+from urllib.parse import urljoin
+
+origin = base.removesuffix("/api/v1")
+response = session.post(base + "/my-animations", json={
+    "name": "Walk and stop",
+    "prompt": "A person walks forward, slows down and stops.",
+    "duration": 5,
+    "seed": 42
+})
+response.raise_for_status()
+accepted = response.json()
+
+while True:
+    response = session.get(urljoin(origin, accepted["status_url"]))
+    response.raise_for_status()
+    motion = response.json()
+    if motion["state"] in {"done", "error", "cancelled"}:
+        break
+    time.sleep(2)
+if motion["state"] != "done":
+    raise RuntimeError(motion.get("error") or motion["stage"])
+
+# rigged_model_id is an existing compatible model in this same workspace.
+response = session.post(base + f"/models/{rigged_model_id}/my-animations", json={
+    "animation_id": motion["id"], "in_place": False
+})
+response.raise_for_status()
+update = response.json()
+assert update["id"] == rigged_model_id
+while True:
+    response = session.get(urljoin(origin, update["status_url"]))
+    response.raise_for_status()
+    status = response.json()
+    if status["state"] in {"done", "error", "cancelled"}:
+        break
+    time.sleep(2)
+if status["state"] != "done" or status.get("operation_error"):
+    raise RuntimeError(status.get("operation_error") or status.get("error") or status["stage"])
+# Refresh rigged_model_id after success; there is no additional collection card.
+```
+
+Generated body motion does not rig an unrigged mesh or provide character-specific
+foot locking, finger animation or non-humanoid motion. Review contacts, root
+travel and skin deformation on each target character before using the result.
 
 ## Reference preview and corrections
 
@@ -182,7 +327,8 @@ The response uses the usual job ID, state and status URL. Inspect the completed 
 - Collection ZIP import on Desktop uses a verified manifest and checksums, at most 12 GB uncompressed,
   25,000 files and 500 models. Restoration creates new IDs and a new collection.
 - Export: at most 50 models per engine package, 500 in a collection backup.
-- Library motions: 2–5 seconds, in .5-second steps. Motion workshop output is 2–5 s.
+- Standard library motions: 2–5 seconds, in .5-second steps. Motion workshop output
+  is 2–5 s. Personal generated motions: 2–10 seconds in .5-second steps.
 - Statuses: `queued`, `running`, `done`, `error`, `cancelled`. Failures during
   animation edits can preserve the model and report an `operation_error`; check it.
 - HTTP 400 for invalid input, 404 for an unknown item, 409 for a state conflict,

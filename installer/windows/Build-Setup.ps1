@@ -1,6 +1,7 @@
 param(
     [string]$Compiler,
     [string]$OutputDirectory,
+    [string]$Python = 'python',
     [switch]$KeepStage
 )
 $ErrorActionPreference='Stop'
@@ -13,6 +14,8 @@ if (-not $Compiler) {
 }
 if (-not $Compiler -or -not (Test-Path -LiteralPath $Compiler -PathType Leaf)) { throw 'Pass the path to NSIS makensis.exe with -Compiler.' }
 $Compiler=(Resolve-Path -LiteralPath $Compiler).Path
+& $Python -B (Join-Path $taskRoot 'installer\audit_public.py') --root $taskRoot
+if ($LASTEXITCODE -ne 0) { throw 'Public source audit failed. No installer was produced.' }
 $taskPackage=Get-Content -LiteralPath (Join-Path $taskRoot 'package.json') -Raw | ConvertFrom-Json
 if ($taskPackage.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected a numeric major.minor.patch version.' }
 
@@ -24,11 +27,19 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not read the TRELLIS Studio public sourc
 $taskFiles=@($taskFiles | Sort-Object -Unique | Where-Object {
     $parts=$_ -split '/'
     ($parts.Count -eq 1 -and ($_ -match '\.(py|cmd|ps1)$' -or $taskRootFiles -contains $_ -or $_ -match '^requirements-(windows|mcp-lock|mcp)\.txt$')) -or
-    ($parts.Count -gt 1 -and ($taskRoots -ccontains $parts[0] -or $_ -in @('docs/API.md','docs/MCP.md','docs/DEPENDENCIES.json','docs/WINDOWS_SETUP.md','docs/SERVER.md')))
+    ($parts.Count -gt 1 -and ($taskRoots -ccontains $parts[0] -or $_ -in @('docs/API.md','docs/MCP.md','docs/DEPENDENCIES.json','docs/WINDOWS_SETUP.md','docs/SERVER.md','docs/MOTION_GENERATION.md')))
 })
 $taskRequired=@('app.py','package.json','installer/setup.py','installer/windows/check-idle.ps1','installer/windows/Launch.cmd','installer/windows/Launch-Installed.ps1','installer/windows/Manage-Shortcuts.ps1','installer/windows/trellis-studio.ico','Start-Studio.ps1','web/studio.html','animations/library.json','unity/TrellisPackageImporter.cs')
 $taskRequired+=@('server_app.py','server_runtime.py','server_store.py','server_setup.py','Start-Server.ps1','Stop-Server.ps1','Open TRELLIS Server.cmd',
     'installer/windows/Configure-Server.ps1','web/server.html','web/server.css','web/server.js','web/server-shell.js','docs/SERVER.md')
+$taskRequired+=@('installer/windows/StudioTray.cs','installer/windows/Build-Tray.ps1','installer/windows/Server-Control.ps1',
+    'installer/windows/Tray-Control.ps1','installer/windows/Configure-Firewall.ps1','installer/install_caddy.py','installer/caddy-manifest.json','installer/audit_public.py')
+$taskRequired+=@('generated_animations.py','generated_animation_api.py','generated_animation_runtime.py',
+    'generated_animation_runner.py','generated_animation_worker.py','generated_motion.py',
+    'web/personal-animation-library.js','web/personal-animation-previews.js','web/personal-animation.css',
+    'web/generation-wait.js','web/generation-wait.css','docs/MOTION_GENERATION.md')
+$taskRequired+=@('Install Kimodo.cmd','installer/install_kimodo.py','installer/kimodo-manifest.json',
+    'installer/kimodo_install_common.py','installer/kimodo_install_linux.py','installer/windows/Install-Kimodo.ps1')
 foreach($taskItem in $taskRequired) {
     if ($taskItem -cnotin $taskFiles) { throw "Required public payload is missing: $taskItem" }
 }
@@ -44,6 +55,11 @@ try {
         New-Item -ItemType Directory -Path (Split-Path -Parent $taskDestination) -Force | Out-Null
         Copy-Item -LiteralPath $taskSource.FullName -Destination $taskDestination
     }
+    # Compile generic tray sources and bundle only the verified upstream proxy files.
+    & (Join-Path $taskRoot 'installer\windows\Build-Tray.ps1') -OutputPath (Join-Path $taskPayload 'TRELLIS Studio Tray.exe')
+    & $Python -B (Join-Path $taskRoot 'installer\install_caddy.py') --ensure --destination (Join-Path $taskPayload 'bin\caddy')
+    if ($LASTEXITCODE -ne 0) { throw 'The pinned HTTPS proxy could not be verified.' }
+    $taskFiles+=@('TRELLIS Studio Tray.exe','bin/caddy/caddy.exe','bin/caddy/LICENSE','bin/caddy/README.md')
     # Node is a build requirement. The installer ships only the web assets used at runtime.
     Push-Location -LiteralPath $taskPayload
     try {
@@ -57,6 +73,10 @@ try {
         @('package.json','LICENSE','NOTICE','swagger-ui.css','swagger-ui-bundle.js','swagger-ui-bundle.js.LICENSE.txt' |
         ForEach-Object { 'node_modules/swagger-ui-dist/'+$_ })
     $taskFiles=@($taskFiles | Sort-Object -Unique)
+    $taskAuditPaths=Join-Path $taskStage 'public-paths.txt'
+    [IO.File]::WriteAllLines($taskAuditPaths,$taskFiles,[Text.UTF8Encoding]::new($false))
+    & $Python -B (Join-Path $taskRoot 'installer\audit_public.py') --root $taskPayload --paths-file $taskAuditPaths
+    if ($LASTEXITCODE -ne 0) { throw 'Public payload audit failed. No installer was produced.' }
     $taskChecks=[Collections.Generic.List[string]]::new()
     foreach($taskFile in $taskFiles) {
         $taskDigest=(Get-FileHash -LiteralPath (Join-Path $taskPayload $taskFile) -Algorithm SHA256).Hash.ToLowerInvariant()

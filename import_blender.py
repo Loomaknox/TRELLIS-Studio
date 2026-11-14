@@ -14,7 +14,7 @@ elif suffix == '.fbx': bpy.ops.import_scene.fbx(filepath=str(source), use_anim=T
 elif suffix == '.obj': bpy.ops.wm.obj_import(filepath=str(source))
 elif suffix == '.stl': bpy.ops.wm.stl_import(filepath=str(source))
 elif suffix == '.ply': bpy.ops.wm.ply_import(filepath=str(source))
-else: raise ValueError('Format non pris en charge.')
+else: raise ValueError('Unsupported file format.')
 scene = bpy.context.scene
 armatures=[o for o in scene.objects if o.type=='ARMATURE']
 display_shapes={p.custom_shape for armature in armatures for p in armature.pose.bones if p.custom_shape}
@@ -22,21 +22,21 @@ for helper in display_shapes:bpy.data.objects.remove(helper,do_unlink=True)
 for armature in armatures:armature.data.pose_position='REST'
 bpy.context.view_layer.update()
 meshes = [o for o in scene.objects if o.type == 'MESH' and len(o.data.vertices)]
-if not meshes: raise ValueError('Aucun maillage dans ce fichier.')
+if not meshes: raise ValueError('This file contains no mesh.')
 vertices = sum(len(o.data.vertices) for o in meshes)
 triangles = sum(len(p.vertices)-2 for o in meshes for p in o.data.polygons)
-if not triangles: raise ValueError('Le fichier ne contient aucune face de maillage.')
-if triangles > 5_000_000: raise ValueError('Le modèle dépasse cinq millions de triangles.')
+if not triangles: raise ValueError('This file contains no mesh faces.')
+if triangles > 5_000_000: raise ValueError('The model exceeds five million triangles.')
 points = [o.matrix_world @ Vector(corner) for o in meshes for corner in o.bound_box]
 low = Vector(tuple(min(p[i] for p in points) for i in range(3)))
 high = Vector(tuple(max(p[i] for p in points) for i in range(3)))
 size = high-low
-if not all(math.isfinite(c) for c in (*low, *high)) or max(size) <= 0: raise ValueError('Dimensions invalides.')
+if not all(math.isfinite(c) for c in (*low, *high)) or max(size) <= 0: raise ValueError('Invalid model dimensions.')
 images = [i for i in bpy.data.images if i.type == 'IMAGE' and i.size[0]]
 result = dict(imported=True, vertices=vertices, triangles=triangles, height_m=round(size.z,5), dimensions_m=list(size),
               texture_size=max((max(i.size) for i in images),default=0), materials=len(bpy.data.materials),
               bones=sum(len(o.data.bones) for o in scene.objects if o.type=='ARMATURE'), animations=len(bpy.data.actions),
-              source_format=suffix[1:].upper(), units='Dimensions du fichier ; aucune remise à l’échelle automatique')
+              source_format=suffix[1:].upper(), units='Source file dimensions; no automatic rescaling')
 for armature in armatures:armature.data.pose_position='POSE'
 bpy.context.view_layer.update()
 if suffix == '.glb':

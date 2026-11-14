@@ -1,6 +1,6 @@
 # TRELLIS Server for Windows
 
-TRELLIS Server lets people on your network use the Studio in a browser. Each
+TRELLIS Server lets people on your network or, optionally, the Internet use Studio in a browser. Each
 account has its own library. With Full Studio installed, generation jobs enter
 a shared queue and run on the server's GPU.
 
@@ -13,7 +13,8 @@ a shared queue and run on the server's GPU.
 2. Choose a data folder on a local drive. The default for the Windows installer
    is `%LOCALAPPDATA%\TRELLIS Studio Server\data`. Restrict access to the Windows
    account running TRELLIS and to the machine's administrators.
-3. Set the listen address, port, and browser URL. To test on the server itself,
+3. Choose **This PC only**, **Local network / own certificate**, or **Internet / automatic HTTPS**.
+   For Internet access, follow the section below. To test on the server itself,
    use `127.0.0.1`, port `7862`, and `http://127.0.0.1:7862`. For access from a
    private network, enter the server's IPv4 address and an HTTPS URL on the same
    port. Provide the certificate and private key as PEM files. Client computers
@@ -30,6 +31,11 @@ a shared queue and run on the server's GPU.
    inbound TCP rule limited to the selected port, the **Private** profile, and
    the local subnet. Share the browser URL with users.
 
+Start menu shortcuts launch a notification-area controller. Its menu starts or
+stops the selected edition and opens its browser address. **Quit tray** closes
+only the icon; **Stop** shuts down the owned services, refusing while a job is active.
+The Internet stop action shuts down both TRELLIS Server and Caddy.
+
 Optional autostart runs when the Windows account that installed TRELLIS signs
 in. This gives the server access to the GPU and installed components. Manage the
 TRELLIS administrator account within the Studio.
@@ -39,7 +45,59 @@ From a source checkout with the dependencies already installed, run
 change the address, port, or certificate, stop the server and open **Configure
 TRELLIS Server**. Server settings are saved in `config/server.json`.
 
+## Internet access with automatic HTTPS
+
+Choose **Internet / automatic HTTPS** in Server setup, then enter your own domain,
+for example `studio.example.com`. Setup supplies Caddy, configures its local proxy,
+and guides you through the first administrator account. It never bundles another
+installation's domain, accounts, certificates or library.
+
+Before starting, arrange these network prerequisites:
+
+1. Set the domain's DNS A record to your public IPv4 address. Dynamic DNS is
+   suitable when the address changes. Remove an unrelated AAAA record if this
+   deployment is IPv4-only; it can prevent certificate validation or client access.
+2. Reserve the PC's LAN address in your router. Forward **external TCP 443** to
+   the chosen **HTTPS listen port** on that PC. The default is `443 → 443`;
+   `443 → 7862` is also supported by entering `7862` in the wizard. Forward
+   neither the backend port nor the proxy administration port.
+3. Allow inbound TCP on that HTTPS listen port in Windows Firewall. Setup offers
+   an optional rule scoped to the supplied Caddy executable and this port. Windows
+   asks for administrator approval for that step. If it is declined, the server
+   configuration is retained and the rule can be configured later.
+4. Start Server from the tray. Certificate issuance can take a few minutes.
+   Use **Check HTTPS certificate** in the tray menu to check certificate trust
+   and the local proxy without relying on router NAT loopback. Open the configured HTTPS URL and then test it on a phone using mobile data
+   to confirm access from outside your network.
+
+Defaults are a private backend on `127.0.0.1:7863` and a proxy control endpoint on
+`127.0.0.1:2019`. All three ports must differ. Their settings can be changed if
+another program already uses them. Automatic HTTPS uses the TLS-ALPN challenge,
+so public TCP 443 must reach Caddy for initial issuance **and renewals**. Port 80
+is not needed. If a nonstandard public browser port is selected, forward that
+port to the HTTPS listener as well, while retaining the external 443 route.
+
+This mode requires a publicly reachable connection. Carrier-grade NAT, a blocked
+ISP port, another reverse proxy on the route, or a DNS proxy that terminates TLS
+can require a different network arrangement. The wizard does not alter your
+router, register a domain, or create a tunnel. A running local service alone does
+not establish that HTTPS is issued or that remote users can connect.
+
+Caddy stores certificate and account data under `config/caddy/data` and its logs
+under `config/caddy/logs`. Server logs stay in the server data directory. Keep
+these folders private and retain them across upgrades so renewals continue.
+Use one canonical browser address, including on the host PC. If the router lacks
+NAT loopback, local DNS can resolve that domain to the PC's LAN address; the
+hostname and certificate remain the same. Restart after changing settings.
+
 ## Manage access and quotas
+
+**Two-factor authentication is required for every administrator and optional for
+other users.** A regular user can enable or disable it in **My account → Security**.
+Existing enabled factors are retained. A user promoted to administrator must
+complete enrollment before accessing Studio or Administration, including with an
+existing session or API key. Administrators cannot disable their own factor;
+recovery and administrator resets require enrollment again.
 
 Users can select **Request an account** on the sign-in page. Open
 **Administration → Users**, select **Review**, set

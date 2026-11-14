@@ -121,12 +121,12 @@ def generate_terrain(folder, settings):
     editor = bundle/'Editor'
     editor.mkdir(exist_ok=True)
     shutil.copy2(ROOT/'unity/TrellisTerrainImporter.cs',editor/'TrellisTerrainImporter.cs')
-    (bundle/'LIRE-TERRAIN.txt').write_text('Copier TRELLIS dans Assets, attendre la compilation, puis Outils > TRELLIS > Importer les terrains Unity.\n'
-        'TerrainData, trois TerrainLayers, materiau Terrain Lit et prefab avec TerrainCollider sont crees.\n'
-        'RAW : 16 bits non signes little-endian, ordre des lignes z puis x.\n'
-        'Le GLB est un apercu de 32 768 triangles, pas le TerrainData natif.\n'
-        'Le relief est procedural, sans reconstruction depuis une photo, route, erosion hydraulique ou grotte.\n'
-        'Les textures procedurales servent de base et peuvent etre remplacees dans les TerrainLayers.\n',encoding='utf-8')
+    (bundle/'LIRE-TERRAIN.txt').write_text('Copy TRELLIS into Assets, wait for compilation, then select Tools > TRELLIS > Import Unity terrains.\n'
+        'Creates TerrainData, three TerrainLayers, a Terrain Lit material and a prefab with a TerrainCollider.\n'
+        'RAW: unsigned 16-bit little-endian; rows are ordered by z, then x.\n'
+        'The GLB is a 32,768-triangle preview, rather than native TerrainData.\n'
+        'The terrain is procedural. It does not reconstruct photos or generate roads, hydraulic erosion or caves.\n'
+        'The procedural textures provide a starting point and can be replaced in the TerrainLayers.\n',encoding='utf-8')
     with zipfile.ZipFile(folder/'Unity.zip','w',compression=zipfile.ZIP_DEFLATED) as archive:
         for path in bundle.rglob('*'):
             if path.is_file(): archive.write(path,path.relative_to(bundle.parent))

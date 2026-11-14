@@ -1,4 +1,4 @@
-import {button, dialog, el, field, input, select, action} from './workbench-ui.js?v=3.3.6';
+import {button, dialog, el, field, input, select, action} from './workbench-ui.js?v=3.4.0';
 
 const PRIORITIES = [['2', 'Highest'], ['1', 'High'], ['0', 'Normal'], ['-1', 'Low'], ['-2', 'Lowest']];
 const STATE_ORDER = {running: 0, queued: 1, error: 2, cancelled: 2, done: 3};
@@ -22,7 +22,7 @@ const checkbox = checked => {
 
 export function createQueueStudio({api, refresh}) {
   const ui = dialog('queueDialog', 'Generation queue', 'LOCAL COMPUTE',
-    'Prepare a batch, then let the studio process one model at a time.', 'queue-dialog');
+    'Prepare a batch, then let the studio process one calculation at a time.', 'queue-dialog');
   const tabs = el('div', 'wb-tabs');
   const listTab = button('Queue', 'list', 'active');
   const composeTab = button('Prepare batch', 'plus');
@@ -291,7 +291,9 @@ export function createQueueStudio({api, refresh}) {
   }
 
   function jobRow(item) {
-    const animation = item.settings.source_kind === 'animation_update';
+    const generatedMotion = item.settings.source_kind === 'generated_animation';
+    const motionTransfer = item.settings.generated_animation_action === 'apply';
+    const animation = generatedMotion || motionTransfer || item.settings.source_kind === 'animation_update';
     const row = el('article', 'queue-job');
     const img = el('img');
     img.src = animation ? '/web/asset-placeholder.svg' : '/api/jobs/' + item.id + '/files/input.png';
@@ -299,14 +301,21 @@ export function createQueueStudio({api, refresh}) {
     const copy = el('div', 'queue-job-copy');
     const progress = item.progress || 0;
     const recipeSummary = [
-      animation ? 'Animation update' : null,
-      item.settings.resolution ? item.settings.resolution + '³' : null,
-      item.settings.triangles ? Number(item.settings.triangles).toLocaleString('en-US') + ' triangles' : null,
-      item.settings.texture_size ? item.settings.texture_size / 1024 + 'K' : null,
+      generatedMotion ? 'Motion generation' : motionTransfer ? 'Saved motion transfer' : animation ? 'Animation update' : null,
+      generatedMotion && Number.isFinite(item.duration) ? item.duration + ' s' : null,
+      generatedMotion && Number.isFinite(item.fps) ? item.fps + ' fps' : null,
+      !animation && item.settings.resolution ? item.settings.resolution + '³' : null,
+      !animation && item.settings.triangles ? Number(item.settings.triangles).toLocaleString('en-US') + ' triangles' : null,
+      !animation && item.settings.texture_size ? item.settings.texture_size / 1024 + 'K' : null,
       progress + '%',
     ].filter(Boolean).join(' · ');
     copy.append(el('strong', '', item.name), el('small', '', item.stage), el('span', '', recipeSummary));
     if (item.error) copy.append(el('p', 'queue-failure', item.error));
+    if ((generatedMotion || motionTransfer) && ['error', 'cancelled'].includes(item.state)) {
+      copy.append(el('small', '', generatedMotion
+        ? 'Use prompt in My animations to create another attempt.'
+        : 'Return to My animations and add the saved motion to your original model again.'));
+    }
     if (item.settings.retry_of) copy.append(el('small', '', 'Retry of ' + item.settings.retry_of.slice(0, 8)));
     const bar = el('progress');
     bar.max = 100;

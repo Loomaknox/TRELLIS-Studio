@@ -1,4 +1,5 @@
 """Isolated queue, provenance and choice checks. No inference or user data."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,8 @@ import time
 from unittest.mock import patch
 
 import requests
+import numpy as np
+import trimesh
 import uvicorn
 
 
@@ -144,6 +147,15 @@ def run():
                 assert calls == response['ids']
                 send('PATCH', '/api/queue', json={'paused': True})
                 refinish_route = f'/api/jobs/{SOURCE}/refinish'
+                info = send('GET', route)
+                assert info['remesh_resolutions'] == [512, 768, 1024]
+                assert info['texture_sampling_modes'] == ['trilinear', 'nearest']
+                assert info['normal_sources'] == ['decoded']
+                assert not info['parent_normal_source']['available']
+                assert 'normalization' in info['parent_normal_source']['unavailable_reason']
+                for invalid in ({'remesh_resolution': 640}, {'remesh_resolution': '768'},
+                                {'remesh_resolution': True}, {'texture_sampling': 'bicubic'}):
+                    send('POST', refinish_route, 400, json=invalid)
                 send('POST', refinish_route, 400, json={'triangles': 8000001, 'adaptive_finishing': True})
                 adaptive = send('POST', refinish_route, 202, json={'triangles': 8000000, 'adaptive_finishing': True})
                 state = wait_for(adaptive['id'], 'queued')
@@ -156,7 +168,8 @@ def run():
                 send('POST', refinish_route, 400, json={'repair_surface': 'true'})
                 fixed_repair = send('POST', refinish_route, 202, json={'triangles': 75000, 'repair_surface': True})
                 adaptive_repair = send('POST', refinish_route, 202, json={
-                    'triangles': 250000, 'adaptive_finishing': True, 'repair_surface': True})
+                    'triangles': 250000, 'adaptive_finishing': True, 'repair_surface': True,
+                    'remesh_resolution': 768, 'texture_sampling': 'nearest'})
                 for repair, target, use_adaptive in ((fixed_repair, 75000, False), (adaptive_repair, 250000, True)):
                     repair_id = repair['id']
                     settings = wait_for(repair_id, 'queued')['settings']
@@ -168,6 +181,42 @@ def run():
                     effective = options_for_job(settings)
                     assert effective['mesh_mode'] == 'remesh' and effective['remesh_project'] == .45
                     assert effective['repair_holes'] is True and effective['pre_simplify'] is False
+                    assert effective['remesh_resolution'] == (768 if use_adaptive else 512)
+                    assert effective['texture_sampling'] == ('nearest' if use_adaptive else 'trilinear')
+                # Donors are explicit, immutable completed parents with exact export provenance.
+                send('POST', refinish_route, 400, json={'normal_source': 'parent', 'bake_normals': False})
+                send('POST', refinish_route, 400, json={'normal_source': 'parent', 'bake_normals': True})
+                donor_id = 'c' * 32
+                donor_folder = app.OUTPUT / donor_id
+                donor_folder.mkdir()
+                donor_mesh = trimesh.creation.icosphere(subdivisions=1)
+                donor_mesh.visual = trimesh.visual.TextureVisuals(uv=np.zeros((len(donor_mesh.vertices), 2)))
+                donor_bytes = donor_mesh.export(file_type='glb', include_normals=True)
+                fingerprint = hashlib.sha256(donor_bytes).hexdigest()
+                transform = dict(scale=2., translation=[1., 2., 3.], coordinate_system='y_up')
+                donor_result = dict(finish_source_id=SOURCE, finishing=dict(normalization=transform, model_sha256=fingerprint))
+                (donor_folder / 'model.glb').write_bytes(donor_bytes)
+                app.write_json(donor_folder / 'settings.json', dict(read(source_folder / 'settings.json'),
+                               source_kind='refinish', finish_source_id=SOURCE, parent_id=SOURCE))
+                app.write_json(donor_folder / 'result.json', donor_result)
+                app.write_json(donor_folder / 'status.json', dict(state='done', result=donor_result))
+                donor_route = f'/api/jobs/{donor_id}/refinish'
+                donor_info = send('GET', f'/api/jobs/{donor_id}/finishing-board')
+                assert donor_info['normal_sources'] == ['decoded', 'parent']
+                assert donor_info['parent_normal_source'] == dict(available=True, unavailable_reason=None)
+                parent_bake = send('POST', donor_route, 202, json={'bake_normals': True, 'normal_source': 'parent'})
+                saved = wait_for(parent_bake['id'], 'queued')['settings']
+                assert saved['normal_source'] == 'parent' and saved['normal_source_id'] == donor_id
+                assert saved['normal_source_model_sha256'] == fingerprint
+                assert saved['normal_source_normalization'] == transform
+                assert saved['finish_source_id'] == SOURCE and saved['parent_id'] == donor_id
+                decoded_bake = send('POST', donor_route, 202, json={'bake_normals': True})
+                saved_decoded = wait_for(decoded_bake['id'], 'queued')['settings']
+                assert saved_decoded['normal_source'] == 'decoded' and 'normal_source_id' not in saved_decoded
+                (donor_folder / 'model.glb').write_bytes(donor_bytes + b'changed')
+                changed = send('POST', donor_route, 400, json={'bake_normals': True, 'normal_source': 'parent'})
+                assert 'changed after' in changed['detail']
+                (donor_folder / 'model.glb').write_bytes(donor_bytes)
                 send('PATCH', '/api/queue', json={'paused': False})
                 assert wait_for(adaptive['id'], 'done')['result']['neural_inferences'] == 0
                 for repair in (fixed_repair, adaptive_repair):
@@ -179,7 +228,7 @@ def run():
                 assert read(source_folder / 'finishing-choice.json')['id'] == chosen
                 assert {name: (source_folder / name).read_bytes() for name in baseline} == baseline
                 assert send('PATCH', route, json={'selected_id': None})['selected_id'] is None
-                print('PASS: atomic batch, cached repair dispatch, cache loss/retry, persisted choice and original preservation')
+                print('PASS: atomic batch, cached repair dispatch, cache loss/retry, persisted choice, explicit verified HD donor and original preservation')
             finally:
                 server.should_exit = True
                 thread.join(timeout=8)

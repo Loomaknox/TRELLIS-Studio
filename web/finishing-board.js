@@ -1,13 +1,13 @@
-import {button, dialog, el, field, input, select} from './workbench-ui.js?v=3.3.6';
+import {button, dialog, el, field, input, select} from './workbench-ui.js?v=3.4.0';
 
 const number = value => Number.isFinite(value) ? value.toLocaleString('en-US') : '—';
 const nameOf = job => job?.metadata?.display_name || job?.settings?.name || 'Source model';
 const canCompare = job => job?.state === 'done' && job.media?.available !== false;
 const labels = {queued: 'Queued', running: 'Finishing', done: 'Completed', error: 'Failed', cancelled: 'Cancelled'};
 const defaults = [
-    {label: 'Fine detail', triangles: 60000, mesh_mode: 'direct', repair_holes: false},
-    {label: 'Game target', triangles: 28000, mesh_mode: 'remesh', repair_holes: true},
-    {label: 'Lightweight', triangles: 12000, mesh_mode: 'remesh', repair_holes: true},
+    {label: 'High-detail copy', triangles: 1200000, bake_normals: false},
+    {label: 'Game · 14K triangles', triangles: 14000, bake_normals: true},
+    {label: 'Lightweight · 10K triangles', triangles: 10000, bake_normals: true},
 ];
 
 export function createFinishingBoard({api, getRecords, refresh, compare}) {
@@ -62,27 +62,50 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
             const draft = el('fieldset', 'finishing-recipe');
             draft.append(el('legend', '', recipe.label));
             const enabled = input('checkbox', '');
-            enabled.checked = !(base.settings.triangles === recipe.triangles
-                && base.settings.texture_size === textureDefault
-                && base.generation_options?.mesh_mode === recipe.mesh_mode
-                && base.generation_options?.repair_holes === recipe.repair_holes);
+            enabled.checked = true;
             const triangles = input('number', recipe.triangles, {min: 1000, max: 8000000, step: 1, required: ''});
             const texture = select(textureChoices, textureDefault);
-            const mode = select([['remesh', 'Remesh and simplify'], ['direct', 'Direct simplification']], recipe.mesh_mode);
+            const modes = [['remesh', 'Remesh and simplify'], ['direct', 'Direct simplification']];
+            if (board.repair_surface) modes.unshift(['repair', 'Surface reconstruction']);
+            const mode = select(modes, board.repair_surface ? 'repair' : 'remesh');
             const repair = input('checkbox', '');
-            repair.checked = recipe.repair_holes;
+            repair.checked = false;
+            const normals = input('checkbox', '');
+            normals.checked = Boolean(recipe.bake_normals && board.normal_bake);
+            const donorChoices = [['decoded', 'Original decoded surface']];
+            if (board.normal_sources?.includes('parent')) donorChoices.push(['parent', 'Selected model · finished HD']);
+            const donor = select(donorChoices, 'decoded');
+            const donorField = field('Normal map detail source', donor);
+            const resolutions = board.remesh_resolutions || [512];
+            const grid = select(resolutions.map(size => [size, String(size)]), resolutions.includes(1024) ? 1024 : 512);
+            const sampling = select((board.texture_sampling_modes || ['trilinear']).map(value =>
+                [value, value === 'nearest' ? 'Nearest voxel · experimental' : 'Interpolated voxels']), 'trilinear');
+            const gridField = field('Reconstruction resolution', grid);
             const toggle = () => {
-                for (const control of [triangles, texture, mode, repair]) control.disabled = !enabled.checked;
+                for (const control of [triangles, texture, mode, repair, sampling]) control.disabled = !enabled.checked;
+                normals.disabled = !enabled.checked || !board.normal_bake;
+                donor.disabled = !enabled.checked || !normals.checked || !board.normal_bake;
+                donorField.hidden = !normals.checked;
+                repair.disabled = !enabled.checked || mode.value === 'repair';
+                grid.disabled = !enabled.checked || mode.value === 'direct';
+                gridField.hidden = mode.value === 'direct';
                 updateQueueButton();
             };
             enabled.addEventListener('change', toggle);
+            mode.addEventListener('change', toggle);
+            normals.addEventListener('change', toggle);
             draft.append(field('Include recipe', enabled), field('Target triangles', triangles),
-                field('Texture size', texture), field('Finishing method', mode), field('Fill small holes', repair));
+                field('Texture size', texture), field('Finishing method', mode), gridField,
+                field('Fill small holes', repair), field('Transfer surface detail to a normal map', normals), donorField,
+                field('Texture voxel sampling', sampling));
             form.append(draft);
-            for (const control of [triangles, texture, mode, repair]) control.disabled = !enabled.checked;
-            return {enabled, triangles, texture, mode, repair};
+            toggle();
+            return {enabled, triangles, texture, mode, repair, normals, donor, grid, sampling};
         });
-        form.append(el('p', 'hint', 'Recipes share the reference, decoded geometry, materials and seeds. Finishing runs without another neural inference.'));
+        form.append(el('p', 'hint', 'The saved master stays intact. Each recipe creates a separate copy using the original geometry and materials. A normal map carries surface relief, but cannot restore a lost silhouette or finger spacing.'));
+        form.append(el('p', 'hint', 'These are comparison recipes, not validated game assets. Surface reconstruction includes hole repair and may close intended openings or soften detail. Higher reconstruction resolution uses more GPU memory. Nearest-voxel sampling can reveal blocks; it does not generate new texture detail.'));
+        if (!board.normal_sources?.includes('parent')) form.append(el('p', 'hint', 'To bake from a finished HD model, first create and open a new high-detail copy. Older exports lack the alignment information required for this transfer.'));
+        if (!board.normal_bake) form.append(el('p', 'hint', 'Install Blender to enable normal-map baking.'));
     }
 
     function rowFor(id) {
@@ -191,8 +214,14 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         const variants = drafts.filter(draft => draft.enabled.checked).map(draft => ({
             triangles: draft.triangles.valueAsNumber,
             texture_size: Number(draft.texture.value),
-            mesh_mode: draft.mode.value,
+            mesh_mode: draft.mode.value === 'repair' ? 'remesh' : draft.mode.value,
+            repair_surface: draft.mode.value === 'repair',
             repair_holes: draft.repair.checked,
+            pre_simplify: false,
+            bake_normals: draft.normals.checked,
+            normal_source: draft.normals.checked ? draft.donor.value : 'decoded',
+            remesh_resolution: Number(draft.grid.value),
+            texture_sampling: draft.sampling.value,
         }));
         if (!variants.length) return;
         const token = opening;

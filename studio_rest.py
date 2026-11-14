@@ -83,6 +83,42 @@ def install(app,g):
     @router.get('/animations',tags=['Animation'],summary='Available authored humanoid motions')
     def animations():return g['animation_library']()
 
+    def generated_record(value):
+        result=dict(value)
+        if result.get('preview_url'):result['preview_url']=result['preview_url'].replace('/api/','/api/v1/',1)
+        result['files']={name:url.replace('/api/','/api/v1/',1) for name,url in result.get('files',{}).items()}
+        return result
+
+    @router.get('/my-animations',tags=['Animation'],response_model=GeneratedAnimationLibrary,
+                summary='List reusable generated motions in this private workspace')
+    def generated_animations():
+        result=g['generated_animation_library']()
+        return dict(result,animations=[generated_record(item) for item in result['animations']])
+
+    @router.get('/my-animations/{identifier}',tags=['Animation'],response_model=GeneratedAnimationItem,
+                summary='Read a saved generated motion or generation progress')
+    def generated_animation(identifier:Identifier):return generated_record(g['generated_animation'](identifier))
+
+    @router.post('/my-animations',tags=['Animation'],status_code=202,response_model=GeneratedAnimationAccepted,
+                 summary='Generate one reusable motion from text',
+                 description='Requires an administrator-configured local runtime. Saves a canonical motion independent of any character. Applying it later does not regenerate it.')
+    async def generate_animation(data:GeneratedAnimationCreate):
+        result=await g['generate_animation'](data)
+        return dict(result,status_url='/api/v1/my-animations/'+result['id'])
+
+    @router.post('/my-animations/{identifier}/cancel',tags=['Animation'],summary='Cancel one generated motion calculation')
+    async def cancel_generated_animation(identifier:Identifier):return await g['cancel_generated_animation'](identifier)
+
+    @router.get('/my-animations/{identifier}/files/{filename}',tags=['Animation'],
+                summary='Download the motion preview, canonical NPZ or skeleton JSON')
+    def generated_animation_file(identifier:Identifier,filename:str):return g['generated_animation_file'](identifier,filename)
+
+    @router.post('/models/{identifier}/my-animations',tags=['Animation'],status_code=202,response_model=AnimationAccepted,
+                 summary='Add a saved generated motion to the selected rigged model',
+                 description='Retargets without new inference or a new model card. Retains the model ID, geometry, materials, skinning and existing clips. Poll status_url until completion; in_place only controls root travel.')
+    async def apply_generated_animation(identifier:Identifier,data:GeneratedAnimationApply):
+        return animation_accepted(await g['apply_generated_animation'](identifier,data))
+
     @router.get('/client-config',tags=['Studio'],summary='STDIO configuration for this installation',include_in_schema=not server_mode)
     def client_config():
         python=root/'.mcp-venv'/('Scripts/python.exe' if os.name=='nt' else 'bin/python')

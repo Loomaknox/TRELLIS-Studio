@@ -15,13 +15,13 @@ namespace TrellisLocal.Editor
             public float size_m, height_m;
         }
 
-        [MenuItem("Outils/TRELLIS/Importer les terrains Unity")]
+        [MenuItem("Tools/TRELLIS/Import Unity terrains")]
         public static void ImportAll()
         {
             int count=0;
             foreach(string file in Directory.GetFiles("Assets","terrain-manifest.json",SearchOption.AllDirectories))
             { CreateTerrain(file.Replace('\\','/')); count++; }
-            Debug.Log("TRELLIS : "+count+" terrain(s) importes.");
+            Debug.Log("TRELLIS: "+count+" terrain(s) imported.");
         }
 
         public static string CreateTerrain(string manifestPath)
@@ -29,7 +29,7 @@ namespace TrellisLocal.Editor
             var info=JsonUtility.FromJson<Manifest>(File.ReadAllText(manifestPath));
             string folder=Path.GetDirectoryName(manifestPath).Replace('\\','/');
             var bytes=File.ReadAllBytes(folder+"/"+info.raw);
-            if(bytes.Length != info.resolution*info.resolution*2) throw new InvalidDataException("RAW incomplet.");
+            if(bytes.Length != info.resolution*info.resolution*2) throw new InvalidDataException("Incomplete RAW heightmap.");
             var heights=new float[info.resolution,info.resolution];
             for(int z=0;z<info.resolution;z++) for(int x=0;x<info.resolution;x++)
             { int i=2*(z*info.resolution+x); heights[z,x]=(bytes[i]|bytes[i+1]<<8)/65535f; }

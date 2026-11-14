@@ -1,6 +1,6 @@
 """One generation per process: release CUDA and RAM fully after each object."""
 from pathlib import Path
-import gc, json, os, sys, time, traceback
+import gc, hashlib, json, os, sys, time, traceback
 
 ROOT = Path(__file__).resolve().parent
 JOB = Path(sys.argv[1]).resolve()
@@ -127,19 +127,18 @@ def finish_mesh(torch, source):
     import cumesh
     import o_voxel
     configure_simplifier(cumesh, options)
-    export = o_voxel.postprocess.to_glb
+    # All paths use the same bundled exporter, including installations with older
+    # engines. This keeps validated finishing controls and provenance consistent.
+    from importlib.util import module_from_spec, spec_from_file_location
+    spec = spec_from_file_location('o_voxel._studio_postprocess',
+        ROOT / 'runtime' / 'engine-overrides' / 'o_voxel' / 'postprocess.py')
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    export = module.to_glb
     export_kwargs = export_options(options)
     adaptive = settings.get('adaptive_finishing') is True
     adaptive_master = adaptive and settings.get('source_kind') != 'refinish'
     repair_surface = settings.get('repair_surface') is True
-    if adaptive or repair_surface:
-        # Use the bundled exporter even when the installed engine is older.
-        from importlib.util import module_from_spec, spec_from_file_location
-        spec = spec_from_file_location('o_voxel._studio_postprocess',
-            ROOT / 'runtime' / 'engine-overrides' / 'o_voxel' / 'postprocess.py')
-        module = module_from_spec(spec)
-        spec.loader.exec_module(module)
-        export = module.to_glb
     if adaptive:
         from adaptive_finishing import choose_master_mesh, choose_mesh
         export_kwargs['adaptive_mesh'] = choose_master_mesh if adaptive_master else choose_mesh
@@ -164,6 +163,11 @@ def finish_mesh(torch, source):
         aabb=[[-0.5]*3, [0.5]*3], decimation_target=settings['triangles'],
         texture_size=settings['texture_size'], **export_kwargs, verbose=True,
     )
+    result.metadata['finishing'].update(
+        native_triangles=len(source['faces']), decoded_resolution=int(source['resolution']),
+        requested_generation_resolution=requested_resolution,
+        pre_simplified=len(faces) != len(source['faces']),
+    )
     if source.get('coordinate_system') == 'y_up':
         # Pixal3D is already Y-up. Undo O-Voxel's Z-up to Y-up export conversion.
         result.apply_transform([[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]])
@@ -171,17 +175,37 @@ def finish_mesh(torch, source):
     height = max(float(bounds[1,1]-bounds[0,1]), 1e-6)
     center = [(bounds[0,0]+bounds[1,0])/2, bounds[0,1], (bounds[0,2]+bounds[1,2])/2]
     scale = settings['height_m'] / height
+    # Record the exact final transform for later high-to-low donor alignment.
+    # It maps the unscaled Y-up finishing mesh to the exported world coordinates.
+    result.metadata['finishing']['normalization'] = dict(
+        scale=float(scale), translation=[float(-coordinate * scale) for coordinate in center],
+        coordinate_system='y_up',
+    )
     result.vertices -= center
     result.vertices *= scale
     pending = JOB / 'model.pending.glb'
     try:
         result.export(pending)
         if settings.get('bake_normals'):
-            from normal_bake import bake_master_normals
+            from normal_bake import bake_master_normals, prepare_parent_normal_source
             status('running', 'Transferring master detail to the normal map', 93)
-            result.metadata['normal_bake'] = bake_master_normals(
-                pending, source, scale, [-coordinate * scale for coordinate in center], settings['texture_size'],
-            )
+            normal_source = settings.get('normal_source', 'decoded')
+            if normal_source == 'parent':
+                donor, provenance = prepare_parent_normal_source(
+                    JOB.parent, settings.get('normal_source_id'), settings.get('finish_source_id'),
+                    result.metadata['finishing']['normalization'], source['voxel_size'],
+                    settings.get('normal_source_model_sha256'), settings.get('normal_source_normalization'),
+                )
+                normal_report = bake_master_normals(pending, donor, 1., [0., 0., 0.], settings['texture_size'])
+                normal_report['donor'] = provenance
+            elif normal_source == 'decoded':
+                normal_report = bake_master_normals(
+                    pending, source, scale, [-coordinate * scale for coordinate in center], settings['texture_size'],
+                )
+                normal_report['donor'] = dict(kind='decoded', id=settings.get('finish_source_id', JOB.name))
+            else:
+                raise ValueError('Choose the decoded source or a verified HD parent for normal baking.')
+            result.metadata['normal_bake'] = normal_report
         pending.replace(JOB / 'model.glb')
     finally:
         pending.unlink(missing_ok=True)
@@ -228,6 +252,8 @@ def main():
     resolution = source['resolution']
     result = finish_mesh(torch, source)
     face_report = project_requested_face()
+    with (JOB / 'model.glb').open('rb') as model_file:
+        result.metadata['finishing']['model_sha256'] = hashlib.file_digest(model_file, 'sha256').hexdigest()
     stats = dict(name=settings['name'], height_m=settings['height_m'], seed=settings['seed'],
                  triangles=len(result.faces), vertices=len(result.vertices), raw_triangles=len(source['faces']),
                  engine='Pixal3D' if settings.get('engine') == 'pixal3d' else 'TRELLIS.2',
@@ -247,6 +273,8 @@ def main():
         stats['adaptive_finishing'] = result.metadata['adaptive_finishing']
     if 'surface_repair' in result.metadata:
         stats['surface_repair'] = result.metadata['surface_repair']
+    if 'finishing' in result.metadata:
+        stats['finishing'] = result.metadata['finishing']
     if 'normal_bake' in result.metadata:
         report = result.metadata['normal_bake']
         stats['normal_bake'] = report

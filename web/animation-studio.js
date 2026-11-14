@@ -1,5 +1,6 @@
 import {icon} from './card-menu.js?v=2.6.1';
-import {createMotionPreviews} from './authored-previews.js?v=3.3.6';
+import {createMotionPreviews} from './authored-previews.js?v=3.4.0';
+import {createPersonalAnimationLibrary} from './personal-animation-library.js?v=3.4.0-motion2';
 export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,rigSetup,getClips,playClip}){
  const $=id=>document.getElementById(id),data=await api('/api/animations');
  let tab='library';const catalog=data.animations,previews=createMotionPreviews();
@@ -16,6 +17,9 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  const canEdit=job=>job?.state==='done'&&!isBusy()&&!submitting;
  const canAdd=job=>canEdit(job)&&hasRig(job);
  const canRemove=job=>canEdit(job)&&removeAvailable;
+ const personal=createPersonalAnimationLibrary({api,getJob,canAdd,
+  applyMotion:(job,motion)=>editClips(job,'POST',{animation_id:motion.id,in_place:false},'Animation added.',false,`/api/jobs/${encodeURIComponent(job.id)}/my-animations`),
+  onCount:count=>{$('personalAnimationCount').textContent=count;}});
 
  function authoredMotion(name){
   const match=/^TS_(.+)_([0-9.]+)s$/.exec(name||'');
@@ -32,8 +36,9 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
    const expectedName=name||`animation_${index}`;
    const preview=loaded?.[index]?.name===expectedName?loaded[index]:null;
    const authored=authoredMotion(name);
-   const duration=preview?.duration??authored?.duration??job.result?.animation_set?.find(clip=>clip.clip===name)?.duration_s;
-   return {index,name,expectedName,duration,recipeId:authored?.id,playable:!!preview,title:authored?.title||name||`Animation ${index+1}`};
+   const generated=job.settings?.generated_animation_clips?.find(clip=>clip.clip===name);
+   const duration=preview?.duration??generated?.duration??authored?.duration??job.result?.animation_set?.find(clip=>clip.clip===name)?.duration_s;
+   return {index,name,expectedName,duration,recipeId:authored?.id,playable:!!preview,title:generated?.name||authored?.title||name||`Animation ${index+1}`};
   });
   const duplicates=new Set(entries.filter((entry,index)=>entries.findIndex(other=>other.title===entry.title)!==index).map(entry=>entry.title));
   return entries.map(entry=>duplicates.has(entry.title)?{...entry,title:`${entry.title} (${entry.index+1})`}:entry);
@@ -57,7 +62,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  function updateSelectionControls(job){
   const enabled=canAdd(job),count=selectedClips.size;
   $('createRig').disabled=!canEdit(job)||!rigSetup?.ready;
-  $('animationSelection').hidden=tab==='added'||!batchAvailable||!batchLimit;
+  $('animationSelection').hidden=tab!=='library'||!batchAvailable||!batchLimit;
   $('selectAnimations').disabled=!enabled;
   $('selectAnimations').setAttribute('aria-pressed',String(selecting));
   $('selectAnimations').querySelector('span').textContent=selecting?'Cancel selection':'Select clips';
@@ -77,8 +82,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   }
  }
 
- async function editClips(job,method,body,success,batch=false){
-  const path=`/api/v1/models/${job.id}/animations`;
+ async function editClips(job,method,body,success,batch=false,path=`/api/v1/models/${job.id}/animations`){
   setClipNotice(job.id,method==='DELETE'?'Removing clip…':'Saving animations…');
   submitting=true;
   updateSelectionControls(job);
@@ -90,7 +94,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
     if(status.state==='done'&&!status.operation_error){
      if(batch&&selectionTarget===job.id)resetSelection();
      setClipNotice(job.id,success);
-     break;
+     return {ok:true};
     }
     if(status.state==='error'||status.state==='cancelled'||status.operation_error){
      throw Error(status.operation_error||status.error||status.stage||'Animation update did not complete.');
@@ -98,7 +102,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
     if(status.stage)setClipNotice(job.id,status.stage);
     await new Promise(resolve=>setTimeout(resolve,900));
    }
-  }catch(error){setClipNotice(job.id,error.message);}
+  }catch(error){setClipNotice(job.id,error.message);return {ok:false,error:error.message};}
   finally{
    try{await refresh();}
    finally{submitting=false;render();}
@@ -214,14 +218,23 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   $('animationModel').textContent=nameOf(job);$('createRig').hidden=rigged;
   const bones=job?.result?.bones||job?.media?.bones;
   $('animationRigState').textContent=rigged?(bones?`${bones} bones · ready to animate`:'Rigged · ready to animate'):done?'Add a rig to use the motion library.':'Open a completed model from the collection.';
-  const q=$('animationSearch').value.toLocaleLowerCase('en'),added=embeddedClips(job),addedTab=tab==='added';
+  const q=$('animationSearch').value.toLocaleLowerCase('en'),added=embeddedClips(job),addedTab=tab==='added',personalTab=tab==='personal';
   $('animationAddedCount').textContent=added.length;
-  $('animationDurationControl').hidden=addedTab;
-  $('animationCategory').hidden=addedTab;
-  $('animationSearch').placeholder=addedTab?'Search added clips…':'Search animations…';
+  $('animationDurationControl').hidden=tab!=='library';
+  $('animationCategory').hidden=tab!=='library';
+  $('animationSearch').placeholder=addedTab?'Search added clips…':personalTab?'Search my animations…':'Search standard animations…';
+  $('personalAnimationComposer').hidden=!personalTab;
+  $('personalAnimationLibraryHeading').hidden=!personalTab;
+  $('personalAnimationCards').hidden=!personalTab;
+  $('personalMotionNotice').hidden=!personalTab;
+  $('personalMotionApplyHint').hidden=!personalTab;
+  $('animationCards').hidden=personalTab;
+  $('rigPanel').classList.toggle('personal-motion-mode',personalTab);
+  personal.setVisible(personalTab,q);
   $('animationCards').classList.toggle('added-motion-list',addedTab);
   showClipNotice(job);
   previews.clear();$('animationCards').replaceChildren();
+  if(personalTab){updateSelectionControls(job);personal.updateTarget();return;}
   if(addedTab){
    renderAdded(job,added,q);
    updateSelectionControls(job);
@@ -255,12 +268,20 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   if(!list.length){const p=document.createElement('p');p.className='hint';p.textContent='No motions match your search.';$('animationCards').append(p);}
   updateSelectionControls(job);
  }
- for(const name of ['library','added'])$('animationTab'+(name==='library'?'Library':'Added')).onclick=()=>{tab=name;for(const t of ['Library','Added'])$('animationTab'+t).classList.toggle('active',t.toLowerCase()===name);render();};
+ const tabs=['Library','Personal','Added'];
+ for(const [index,name] of tabs.entries()){
+  const button=$('animationTab'+name);
+  button.onclick=()=>{tab=name.toLowerCase();for(const t of tabs){const active=t===name;$('animationTab'+t).classList.toggle('active',active);$('animationTab'+t).setAttribute('aria-selected',String(active));$('animationTab'+t).tabIndex=active?0:-1;}resetSelection();$('animationSearch').value='';render();};
+  button.tabIndex=index===0?0:-1;
+  button.onkeydown=event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;const target=$('animationTab'+tabs[next]);target.click();target.focus();};
+ }
  $('animationSearch').oninput=render;$('animationCategory').onchange=render;
  let signature='';
  return {
   closeRig,
   label(name){
+   const generated=getJob()?.settings?.generated_animation_clips?.find(clip=>clip.clip===name)||personal.findClip(name);
+   if(generated)return generated.name+(Number.isFinite(generated.duration)?` · ${generated.duration.toLocaleString('en-US')} s`:'');
    const clip=authoredMotion(name);
    return clip?`${clip.title} · ${clip.duration.toLocaleString('en-US')} s`:name;
   },

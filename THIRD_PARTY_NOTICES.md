@@ -43,6 +43,7 @@ The original TRELLIS Studio code is MIT, Copyright 2026 yoslo59. Third-party com
 | [FastAPI](https://github.com/fastapi/fastapi) | MIT | Local API and schema generation. |
 | [Starlette](https://github.com/Kludex/starlette) | BSD-3-Clause | ASGI requests, routing and responses. |
 | [Uvicorn](https://github.com/Kludex/uvicorn) | BSD-3-Clause | Loopback HTTP server. |
+| [Caddy](https://github.com/caddyserver/caddy) | Apache-2.0 and upstream dependency notices | Optional Internet HTTPS proxy; pinned Windows binary verified against the installer manifest. The installer includes its upstream LICENSE and README in `bin/caddy`. |
 | [Pydantic](https://github.com/pydantic/pydantic) | MIT | Typed contracts and validation. |
 | [HTTPX](https://github.com/encode/httpx) | BSD-3-Clause | Local MCP-to-REST transport. |
 | [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) | MIT | STDIO and Streamable HTTP MCP protocol. |
@@ -91,6 +92,16 @@ Additional runtime packages, such as image/HTTP/serialization utilities and tran
 **Install Pixal3D.cmd** downloads pinned [ComfyUI](https://github.com/Comfy-Org/ComfyUI) source, preserving its GPL-3.0 license, and model packages from [Comfy-Org/Pixal3D](https://huggingface.co/Comfy-Org/Pixal3D) and [Comfy-Org/TRELLIS.2](https://huggingface.co/Comfy-Org/TRELLIS.2). [Pixal3D](https://github.com/TencentARC/Pixal3D) credits Tencent ARC and its collaborators and provides its own license and notices. The vision weights use DINOv3, with the separate terms linked above. The optional source, model packages and environment are downloaded locally. Pins and hashes are in `installer/pixal3d-manifest.json`.
 
 The optional face pass uses the [OpenCV Zoo YuNet face detector](https://github.com/opencv/opencv_zoo/tree/f12e12798e8314f7c074a6656816c048dcc95b7a/models/face_detection_yunet), released under the [MIT license](https://github.com/opencv/opencv_zoo/blob/f12e12798e8314f7c074a6656816c048dcc95b7a/models/face_detection_yunet/LICENSE). The detector is downloaded separately and runs locally.
+
+## Optional generated-motion runtime
+
+Studio can invoke an administrator-installed [kimodo.cpp](https://github.com/localai-org/kimodo.cpp/tree/75ed52d2d3ec767a9bac79d11060b65d99f61a89) CPU runtime (Apache-2.0), built with [GGML](https://github.com/ggml-org/ggml) (MIT). The configured motion model is [LocalAI's GGUF conversion of NVIDIA SOMA-RP v1.1](https://huggingface.co/LocalAI-io/Kimodo-SOMA-RP-v1.1-GGML), subject to the [NVIDIA Open Model License](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/). This is distinct from the official v1.2 model.
+
+The separate [Llama-3-Kimodo-GGML encoder](https://huggingface.co/LocalAI-io/Llama-3-Kimodo-GGML) derives from Meta Llama 3 and MIT-licensed McGill LLM2Vec adapters. Its distribution retains the Meta Llama 3 Community License, Acceptable Use Policy and NOTICE: **Built with Meta Llama 3**. These terms are independent from Studio's MIT licence and the motion-model licence. Windows Setup can download and configure this optional runtime after the user selects Kimodo and accepts the model terms; **Install Kimodo.cmd** offers the same opt-in installation later. The weights are not bundled in the repository or Setup executable. Read [the installation guide](docs/MOTION_GENERATION.md) and retain the upstream notices before use or redistribution.
+
+The CPU installer downloads pinned [Zig](https://ziglang.org/) (MIT), [CMake](https://cmake.org/) (BSD-3-Clause) and [Ninja](https://ninja-build.org/) (Apache-2.0) build tools, with their upstream notices. Source, tool and model pins, sizes and SHA-256 hashes are recorded in `installer/kimodo-manifest.json`. These build tools are local installation dependencies and are not added to the system PATH.
+
+Generated-motion previews reuse the separately credited Quaternius CC0 mannequin when installed, with a procedural preview fallback. No personal character mesh is bundled for this feature.
 
 ## Local license copies
 

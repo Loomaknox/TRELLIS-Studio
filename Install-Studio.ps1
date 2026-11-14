@@ -1,4 +1,5 @@
-param([switch]$SkipRig,[switch]$NoLaunch,[switch]$Plan,[switch]$VerifyOnly,[switch]$AcceptDinoV3License,[string]$WslDistribution='Ubuntu-22.04',[switch]$WorkshopOnly)
+param([switch]$SkipRig,[switch]$NoLaunch,[switch]$Plan,[switch]$VerifyOnly,[switch]$AcceptDinoV3License,[string]$WslDistribution='Ubuntu-22.04',[switch]$WorkshopOnly,
+      [switch]$WithKimodo,[switch]$AcceptKimodoModelLicenses,[string]$KimodoDistribution='')
 $ErrorActionPreference='Stop'
 $taskRoot=$PSScriptRoot
 $env:PYTHONUTF8='1'
@@ -8,6 +9,8 @@ $env:UV_MANAGED_PYTHON='1'
 if (-not [Environment]::Is64BitOperatingSystem) { throw '64-bit Windows is required.' }
 $taskManifest=Get-Content -LiteralPath (Join-Path $taskRoot 'installer\manifest.json') -Raw | ConvertFrom-Json
 if ($Plan) { $taskManifest | ConvertTo-Json -Depth 8;return }
+if ($WithKimodo -and $VerifyOnly) { throw 'Choose either component installation or VerifyOnly. Kimodo installation cannot run in verification mode.' }
+if ($WithKimodo) { & (Join-Path $taskRoot 'installer\windows\check-idle.ps1') -InstallRoot $taskRoot -IgnoreCurrentProcess }
 if (-not $WorkshopOnly -and -not $VerifyOnly -and -not $AcceptDinoV3License) {
     Write-Host 'TRELLIS Studio code: MIT. Model dependencies retain their own terms.'
     Write-Host 'DINOv3 is governed by licenses\DINOv3-LICENSE.md, including use restrictions.'
@@ -39,4 +42,8 @@ if ($VerifyOnly) { $taskArguments+='--verify-only' }
 if ($WorkshopOnly) { $taskArguments+='--workshop-only' }
 & $taskPython @taskArguments
 if ($LASTEXITCODE -ne 0) { throw 'Installation did not complete. Fix the reported prerequisite and run the same command again.' }
+if ($WithKimodo) {
+    & (Join-Path $taskRoot 'installer\windows\Install-Kimodo.ps1') -InstallRoot $taskRoot `
+        -WslDistribution $KimodoDistribution -AcceptModelLicenses:$AcceptKimodoModelLicenses
+}
 if (-not $NoLaunch -and -not $VerifyOnly) { & (Join-Path $taskRoot 'Start-Studio.ps1') }

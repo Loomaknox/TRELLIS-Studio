@@ -22,7 +22,7 @@ from studio_workspace import ID, finishing_source, read, write
 ROOT = Path(__file__).resolve().parent
 MIB = 1024**2
 LOG = logging.getLogger('trellis.server')
-SAFE_SCRIPTS = {'worker.py', 'pixal3d_worker.py', 'import_worker.py', 'rig_worker.py', 'print_worker.py', 'asset_work.py', 'animation_worker.py'}
+SAFE_SCRIPTS = {'worker.py', 'pixal3d_worker.py', 'import_worker.py', 'rig_worker.py', 'print_worker.py', 'asset_work.py', 'animation_worker.py', 'generated_animation_worker.py'}
 REFERENCE_FILES = {'settings.json', 'metadata.json', 'status.json', 'generation.log', 'server-work.json',
                    'input.png', 'left.png', 'right.png', 'back.png', 'conditioning.png', 'prepared.png',
                    'prepared-left.png', 'prepared-right.png', 'prepared-back.png'}
@@ -67,6 +67,8 @@ def children(folder):
 
 
 def reserve_bytes(settings, script, folder):
+    if script=='generated_animation_worker.py' and settings.get('generated_animation_action')=='apply':
+        return 32*MIB+3*(folder/'source.glb').stat().st_size+tree_bytes(folder/'LODs')
     if script == 'worker.py' and settings.get('source_kind') == 'refinish':
         return 32 * MIB
     if script in ('worker.py', 'pixal3d_worker.py'):
@@ -89,6 +91,7 @@ class PrivateStudio:
         self.exports = directory / 'exports'
         self.state = directory / 'state'
         self.animation_operations = self.state / 'animation-ops'
+        self.generated_animations = self.state / 'generated-animations'
         self.trash = directory / 'trash'
         self.active = None
         self.module_name = '_trellis_workspace_' + user_id
@@ -125,8 +128,13 @@ class PrivateStudio:
     def job_spec(self, folder):
         settings = read(folder / 'settings.json', {})
         work = read(folder / 'server-work.json', {})
+        if folder.parent == self.generated_animations:
+            return 'generated_animation_worker.py', None, settings
         if folder.parent == self.animation_operations:
-            return 'animation_worker.py', None, settings
+            script = work.get('script')
+            if script not in ('animation_worker.py', 'generated_animation_worker.py'):
+                script = 'generated_animation_worker.py' if (folder/'generated-animation-request.json').is_file() else 'animation_worker.py'
+            return script, None, settings
         if settings.get('source_kind') == 'refinish':
             return 'worker.py', finishing_source(folder, settings), settings
         if work.get('script') in SAFE_SCRIPTS:
@@ -145,6 +153,9 @@ class PrivateStudio:
         return bool(ID.fullmatch(identifier) and folder.is_dir() and folder.resolve() == folder)
 
     def job_folder(self, identifier):
+        generated=self.generated_animations/identifier
+        if ID.fullmatch(identifier) and generated.is_dir() and generated.resolve()==generated:
+            return generated
         if self.is_animation_operation(identifier):
             return self.animation_operations / identifier
         return self.outputs / identifier
@@ -154,7 +165,7 @@ class PrivateStudio:
 
     def snapshot(self, path):
         folders = [self.outputs, self.exports, self.state / 'uploads', self.state / 'imports',
-                   self.animation_operations]
+                   self.animation_operations, self.generated_animations]
         for identifier in set(path.split('/')):
             if ID.fullmatch(identifier):
                 model = self.outputs / identifier
@@ -287,6 +298,7 @@ class ServerRuntime:
                     folder = workspace.job_folder(job_id)
                     script, _, settings = workspace.job_spec(folder)
                     generation = script in ('worker.py', 'pixal3d_worker.py') and settings.get('source_kind') != 'refinish' and settings.get('preset') in GENERATION_PRESETS
+                    generation = generation or (script=='generated_animation_worker.py' and settings.get('generated_animation_action')=='generate')
                     jobs.append(dict(job_id=job_id, generation=generation, reserve_bytes=reserve_bytes(settings, script, folder)))
                 jobs.extend(dict(job_id=path.name, generation=False, reserve_bytes=32 * MIB)
                             for path in children(workspace.exports) - before[workspace.exports])
@@ -301,6 +313,10 @@ class ServerRuntime:
             return response
 
     async def trim_failed(self, workspace, folder):
+        if folder.parent == workspace.generated_animations and ID.fullmatch(folder.name):
+            for path in children(folder):
+                if path.name not in ('manifest.json','settings.json','status.json','generation.log','server-work.json'):
+                    await asyncio.to_thread(remove_child,folder,path)
         if folder.parent == workspace.outputs and ID.fullmatch(folder.name):
             for path in children(folder):
                 if path.name not in REFERENCE_FILES:
@@ -374,7 +390,7 @@ class ServerRuntime:
                 await self.reconcile_animation(workspace, row, workspace.job_folder(job_id))
                 continue
             export = (workspace.exports / job_id).is_dir()
-            folder = (workspace.exports if export else workspace.outputs) / job_id
+            folder = workspace.exports/job_id if export else workspace.job_folder(job_id)
             state = read(folder / 'status.json', {})
             process = workspace.studio.EXPORT_PROCESS if export else workspace.studio.PROCESS
             active = (workspace.studio.EXPORT_TASK if export else workspace.studio.ACTIVE) == job_id and process and process.poll() is None
@@ -400,7 +416,7 @@ class ServerRuntime:
             trim = False
             if not export and folder.is_dir():
                 script, _, settings = workspace.job_spec(folder)
-                trim = script in ('worker.py', 'pixal3d_worker.py') or settings.get('source_kind') == 'animation_copy'
+                trim = script in ('worker.py', 'pixal3d_worker.py', 'generated_animation_worker.py') or settings.get('source_kind') == 'animation_copy'
             if over or terminal not in TERMINAL:
                 if folder.is_dir():
                     error = 'Disk quota reached. Free space before retrying.' if over else 'Server stopped during the operation.'

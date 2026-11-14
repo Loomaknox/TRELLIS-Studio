@@ -91,7 +91,20 @@ if ($taskMcpConnection) {
     }
 }
 if (-not $taskMcpConnection) {
-    $taskMcpProcess = Start-Process -FilePath $taskMcpPython -ArgumentList @('-u',('"'+$taskMcpScript+'"'),'--transport','streamable-http','--port',$taskMcpPort) -WorkingDirectory $taskRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $taskLogs 'mcp.log') -RedirectStandardError (Join-Path $taskLogs 'mcp-errors.log')
+    # The local bridge must not inherit credentials or a private CA from a separate Server client.
+    # Scope this to the spawned child; preserve the caller's environment and saved configuration.
+    $taskClientEnvironment=@{}
+    try {
+        foreach($taskName in @('TRELLIS_API_TOKEN','TRELLIS_API_CA_BUNDLE')) {
+            $taskClientEnvironment[$taskName]=[Environment]::GetEnvironmentVariable($taskName,'Process')
+            [Environment]::SetEnvironmentVariable($taskName,$null,'Process')
+        }
+        $taskMcpProcess = Start-Process -FilePath $taskMcpPython -ArgumentList @('-u',('"'+$taskMcpScript+'"'),'--transport','streamable-http','--port',$taskMcpPort) -WorkingDirectory $taskRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $taskLogs 'mcp.log') -RedirectStandardError (Join-Path $taskLogs 'mcp-errors.log')
+    } finally {
+        foreach($taskName in $taskClientEnvironment.Keys) {
+            [Environment]::SetEnvironmentVariable($taskName,$taskClientEnvironment[$taskName],'Process')
+        }
+    }
     $taskMcpProcess.Id | Set-Content -LiteralPath (Join-Path $taskLogs 'mcp.pid')
 }
 $taskMcpReady=$false

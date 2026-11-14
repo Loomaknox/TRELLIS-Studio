@@ -1,0 +1,143 @@
+/* Personal motions share the Studio palette and preserve the existing catalogue. */
+.animation-mode:not(.library-mode) .creation{padding-bottom:24px}
+.animation-tabs{gap:4px;padding:5px;border:1px solid #3a4732;border-radius:11px;background:#171e17;margin-bottom:18px;isolation:isolate}
+.animation-tabs button{padding:11px 6px;min-height:43px;border:1px solid transparent;border-radius:8px;font-size:11px;white-space:nowrap;gap:5px;justify-content:center}
+.animation-tabs button.active{border-color:#69894866;background:#bcf08817;color:#d4f3b5}
+.animation-tabs button>.ui-icon{width:14px;height:14px}
+.animation-tabs b{font-size:9px}
+.animation-target{padding:12px 14px;margin-bottom:20px;border:1px solid #394632;border-radius:10px;background:#20281d}
+.animation-target>strong{font-size:12px}
+.animation-target p{margin:5px 0 0;font-size:10px}
+.animation-target button{margin-top:12px}
+.personal-motion-composer{padding:19px;border:1px solid #536742;background:radial-gradient(ellipse at 100% 0,#bfe68a0b,transparent 65%),#20291e;border-radius:15px;box-shadow:0 6px 22px #00000012;margin-bottom:27px}
+.personal-motion-summary{display:flex;align-items:center;gap:11px;cursor:pointer;list-style:none}
+.personal-motion-summary::-webkit-details-marker{display:none}
+.personal-motion-summary:focus-visible{outline:2px solid var(--accent);outline-offset:7px;border-radius:4px}
+.personal-motion-heading{display:flex;flex-direction:column;gap:6px;min-width:0}
+.personal-motion-symbol{display:grid;place-items:center;flex:none;width:36px;height:40px;border-radius:10px;background:#c4f58a12;color:var(--accent);border:1px solid #bce98925}
+.personal-motion-symbol .ui-icon{width:24px;height:24px}
+.personal-motion-heading .eyebrow{font-size:8px;letter-spacing:1.5px;color:#a2b78d}
+#personalMotionHeading{font-size:18px;letter-spacing:-.45px;font-weight:550;color:#e9f3df}
+.personal-motion-beta{display:inline-block;margin-left:6px;font:6px Consolas,monospace;letter-spacing:.4px;color:#b1c69b;border:1px solid #748a534d;border-radius:4px;padding:3px 4px;vertical-align:middle}
+.personal-composer-expand{font-size:23px;font-weight:300;line-height:1;color:#c1e69d;margin-left:auto;transition:transform .15s}
+.personal-motion-composer[open] .personal-composer-expand{transform:rotate(45deg)}
+.personal-motion-intro{color:#b0c2a1;font-size:11px;line-height:1.75;margin:15px 0}
+.personal-motion-engine{display:flex;align-items:center;gap:7px;color:#9daf8e;font-size:10px;line-height:1.55;min-height:24px}
+.personal-engine-dot{width:6px;height:6px;flex:none;border-radius:50%;background:#829277}
+.personal-motion-engine.ready .personal-engine-dot{background:#b9e98b;box-shadow:0 0 9px #b9e98b36}
+.personal-motion-engine.unavailable{color:#d2b88c}
+.personal-motion-engine.unavailable .personal-engine-dot{background:#d2b88c}
+.personal-motion-engine button{margin-left:auto;padding:4px 7px;min-height:26px;font-size:10px;flex:none;color:#d3e8bb}
+.personal-motion-engine-detail{margin:5px 0 0;font-size:10px;line-height:1.65;color:#b3bda7;overflow-wrap:anywhere}
+.personal-prompt-field{display:block;margin:17px 0 0;font-size:11px;color:#d4e3c6}
+.personal-prompt-field>span{display:flex;justify-content:space-between;gap:8px;margin-bottom:9px}
+.personal-prompt-field small{font:9px Consolas,monospace;color:#8da47b}
+.personal-prompt-field textarea{display:block;width:100%;min-height:112px;resize:vertical;padding:12px;font-size:12px;line-height:1.7;background:#151d16;border:1px solid #506641;border-radius:9px;color:#e4efda}
+.personal-prompt-field textarea::placeholder{color:#7c9270;opacity:1}
+.personal-prompt-field textarea:focus{border-color:#b7e389;outline:2px solid #b7e38922;outline-offset:2px}
+.personal-prompt-help{font-size:10px;line-height:1.6;color:#96ab87;margin:9px 0}
+.personal-motion-examples{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:11px 0 18px;font-size:9px;color:#91a77f}
+.personal-motion-examples>span{margin-right:3px}
+.personal-motion-examples button{font-size:9px;font-weight:450;padding:6px 8px;min-height:28px;color:#b5cba2;border:1px solid #53634380;border-radius:6px;background:#b3df8505;transition:background .15s,border-color .15s}
+.personal-motion-examples button:hover{border-color:#92af70;background:#b3df8511;color:#e0f3cc}
+.personal-motion-examples button .ui-icon{width:12px;height:12px}
+.personal-motion-duration{margin:20px 0 19px}
+.personal-motion-duration>span{margin-bottom:15px}
+#personalMotionDuration{appearance:none;-webkit-appearance:none;height:4px;min-height:4px;border:0;background:#506344;border-radius:8px;cursor:pointer}
+#personalMotionDuration::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#c4f58a;border:3px solid #2a3821;box-shadow:0 0 0 1px #a4cc79}
+.personal-motion-advanced{margin:0 0 18px;border-top:1px solid #52604460;padding-top:13px}
+.personal-motion-advanced summary{font-size:10px;color:#afc69b;cursor:pointer;line-height:1.6}
+.personal-motion-advanced .field{font-size:10px;margin:14px 0 0;gap:7px}
+.personal-motion-advanced input{font-size:11px;padding:9px;min-width:0;background:#182016;border:1px solid #45593b;border-radius:7px}
+.personal-motion-advanced small{line-height:1.5;font-size:9px}
+.personal-motion-generate{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;min-height:44px;border-radius:9px;font-size:12px;font-weight:600}
+.personal-motion-generate .ui-icon{width:18px;height:18px}
+.personal-motion-generate span:last-child{margin-left:auto;font-size:17px}
+.personal-motion-generate span:first-of-type{margin-right:auto}
+.personal-motion-notice{font-size:11px;line-height:1.65;color:#bfdba7;margin:-10px 0 22px;overflow-wrap:anywhere}
+.personal-motion-notice:empty{display:none}
+.personal-motion-notice.error{color:#efbba4}
+.personal-library-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 15px}
+.personal-library-heading h3{font-size:15px;font-weight:550;letter-spacing:-.2px;color:#e0ebd6;margin:0 0 5px}
+.personal-library-heading p{font-size:10px;line-height:1.6;color:#8fa47d;margin:0}
+.personal-library-heading button{display:grid;place-items:center;border:1px solid #4c604039;border-radius:8px;min-height:34px;width:34px;padding:8px;color:#aac391}
+.personal-library-heading .ui-icon{width:16px;height:16px}
+.personal-motion-mode .animation-category{justify-content:flex-end;margin-top:-6px;margin-bottom:13px}
+.personal-motion-mode .animation-category>span{font-size:10px}
+.personal-motion-card{display:flex;flex-direction:column;min-width:0;align-self:stretch}
+.personal-motion-card-body{display:flex;flex-direction:column;flex:1;min-width:0}
+.personal-motion-card h3{font-size:12px;margin:13px 12px 6px;line-height:1.5;overflow-wrap:anywhere}
+.personal-motion-card .personal-motion-prompt{font-size:10px;line-height:1.6;margin:0 12px 10px;min-height:32px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.personal-motion-meta{font:10px Consolas,monospace;color:#c0d4a7;margin:0 12px 12px}
+.personal-motion-card .personal-motion-stage{font-size:10px;line-height:1.65;min-height:0;margin:0 12px 12px;color:#c6d6b6;overflow-wrap:anywhere}
+.personal-motion-card[data-state=error] .personal-motion-stage{color:#efb59d}
+.personal-motion-card[data-state=error]{border-color:#93684b70}
+.personal-motion-card progress{display:block;appearance:none;width:calc(100% - 24px);height:4px;border:0;border-radius:6px;background:#46563a;margin:0 12px 14px;overflow:hidden}
+.personal-motion-card progress::-webkit-progress-bar{background:#46563a}
+.personal-motion-card progress::-webkit-progress-value{background:#b6e183}
+.personal-motion-actions{margin-top:auto}
+.personal-motion-card .personal-motion-actions>.primary{font-size:11px;min-height:37px;padding:8px 4px}
+.personal-motion-card .personal-motion-secondary{font-size:10px;min-height:29px;padding:5px 4px;color:#acc598;margin-top:-2px}
+.personal-motion-preview{height:190px;flex:none}
+.personal-motion-preview .motion-chip{font-size:7px;letter-spacing:.5px;bottom:auto;top:10px;right:9px;background:#15201388}
+.personal-motion-preview>.ui-icon{top:12px;left:12px;width:14px;height:14px}
+.personal-motion-preview .personal-preview-toggle{position:absolute;bottom:9px;left:50%;transform:translateX(-50%);width:auto;min-width:91px;min-height:27px;margin:0;padding:5px 9px;font-size:9px;font-weight:450;background:#16200ecc;border:1px solid #9abc6e44;border-radius:6px;color:#d2e9bc;opacity:0;transition:opacity .15s}
+.personal-motion-preview:hover .personal-preview-toggle,.personal-motion-preview:focus-within .personal-preview-toggle,.personal-preview-toggle[aria-pressed=true]{opacity:1}
+.personal-motion-preview[data-loading]:after,.personal-motion-preview[data-error]:after,.personal-preview-pending:after{content:'Preparing preview…';position:absolute;left:14px;right:14px;top:50%;transform:translateY(-50%);text-align:center;color:#a8bf94;font-size:10px;line-height:1.7}
+.personal-motion-preview[data-error]:after{content:attr(data-error)}
+.personal-preview-pending:after{content:'Your movement is on its way';padding-top:35px;background:radial-gradient(ellipse at 50% 0,#a3cf6e33,transparent 45%)}
+[data-state=error] .personal-preview-pending:after{content:'Generation did not complete'}
+[data-state=cancelled] .personal-preview-pending:after{content:'Generation cancelled'}
+.personal-motion-empty{grid-column:1/-1;padding:30px 23px;border:1px dashed #4c6040;border-radius:13px;background:#1d271a88;text-align:center}
+.personal-motion-empty>.ui-icon{width:32px;height:32px;color:#a2c784;margin-bottom:10px}
+.personal-motion-empty h3{font-size:14px;font-weight:500;color:#d6e5c8;margin:0 0 9px}
+.personal-motion-empty p{font-size:11px;line-height:1.8;color:#98af86;margin:0}
+.personal-motion-apply-hint{color:#8da37b;font-size:10px;line-height:1.8;margin:17px 2px 5px}
+#personalAnimationComposer[hidden],#personalAnimationLibraryHeading[hidden],#personalAnimationCards[hidden],#animationCards[hidden],#personalMotionApplyHint[hidden],.personal-motion-card [hidden],.personal-motion-engine-detail[hidden],#personalMotionRetry[hidden]{display:none!important}
+@media(min-width:1151px){
+ .animation-mode:not(.library-mode) .app-shell{grid-template-columns:76px 392px minmax(300px,1fr) 310px}
+ .animation-mode.collection-collapsed:not(.library-mode) .app-shell{grid-template-columns:76px 392px minmax(300px,1fr)}
+ .animation-mode .creation{padding-left:20px;padding-right:20px}
+ .animation-mode .animation-cards:not(.added-motion-list){gap:12px}
+ .animation-mode .motion-preview{height:184px}
+ .animation-mode .personal-motion-preview{height:196px}
+}
+@media(min-width:1700px){
+ .animation-mode:not(.library-mode) .app-shell{grid-template-columns:80px 430px minmax(400px,1fr) 350px}
+ .animation-mode.collection-collapsed:not(.library-mode) .app-shell{grid-template-columns:80px 430px minmax(400px,1fr)}
+ .animation-mode .creation{padding-left:23px;padding-right:23px}
+ .animation-mode .personal-motion-preview{height:212px}
+}
+@media(min-width:2300px){
+ .animation-mode:not(.library-mode) .app-shell{grid-template-columns:88px 480px minmax(600px,1fr) 470px}
+ .animation-mode.collection-collapsed:not(.library-mode) .app-shell{grid-template-columns:88px 480px minmax(600px,1fr)}
+ .animation-mode .personal-motion-preview{height:235px}
+ .animation-tabs button{font-size:12px}
+}
+@media(min-width:851px) and (max-width:1150px){
+ .animation-mode:not(.library-mode) .app-shell{grid-template-columns:62px 320px minmax(260px,1fr) 240px}
+ .animation-mode.collection-collapsed:not(.library-mode) .app-shell{grid-template-columns:62px 320px minmax(260px,1fr)}
+ .animation-tabs button{font-size:9px;gap:3px;padding:9px 3px}.animation-tabs button>.ui-icon{display:none}
+ .personal-motion-composer{padding:14px}.personal-motion-beta{font-size:6px;letter-spacing:0;padding:4px}
+ #personalMotionHeading{font-size:17px}.personal-motion-symbol{display:none}
+ .personal-motion-preview{height:168px}
+}
+@media(max-width:850px){
+ .animation-mode .creation{padding-bottom:24px}
+ .personal-motion-composer{max-width:620px;margin-left:auto;margin-right:auto}
+ .personal-motion-preview{height:230px}
+ .personal-preview-toggle{opacity:1!important}
+}
+@media(max-width:420px){
+ .animation-mode:not(.library-mode) .app-shell{grid-template-columns:minmax(0,1fr)}
+ .animation-mode .rail{min-width:0;gap:3px}
+ .animation-mode .rail-button{min-width:0;flex-direction:column;padding:7px 4px;gap:3px}
+ .animation-mode .rail-button .nav-text{font-size:9px}
+ .animation-mode .rail-button svg{width:20px;height:20px}
+ .animation-mode .creation,.animation-mode .workspace{min-width:0}
+ .animation-mode #viewerTools:has(#toolbarRefinishControl){flex-wrap:nowrap;max-width:100%;justify-content:flex-start;overflow-x:auto}
+ .animation-tabs button{font-size:10px;padding:9px 4px}.animation-tabs button>.ui-icon{display:none}
+ .personal-motion-composer{padding:15px}.personal-motion-preview{height:175px}.personal-motion-beta{font-size:6px;padding:4px}
+ #personalMotionHeading{font-size:17px}.personal-motion-symbol{width:30px;height:34px}
+}
+@media(prefers-reduced-motion:reduce){.personal-motion-preview .personal-preview-toggle{opacity:1}}

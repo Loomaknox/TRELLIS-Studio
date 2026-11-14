@@ -121,6 +121,66 @@ class Animation(Contract):
     clip:str=Field(min_length=1,max_length=80,description='Library motion ID, not an embedded clip name.')
     duration:float=Field(default=2.5,ge=2,le=5,multiple_of=.5)
 
+class GeneratedAnimationCreate(Contract):
+    name: str = Field(default='New animation', min_length=1, max_length=80)
+    prompt: str = Field(min_length=3, max_length=1000)
+    duration: float = Field(default=5, ge=2, le=10, multiple_of=.5)
+    seed: int = Field(default=42, ge=0, le=2147483647, strict=True)
+
+    @field_validator('name', 'prompt')
+    @classmethod
+    def visible_text(cls, value, info):
+        value = value.strip()
+        allowed = '\n\r\t' if info.field_name=='prompt' else ''
+        if not value or any(ord(char) < 32 and char not in allowed for char in value):
+            raise ValueError('Use visible text without control characters.')
+        if info.field_name=='prompt':
+            value=' '.join(value.split())
+            if len(value)<3:raise ValueError('Describe the motion with at least three characters.')
+        return value
+
+class GeneratedAnimationApply(Contract):
+    animation_id: Identifier
+    in_place: bool = Field(default=False, description='Suppress horizontal root travel. The saved motion is added to the selected rigged model, retaining its ID and existing clips; this flag only controls root travel.')
+
+class GeneratedAnimationAccepted(Contract):
+    id: Identifier
+    state: Literal['queued', 'running', 'done', 'error', 'cancelled']
+    status_url: str
+
+class GeneratedAnimationItem(Contract):
+    id: Identifier
+    name: str
+    prompt: str
+    duration: float
+    fps: int
+    frames: int
+    seed: int
+    created: float
+    clip_name: str
+    provenance: dict
+    state: Literal['queued', 'running', 'done', 'error', 'cancelled']
+    progress: float
+    stage: str
+    preview_url: str | None = None
+    preview_root: str | None = None
+    files: dict[str,str] = Field(default_factory=dict,description='Completed-only download URLs for preview.glb, motion.npz and skeleton.json.')
+    error: str | None = None
+
+class GeneratedAnimationEngine(Contract):
+    ready: bool
+    label: str
+    backend: str
+    experimental: bool
+    message: str
+
+class GeneratedAnimationLibrary(Contract):
+    animations: list[GeneratedAnimationItem]
+    engine: GeneratedAnimationEngine
+    min_duration: float
+    max_duration: float
+    step: float
+
 class AnimationBatch(Contract):
     clips: list[Animation] = Field(min_length=1, max_length=len(ANIMATIONS))
 
@@ -198,6 +258,9 @@ class Refinish(Contract):
     adaptive_finishing: bool | None = None
     bake_normals: bool | None = None
     repair_surface: bool | None = None
+    remesh_resolution: Literal[512, 768, 1024] | None = None
+    texture_sampling: Literal['trilinear', 'nearest'] | None = None
+    normal_source: Literal['decoded', 'parent'] | None = None
 
     @model_validator(mode='after')
     def validate_budget(self):
@@ -214,6 +277,11 @@ class FinishingSelection(Contract):
     selected_id: Identifier | None
 
 
+class ParentNormalSource(Contract):
+    available: bool
+    unavailable_reason: str | None
+
+
 class FinishingOptions(Contract):
     source_id: Identifier
     source_triangles: int | None
@@ -223,6 +291,10 @@ class FinishingOptions(Contract):
     triangle_presets: dict[str, int]
     normal_bake: bool
     repair_surface: bool
+    remesh_resolutions: list[int]
+    texture_sampling_modes: list[str]
+    normal_sources: list[str]
+    parent_normal_source: ParentNormalSource
     selected_id: Identifier | None
 
 

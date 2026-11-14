@@ -1,8 +1,10 @@
 param(
-    [ValidateSet('Workshop','Generation','Rig','Pixal3D','Full','Stop','Server','ServerSetup','ConfigureServer','StopServer')]
+    [ValidateSet('Workshop','PrepareWorkshop','Generation','Rig','Pixal3D','Kimodo','Full','Stop','Server','ServerSetup','ConfigureServer','StopServer')]
     [string]$Mode='Workshop',
     [switch]$NoBrowser,
-    [switch]$FullStudio
+    [switch]$FullStudio,
+    [switch]$WithKimodo,
+    [switch]$AcceptKimodoModelLicenses
 )
 $ErrorActionPreference='Stop'
 $taskInstallFull = $Mode -eq 'Full' -or ($Mode -eq 'ServerSetup' -and $FullStudio)
@@ -12,8 +14,14 @@ if (-not $env:TRELLIS_PORT) { $env:TRELLIS_PORT='7870' }
 if (-not $env:TRELLIS_MCP_PORT) { $env:TRELLIS_MCP_PORT='7871' }
 if ($Mode -eq 'Stop') { & (Join-Path $taskRoot 'Arreter-TRELLIS.ps1') -WithBridge -IdleOnly; return }
 if ($Mode -eq 'StopServer') { & (Join-Path $taskRoot 'Stop-Server.ps1'); return }
-if ($Mode -in @('Server','ConfigureServer')) {
-    & (Join-Path $taskRoot 'Start-Server.ps1') -NoBrowser:$NoBrowser -Configure:($Mode -eq 'ConfigureServer')
+if ($Mode -eq 'Server') {
+    $taskTrayArguments=@('--mode','server','--start')
+    if($NoBrowser){$taskTrayArguments+='--no-browser'}
+    Start-Process -FilePath (Join-Path $taskRoot 'TRELLIS Studio Tray.exe') -ArgumentList $taskTrayArguments
+    return
+}
+if ($Mode -eq 'ConfigureServer') {
+    & (Join-Path $taskRoot 'installer\windows\Configure-Server.ps1') -ConfigPath (Join-Path $taskRoot 'config\server.json') -Python (Join-Path $taskRoot '.venv\Scripts\python.exe')
     return
 }
 
@@ -45,7 +53,7 @@ if (-not $taskNeedsWorkshop) {
         }
     } catch { $taskNeedsWorkshop=$true }
 }
-if ($Mode -ne 'Workshop' -or $taskNeedsWorkshop) {
+if ($Mode -ne 'Workshop' -or $taskNeedsWorkshop -or $WithKimodo) {
     & (Join-Path $PSScriptRoot 'check-idle.ps1') -InstallRoot $taskRoot -IgnoreCurrentProcess
     $taskLockPath=Join-Path $taskRoot '.component-install.lock'
     try { $taskLock=[IO.File]::Open($taskLockPath,'OpenOrCreate','ReadWrite','None') }
@@ -97,6 +105,9 @@ if ($Mode -ne 'Workshop' -or $taskNeedsWorkshop) {
             & $taskBootstrap -WorkshopOnly -NoLaunch
             if ($LASTEXITCODE -ne 0) { throw 'Workshop installation stopped.' }
         }
+        if ($WithKimodo -or $Mode -eq 'Kimodo') {
+            & (Join-Path $PSScriptRoot 'Install-Kimodo.ps1') -InstallRoot $taskRoot -AcceptModelLicenses:$AcceptKimodoModelLicenses
+        }
     } catch {
         if ($taskTranscript) { Write-Host ('Full setup stopped. ' + $_.Exception.Message) }
         throw
@@ -106,7 +117,12 @@ if ($Mode -ne 'Workshop' -or $taskNeedsWorkshop) {
     }
 }
 if ($Mode -eq 'ServerSetup') {
-    $taskConfigure = -not (Test-Path -LiteralPath (Join-Path $taskRoot 'config\server.json') -PathType Leaf)
-    & (Join-Path $taskRoot 'Start-Server.ps1') -Configure:$taskConfigure -NoBrowser:$NoBrowser
-} elseif ($Mode -eq 'Workshop') { & (Join-Path $taskRoot 'Start-Studio.ps1') -SansNavigateur:$NoBrowser }
-elseif ($Mode -ne 'Full') { Write-Host 'Component ready. Reopen TRELLIS Studio from the Start menu.' }
+    & (Join-Path $taskRoot 'Start-Server.ps1') -Configure -NoBrowser:$NoBrowser
+    Start-Process -FilePath (Join-Path $taskRoot 'TRELLIS Studio Tray.exe') -ArgumentList '--mode server'
+} elseif ($Mode -eq 'Workshop') {
+    $taskTrayArguments=@('--mode','desktop','--start')
+    if($NoBrowser){$taskTrayArguments+='--no-browser'}
+    Start-Process -FilePath (Join-Path $taskRoot 'TRELLIS Studio Tray.exe') -ArgumentList $taskTrayArguments
+}
+elseif($Mode -eq 'PrepareWorkshop'){Write-Host 'The Workshop is ready. Use the TRELLIS tray icon to start and stop it.'}
+elseif ($Mode -notin @('Full','Kimodo')) { Write-Host 'Component ready. Reopen TRELLIS Studio from the Start menu.' }

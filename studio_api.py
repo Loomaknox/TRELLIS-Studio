@@ -78,6 +78,9 @@ class FinishingRecipe(NamedTuple):
     preset: str | None
     bake_normals: bool
     repair_surface: bool
+    remesh_resolution: int
+    texture_sampling: str
+    normal_source: str
 
 
 def triangle_presets(record):
@@ -115,6 +118,11 @@ class StudioServices:
         self.workspace=Workspace(g.get('WORKSPACE_CONFIG',{}).get('state',os.environ.get('TRELLIS_STATE_DIR',str(default))))
         self.register(app)
     def queued(self,identifier):return self.workspace.pending(identifier)
+    def job_folder(self,identifier):
+        generated=(self.workspace.root/'generated-animations').resolve()/identifier
+        if ID.fullmatch(identifier) and generated.is_dir() and generated.resolve()==generated:
+            return generated
+        return self.output/identifier
     def cancel_pending(self,identifier,folder):
         state=read(folder/'status.json',{})
         if state.get('state')!='queued' or not self.queued(identifier):return
@@ -127,7 +135,7 @@ class StudioServices:
         # and require an explicit retry; pending jobs can continue after Resume.
         interrupted=False
         for entry in self.workspace.queue['items']:
-            folder=self.output/entry['id'];state=read(folder/'status.json',{})
+            folder=self.job_folder(entry['id']);state=read(folder/'status.json',{})
             if state.get('state')=='running':write(folder/'status.json',dict(state='error',stage='Interrupted · retry available',progress=0,error='The studio stopped during this calculation. Retry starts it from its saved recipe.'));interrupted=True
         if interrupted:self.workspace.queue['paused']=True;self.workspace.save_queue()
         if not self.g.get('WORKSPACE_CONFIG'):
@@ -143,7 +151,7 @@ class StudioServices:
                 process=self.g['PROCESS']
                 if self.g['TERRAIN_ACTIVE'] or process is not None and process.poll() is None:continue
                 for item in self.workspace.ordered():
-                    folder=self.output/item['id'];state=read(folder/'status.json',{})
+                    folder=self.job_folder(item['id']);state=read(folder/'status.json',{})
                     if item.get('cancelled') or item.get('held') or state.get('state')!='queued':continue
                     try:
                         settings = read(folder / 'settings.json', {})
@@ -155,7 +163,9 @@ class StudioServices:
                         continue
                     write(folder/'status.json',dict(state='running',stage='Starting queued generation',progress=1))
                     try:
-                        if settings.get('source_kind') == 'refinish':
+                        if settings.get('generated_animation_action') in ('generate','apply'):
+                            self.g['launch_worker'](folder,'generated_animation_worker.py')
+                        elif settings.get('source_kind') == 'refinish':
                             source_id = finishing_source(folder, settings)
                             if not source_id:
                                 write(folder/'status.json', dict(state='error', stage='Finishing source unavailable',
@@ -188,7 +198,8 @@ class StudioServices:
     def finishing_recipe(self, data, record, options):
         if not isinstance(data, dict) or set(data) - {'triangles', 'texture_size', 'mesh_mode', 'repair_holes',
                                                         'pre_simplify', 'adaptive_finishing',
-                                                        'budget_preset', 'bake_normals', 'repair_surface'}:
+                                                        'budget_preset', 'bake_normals', 'repair_surface',
+                                                        'remesh_resolution', 'texture_sampling', 'normal_source'}:
             raise ValueError('Only finishing settings can be changed.')
         settings = record['settings']
         preset = data.get('budget_preset')
@@ -205,6 +216,9 @@ class StudioServices:
         adaptive = data.get('adaptive_finishing', False)
         repair_surface = data.get('repair_surface', False)
         bake_normals = data.get('bake_normals', preset == 'medium' and bool(self.g['find_blender']()))
+        remesh_resolution = data.get('remesh_resolution', options['remesh_resolution'])
+        texture_sampling = data.get('texture_sampling', options['texture_sampling'])
+        normal_source = data.get('normal_source', 'decoded')
         if type(triangles) is not int or not TRIANGLE_MIN <= triangles <= TRIANGLE_MAX:
             raise ValueError(f'Choose a target of {TRIANGLE_MIN:,}–{TRIANGLE_MAX:,} triangles.')
         if type(texture_size) is not int or texture_size not in self.g['generation_capabilities']()[1]:
@@ -214,13 +228,26 @@ class StudioServices:
             raise ValueError('Choose valid mesh finishing options.')
         if bake_normals and not self.g['find_blender']():
             raise HTTPException(503, 'Install Blender to bake detail from the master, or disable the normal map.')
+        if type(remesh_resolution) is not int or remesh_resolution not in (512, 768, 1024):
+            raise ValueError('Reconstruction grid ceiling: choose 512, 768 or 1024.')
+        if not isinstance(texture_sampling, str) or texture_sampling not in ('trilinear', 'nearest'):
+            raise ValueError('Material voxel interpolation: choose trilinear or nearest.')
+        if not isinstance(normal_source, str) or normal_source not in ('decoded', 'parent'):
+            raise ValueError('Normal source: choose decoded or parent.')
+        if normal_source == 'parent':
+            if not bake_normals:
+                raise ValueError('Enable the normal map to use the selected HD parent as its donor.')
+            from normal_bake import inspect_parent_normal_source
+            parent = self.output / record['id']
+            inspect_parent_normal_source(self.output, parent.name, finishing_source(parent, settings))
         if adaptive or preset:
             mesh_mode, repair, pre_simplify = 'direct', False, False
         return FinishingRecipe(triangles, texture_size, mesh_mode, repair, pre_simplify, adaptive, preset,
-                               bake_normals, repair_surface)
+                               bake_normals, repair_surface, remesh_resolution, texture_sampling, normal_source)
 
     def create_finishing_variant(self, variant, folder, record, source_id, options, recipe):
-        triangles, texture_size, mesh_mode, repair, pre_simplify, adaptive, preset, bake_normals, repair_surface = recipe
+        (triangles, texture_size, mesh_mode, repair, pre_simplify, adaptive, preset, bake_normals,
+         repair_surface, remesh_resolution, texture_sampling, normal_source) = recipe
         variant.mkdir()
         settings = dict(record['settings'])
         settings.pop('keep_finishing_source', None)
@@ -228,12 +255,20 @@ class StudioServices:
         settings.pop('budget_preset', None)
         settings.pop('bake_normals', None)
         settings.pop('repair_surface', None)
+        for key in ('normal_source', 'normal_source_id', 'normal_source_model_sha256', 'normal_source_normalization'):
+            settings.pop(key, None)
         if adaptive:
             settings['adaptive_finishing'] = True
         if preset:
             settings['budget_preset'] = preset
         if bake_normals:
             settings['bake_normals'] = True
+            settings['normal_source'] = normal_source
+            if normal_source == 'parent':
+                from normal_bake import inspect_parent_normal_source
+                donor = inspect_parent_normal_source(self.output, folder.name, source_id)
+                settings.update(normal_source_id=folder.name, normal_source_model_sha256=donor['model_sha256'],
+                                normal_source_normalization=donor['normalization'])
         if repair_surface:
             settings['repair_surface'] = True
         if isinstance(settings.get('profile_snapshot'), dict):
@@ -246,7 +281,8 @@ class StudioServices:
         settings.update(created=time.time(), parent_id=folder.name, source_kind='refinish',
                         finish_source_id=source_id, triangles=triangles, texture_size=texture_size,
                         generation_options={**options, 'mesh_mode': mesh_mode, 'repair_holes': repair,
-                                            'pre_simplify': pre_simplify})
+                                            'pre_simplify': pre_simplify, 'remesh_resolution': remesh_resolution,
+                                            'texture_sampling': texture_sampling})
         write(variant / 'settings.json', settings)
         for filename in (*self.g['REFERENCE_FILES'], *PREPARED_REFERENCES):
             if (folder / filename).is_file():
@@ -460,6 +496,12 @@ class StudioServices:
         def queue():
             items=[]
             for entry in self.workspace.ordered():
+                generated=(self.workspace.root/'generated-animations').resolve()/entry['id']
+                if generated.is_dir() and generated.resolve()==generated:
+                    from generated_animations import record as motion_record
+                    item=motion_record(generated)
+                    if item:items.append({**entry,**item,'settings':{'source_kind':'generated_animation','name':item['name']}})
+                    continue
                 if self.g.get('WORKSPACE_CONFIG') and (self.g['animation_operations_root']()/entry['id']).is_dir():
                     operation = self.g['animation_operation'](entry['id'])
                     items.append({**entry, **operation, 'settings': {'source_kind': 'animation_update'}})
@@ -572,6 +614,8 @@ class StudioServices:
                     raise HTTPException(400, str(error)) from error
                 try:
                     variant_id, = self.queue_finishing_variants(folder, record, source_id, options, [recipe])
+                except ValueError as error:
+                    raise HTTPException(409, str(error)) from error
                 except OSError as error:
                     raise HTTPException(503, 'Unable to queue the finishing variant.') from error
                 return dict(id=variant_id, queued=True, paused=self.workspace.queue['paused'])
@@ -580,6 +624,14 @@ class StudioServices:
         def finishing_board(identifier: str):
             _, record, source_id = self.finishing_model(identifier)
             source = self.output / source_id
+            from normal_bake import parent_normal_capability
+            parent_normal_source = parent_normal_capability(record.get('result'))
+            normal_bake = bool(self.g['find_blender']())
+            if not normal_bake:
+                parent_normal_source = dict(available=False, unavailable_reason='Install Blender to bake an HD normal map.')
+            normal_sources = ['decoded']
+            if parent_normal_source['available']:
+                normal_sources.append('parent')
             try:
                 cache_bytes = (source/'raw_state.pt').stat().st_size
                 selection = read(source/'finishing-choice.json', {})
@@ -589,8 +641,11 @@ class StudioServices:
                         texture_sizes=self.g['generation_capabilities']()[1],
                         triangle_limits=dict(min=TRIANGLE_MIN, max=TRIANGLE_MAX),
                         triangle_presets=triangle_presets(record),
-                        normal_bake=bool(self.g['find_blender']()),
+                        normal_bake=normal_bake,
                         repair_surface=True,
+                        remesh_resolutions=[512, 768, 1024], texture_sampling_modes=['trilinear', 'nearest'],
+                        normal_sources=normal_sources,
+                        parent_normal_source=parent_normal_source,
                         selected_id=selection.get('id') if isinstance(selection, dict) else None)
 
         @app.post('/api/jobs/{identifier}/finishing-board', status_code=202)
@@ -613,6 +668,8 @@ class StudioServices:
                     raise HTTPException(400, str(error)) from error
                 try:
                     identifiers = self.queue_finishing_variants(folder, record, source_id, options, recipes)
+                except ValueError as error:
+                    raise HTTPException(409, str(error)) from error
                 except OSError as error:
                     raise HTTPException(503, 'Unable to queue the finishing variants.') from error
                 return dict(ids=identifiers, source_id=source_id, count=len(identifiers),

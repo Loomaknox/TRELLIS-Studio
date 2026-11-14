@@ -62,8 +62,8 @@ try:
         try: code = process.wait(timeout=240)
         except subprocess.TimeoutExpired:
             process.kill(); process.wait()
-            raise RuntimeError('Import trop long. Réduire la taille du modèle puis réessayer.')
-        if code: raise RuntimeError('Blender n’a pas pu importer ce fichier. Consulter le journal de l’objet.')
+            raise RuntimeError('The import timed out. Reduce the model size and try again.')
+        if code: raise RuntimeError('Blender could not import this file. Check the model log.')
     data=validate_glb(JOB/'model.glb')
     result = json.loads((JOB/'result.json').read_text(encoding='utf-8'))
     settings = json.loads((JOB/'settings.json').read_text(encoding='utf-8'))

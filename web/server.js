@@ -1,6 +1,6 @@
 import {
   request, getUser, element, avatar, nameOf, diskLimit, diskUsed, availableCredits, formatBytes, formatNumber,
-} from './server-shell.js?v=3.3.6';
+} from './server-shell.js?v=3.4.0';
 
 const byId = id => document.getElementById(id);
 const main = byId('server-main');
@@ -256,9 +256,11 @@ function usageLedger(data) {
 
 function secureAccount(user) {
   const enrolled = isMfa(user);
-  byId('mfa-summary').textContent = enrolled
-    ? 'A verification code is required each time you sign in.'
-    : 'Use an authenticator app to generate verification codes.';
+  byId('mfa-summary').textContent = user.role === 'admin'
+    ? (enrolled ? 'Two-factor authentication is required for administrators and cannot be disabled.'
+                : 'Administrators must set up two-factor authentication before using Studio.')
+    : (enrolled ? 'Two-factor authentication is enabled. You can disable it below.'
+                : 'Two-factor authentication is optional for your account. Use an authenticator app for extra protection.');
   byId('mfa-action').textContent = enrolled ? 'Disable two-factor authentication' : 'Set up two-factor authentication';
   const start = byId('mfa-start-form');
   const locked = (enrolled && user.role === 'admin') || user.password_change_required;

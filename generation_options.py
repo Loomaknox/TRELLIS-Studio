@@ -43,23 +43,31 @@ FIELDS += [
     number('texture_rescale','texture','Texture · rescale',0,0,1,.05),
     number('texture_rescale_t','texture','Texture · timestep distribution',3,1,6,.1),
     number('texture_seed','texture','Seed de texture',-1,-1,2147483647,1,True,'-1 continues the generation random sequence; a separate seed allows independent material comparisons.'),
+    dict(key='texture_sampling',group='texture',label='Material voxel interpolation',type='choice',default='trilinear',choices=[
+        dict(value='trilinear',label='Trilinear (smooth)'),dict(value='nearest',label='Nearest voxel (experimental)')]),
     dict(key='mesh_mode',group='mesh',label='Mesh finishing method',type='choice',default='remesh',choices=[
         dict(value='remesh',label='Remesh and simplify'),dict(value='direct',label='Direct simplification')]),
     dict(key='pre_simplify',group='mesh',label='Pre-simplify dense meshes to 2M',type='boolean',default=True,
          hint='Disable to keep the raw surface for finishing, at a higher processing cost.'),
     dict(key='repair_holes',group='mesh',label='Fill small holes',type='boolean',default=False),
-    number('remesh_project','mesh','Surface projection',0,0,1,.05,hint='0 = coque reconstruite ; 1 = retour maximal vers la surface source.'),
+    number('remesh_project','mesh','Surface projection',0,0,1,.05,hint='0 = reconstructed surface; 1 = maximum projection toward the source surface.'),
     number('remesh_band','mesh','Remesh band width',1,.5,3,.1),
-    number('qem_edge_weight','mesh','QEM · edge length',.01,0,.1,.00001,hint='0 privilégie l’erreur de forme ; peut créer de grands triangles allongés sur les aplats.'),
-    number('qem_skinny_weight','mesh','QEM · skinny triangles',.001,0,.1,.00001,hint='Pénalité supplémentaire contre les triangles très fins.'),
-    number('uv_angle','uv','UV grouping angle',90,10,180,1,hint='En degrés ; pilote le regroupement des zones avant dépliage.'),
+    number('remesh_resolution','mesh','Reconstruction grid ceiling',512,512,1024,256,True),
+    number('qem_edge_weight','mesh','QEM · edge length',.01,0,.1,.00001,hint='0 prioritizes shape error; this can create large, elongated triangles on flat areas.'),
+    number('qem_skinny_weight','mesh','QEM · skinny triangles',.001,0,.1,.00001,hint='Additional penalty for very thin triangles.'),
+    number('uv_angle','uv','UV grouping angle',90,10,180,1,hint='Angle in degrees used to group surface regions before UV unwrapping.'),
     number('uv_refine','uv','UV island refinement',0,0,10,1,True),
     number('uv_global','uv','Global passes',1,1,5,1,True),
     number('uv_smooth','uv','UV island smoothing',1,0,1,.1),
 ]
 HELP={'structure_steps': 'Diffusion steps for the initial volume. Zero uses the profile. More steps increase computation without guaranteeing a better model.', 'structure_guidance': 'How strongly the initial volume follows the reference image. Excessive guidance can distort the result.', 'structure_rescale': 'Regulates the amplitude of volume guidance. Higher values can change detail while reducing excessive guidance.', 'structure_rescale_t': 'Changes the timing distribution of volume diffusion steps without increasing their count.', 'shape_steps': 'Steps per geometry generation pass. Zero uses the profile. More steps take longer.', 'shape_guidance': 'Reference strength for geometry and surface detail. Excessive guidance may produce bumps or artifacts.', 'shape_rescale': 'Regulates geometry guidance when its strength is high.', 'shape_rescale_t': 'Redistributes geometry diffusion steps over time; the step count remains unchanged.', 'texture_steps': 'Material generation steps. Zero uses the profile. More steps may add detail but take longer.', 'texture_guidance': 'Reference strength for colour and materials. Excessive guidance may amplify defects or contrast.', 'texture_rescale': 'Regulates material guidance when texture guidance is high.', 'texture_rescale_t': 'Redistributes texture diffusion steps over time without increasing their count.', 'texture_seed': 'Separate random seed for materials. Minus one continues the main random sequence; a fixed seed helps compare material settings.', 'mesh_mode': 'Remesh rebuilds a surface then simplifies it and may soften detail. Direct simplifies the generated surface while keeping more irregularities.', 'pre_simplify': 'First reduces dense surfaces towards two million triangles to limit processing cost. Disable to retain the raw surface for finishing.', 'repair_holes': 'Fills small openings before surface reconstruction. Enabled by profile D; it does not guarantee a closed mesh or preservation of every thin detail.', 'remesh_project': 'Projects the rebuilt surface towards the source. Zero keeps the reconstruction; one applies maximum projection. Used with remeshing only.', 'remesh_band': 'Width of the reconstruction band in voxels. This can affect thin parts and processing cost.', 'qem_edge_weight': 'Edge-length penalty during simplification. Higher values favour a more regular triangle distribution. Zero prioritises shape error and can create elongated triangles.', 'qem_skinny_weight': 'Penalises simplifications that produce very thin triangles while keeping the target triangle count.', 'uv_angle': 'Face grouping angle in degrees. Smaller values create more UV islands; larger values group more broadly and can affect stretching.', 'uv_refine': 'Iterations to refine UV groups before unwrapping. Zero disables refinement; higher values take longer and may change islands.', 'uv_global': 'Global grouping passes before UV unwrapping. More passes take longer and can reorganise islands.', 'uv_smooth': 'Smoothing strength for grouping faces into UV regions. Changes island boundaries without smoothing model geometry.'}
+HELP.update(
+    texture_sampling='Interpolation inside the generated material volume. Nearest voxel can expose blocky steps; trilinear blends neighbouring voxels. Both project the finished mesh to the nearest point on the source surface first.',
+    remesh_resolution='Reconstruction grid ceiling: 512, 768 or 1024. Limited by the generated resolution. Higher values cost more memory and may preserve more detail; no automatic fallback on memory failure. Unused with direct simplification.',
+)
 for field in FIELDS:field['hint']=HELP[field['key']]
 ENGLISH_LABELS={'structure_steps': 'Structure · steps', 'structure_guidance': 'Structure · guidance', 'structure_rescale': 'Structure · rescale', 'structure_rescale_t': 'Structure · timestep distribution', 'shape_steps': 'Shape · steps', 'shape_guidance': 'Shape · guidance', 'shape_rescale': 'Shape · rescale', 'shape_rescale_t': 'Shape · timestep distribution', 'texture_steps': 'Texture · steps', 'texture_guidance': 'Texture · guidance', 'texture_rescale': 'Texture · rescale', 'texture_rescale_t': 'Texture · timestep distribution', 'texture_seed': 'Texture seed', 'mesh_mode': 'Finishing method', 'pre_simplify': 'Pre-simplify dense meshes to 2M', 'repair_holes': 'Fill small holes', 'remesh_project': 'Surface projection', 'remesh_band': 'Remesh band width', 'qem_edge_weight': 'QEM · edge length', 'qem_skinny_weight': 'QEM · skinny triangles', 'uv_angle': 'UV grouping angle', 'uv_refine': 'Island refinement', 'uv_global': 'Global passes', 'uv_smooth': 'Island smoothing'}
+ENGLISH_LABELS.update(texture_sampling='Material voxel interpolation',remesh_resolution='Reconstruction grid ceiling')
 for field in FIELDS:field['label']=ENGLISH_LABELS[field['key']]
 BY_KEY={f['key']:f for f in FIELDS}
 # Keep historical fallback values in FIELDS so old job records are not reinterpreted.
@@ -86,6 +94,8 @@ def normalize_options(overrides=None,base_steps=12):
             if field['type']=='integer' and int(value)!=value:raise ValueError(field['label']+' : expected an integer.')
             if not field['min']<=value<=field['max']:raise ValueError(f"{field['label']} : enter a value between {field['min']} and {field['max']}.")
             value=int(value) if field['type']=='integer' else float(value)
+            if key=='remesh_resolution' and value not in (512,768,1024):
+                raise ValueError('Reconstruction grid ceiling: choose 512, 768 or 1024.')
             if key.endswith('_steps') and value==0:value=base_steps
         result[key]=value
     return result
@@ -112,6 +122,7 @@ def sampler_options(options):
 
 def export_options(options):
     return dict(remesh=options['mesh_mode']=='remesh',repair_holes=options['repair_holes'],remesh_band=options['remesh_band'],remesh_project=options['remesh_project'],
+        remesh_resolution=options['remesh_resolution'],texture_sampling=options['texture_sampling'],
         mesh_cluster_threshold_cone_half_angle_rad=math.radians(options['uv_angle']),
         mesh_cluster_refine_iterations=options['uv_refine'],mesh_cluster_global_iterations=options['uv_global'],
         mesh_cluster_smooth_strength=options['uv_smooth'])

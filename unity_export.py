@@ -51,13 +51,13 @@ def export_unity(mesh, folder, settings):
     editor.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / 'unity' / 'TrellisUnityImporter.cs', editor / 'TrellisUnityImporter.cs')
     (bundle / 'LIRE-UNITY.txt').write_text(
-        'IMPORT UNITY 6 / URP\n\n1. Decompresser ce ZIP.\n2. Copier le dossier TRELLIS dans Assets.\n'
-        '3. Attendre la compilation du script Editor.\n4. Menu Outils > TRELLIS > Creer les prefabs URP.\n'
-        'Le prefab et le materiau sont crees a cote du modele.\n\n'
-        'Echelle en metres, axe Y vertical, pivot au sol. La hauteur est celle choisie dans l interface.\n'
-        'Le GLB garde les materiaux PBR pour Blender ou un importeur glTF Unity.\n'
-        'MetallicSmoothness.png : R=metal, A=1-rugosite ; texture lineaire.\n'
-        'Pas de collider, LOD, interieur visitable ou destructibilite generes automatiquement.\n', encoding='utf-8')
+        'UNITY 6 / URP IMPORT\n\n1. Extract this ZIP file.\n2. Copy the TRELLIS folder into Assets.\n'
+        '3. Wait for the Editor script to compile.\n4. Use the TRELLIS Unity importer to create the URP prefabs.\n'
+        'The prefab and material are created alongside the model.\n\n'
+        'Scale is in metres, Y is up and the pivot is at ground level. Height matches the value selected in Studio.\n'
+        'The GLB retains its PBR materials for Blender or a Unity glTF importer.\n'
+        'MetallicSmoothness.png: R=metallic, A=1-roughness; linear texture.\n'
+        'Colliders, LODs, accessible interiors and destructibility are not generated automatically.\n', encoding='utf-8')
     archive = folder / 'Unity.zip'
     with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as stream:
         for path in bundle.rglob('*'):

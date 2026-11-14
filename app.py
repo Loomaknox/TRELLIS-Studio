@@ -77,6 +77,9 @@ RIG_PILOT = Path(os.environ.get('TRELLIS_RIG_PILOT_DIR', str(ROOT / 'UniRig' / '
 def stop_worker():
     if PROCESS is None or PROCESS.poll() is not None: return
     import psutil
+    if ACTIVE and 'STUDIO' in globals():
+        from generated_animation_runtime import stop_runtime
+        stop_runtime(ROOT, STUDIO.job_folder(ACTIVE))
     if ACTIVE and (OUTPUT/ACTIVE/'rig-work'/'runtime.pid').is_file():
         try: operation=json.loads((OUTPUT/ACTIVE/'status.json').read_text(encoding='utf-8')).get('operation')
         except (OSError,ValueError):operation=None
@@ -164,10 +167,11 @@ def job_record(folder):
         data['lods']=json.loads((folder/'lod-manifest.json').read_text(encoding='utf-8')) if (folder/'lod-manifest.json').is_file() else None
         data['physics']=json.loads((folder/'physics.json').read_text(encoding='utf-8')) if (folder/'physics.json').is_file() else None
         data['presentation']=json.loads((folder/'Presentation/presentation.json').read_text(encoding='utf-8')) if (folder/'Presentation/presentation.json').is_file() else {}
-        if data['state'] in ('running','queued') and not (data['state']=='queued' and 'STUDIO' in globals() and STUDIO.queued(folder.name)):
+        if data['state'] in ('running','queued') and not (data['state']=='queued' and data.get('operation')!='animation' and 'STUDIO' in globals() and STUDIO.queued(folder.name)):
             if folder.name != TERRAIN_ACTIVE and (folder.name != ACTIVE or PROCESS is None or PROCESS.poll() is not None):
                 if data.get('operation')=='animation':
                     recover_animation(folder)
+                    (folder/'generated-animation-request.json').unlink(missing_ok=True)
                     settings=json.loads((folder/'settings.json').read_text(encoding='utf-8'));data['settings']=settings
                     result_path=folder/'result.json'
                     if result_path.is_file():data['result']=json.loads(result_path.read_text(encoding='utf-8'))
@@ -208,7 +212,7 @@ def status():
                 export_active=EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None,
                 resolution=DEFAULT_GENERATION['resolution'], default_profile=DEFAULT_PROFILE, local=True, studio_version=VERSION,source_revision=SOURCE_REVISION,ui_revision=UI_REVISION,multi_view=pixal3d['ready'],pixal3d=pixal3d,
                 edition='server' if WORKSPACE_CONFIG else 'desktop',
-                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','pixal3d_multiview','pixal3d_face_projection'], texture_sizes=textures,supported_resolutions=resolutions)
+                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','pixal3d_multiview','pixal3d_face_projection'], texture_sizes=textures,supported_resolutions=resolutions)
 
 @app.get('/api/components')
 def components():
@@ -222,7 +226,7 @@ def components():
 def launch_worker(folder, script, source_id=None):
     global PROCESS, ACTIVE, LOG_HANDLE, FINISH_SOURCE
     if LOG_HANDLE: LOG_HANDLE.close()
-    LOG_HANDLE=(folder/'generation.log').open('a' if script=='animation_worker.py' else 'w',encoding='utf-8')
+    LOG_HANDLE=(folder/'generation.log').open('a' if script in ('animation_worker.py','generated_animation_worker.py') else 'w',encoding='utf-8')
     env=os.environ.copy();env['PYTHONUTF8']='1'
     PROCESS=subprocess.Popen([sys.executable,'-u',str(ROOT/script),str(folder)],cwd=ROOT,env=env,
                              stdout=LOG_HANDLE,stderr=subprocess.STDOUT,
@@ -402,7 +406,7 @@ def animation_operation_path(identifier):
     return path
 
 
-def stage_animation_operation(source, record, request, revision):
+def stage_animation_operation(source, record, request, revision, generated=False):
     root = animation_operations_root()
     root.mkdir(parents=True, exist_ok=True)
     for entry in STUDIO.workspace.queue['items']:
@@ -420,10 +424,14 @@ def stage_animation_operation(source, record, request, revision):
             shutil.copytree(source/'LODs', staged/'LODs')
         if (source/'motion-report.json').is_file():
             shutil.copy2(source/'motion-report.json', staged/'motion-report.json')
-        write_json(staged/'settings.json', record['settings'])
+        settings = dict(record['settings'])
+        if generated:
+            settings['generated_animation_action'] = 'apply'
+        write_json(staged/'settings.json', settings)
         write_json(staged/'operation.json', dict(model_id=source.name, revision=revision,
                                                 name=record['metadata'].get('display_name') or record['settings']['name']))
-        write_json(staged/'animation-request.json', dict(request, linked=True, defer_publish=True))
+        request_file = 'generated-animation-request.json' if generated else 'animation-request.json'
+        write_json(staged/request_file, dict(request, linked=True, defer_publish=True))
         write_json(staged/'status.json', dict(state='queued', stage='Waiting to update animations', progress=0,
                                              operation='animation'))
         staged.rename(target)
@@ -1205,12 +1213,14 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
 
 @app.post('/api/jobs/{identifier}/cancel')
 async def cancel(identifier: str):
+    if ID.fullmatch(identifier) and (generated_animations_root()/identifier).is_dir():
+        return await cancel_generated_animation(identifier)
     global LOG_HANDLE
     if WORKSPACE_CONFIG and ID.fullmatch(identifier) and (animation_operations_root()/identifier).is_dir():
         return await cancel_animation_operation(identifier)
     folder = job_path(identifier)
     record=job_record(folder)
-    if record['state']=='queued' and STUDIO.queued(identifier):
+    if record['state']=='queued' and record.get('operation')!='animation' and STUDIO.queued(identifier):
         for entry in STUDIO.workspace.queue['items']:
             if entry['id']==identifier:entry['cancelled']=True
         STUDIO.workspace.save_queue();write_json(folder/'status.json',dict(state='cancelled',stage='Removed from generation queue',progress=0));return {'ok':True}
@@ -1221,6 +1231,7 @@ async def cancel(identifier: str):
             LOG_HANDLE = None
         if record.get('operation')=='animation':
             recover_animation(folder)
+            (folder/'generated-animation-request.json').unlink(missing_ok=True)
             result=json.loads((folder/'result.json').read_text(encoding='utf-8'))
             write_json(folder/'status.json',dict(state='done',stage='Model preserved',progress=100,result=result,operation_error='Animation update cancelled.'))
         else:(folder / 'status.json').write_text(json.dumps({'state':'cancelled','stage':'Generation cancelled','progress':0}), encoding='utf-8')
@@ -1342,6 +1353,8 @@ async def shutdown(idle_only:bool=False):
 
 from studio_api import install
 STUDIO=install(app,globals())
+from generated_animation_api import install as install_generated_animations
+install_generated_animations(app,globals())
 from studio_rest import install as install_rest
 install_rest(app,globals())
 

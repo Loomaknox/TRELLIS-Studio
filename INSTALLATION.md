@@ -1,6 +1,6 @@
 # Installation and recovery
 
-Building or testing the unsigned Windows Setup preview? See the
+Using or building the unsigned Windows Setup? See the
 [Windows installer guide](docs/WINDOWS_SETUP.md). The instructions below apply
 to the source installation.
 
@@ -27,6 +27,15 @@ background processes for conversion and preparation. The web interface is local.
 Conda, a global Python installation or Git when installing from the source ZIP.
 The source ZIP does not contain the engines, model weights or Python environments.
 The Windows port and UniRig use different PyTorch/CUDA versions in separate environments.
+
+**Optional motion generation:** the persistent **My animations** library is included
+in Studio. Setup can optionally install the Kimodo CPU runtime after you select
+it and accept the separate model licences. It needs an initialized WSL2 Linux x64
+distribution with Python 3.10+, glibc 2.35+ and an AVX2/FMA/F16C CPU. Allow another
+12 GiB free inside WSL; its approximately 9.3 GB of weights are additional to the
+storage estimates above. Kimodo itself requires no NVIDIA GPU or CUDA. See
+[Motion generation](docs/MOTION_GENERATION.md). Previously saved motions remain
+reusable when the optional engine is unavailable.
 
 UniRig's pinned Torch 2.5/CUDA 12.4/FlashAttention setup was validated on an Ada GPU.
 Do not assume that a newer GPU architecture, especially Blackwell, is supported by
@@ -73,6 +82,10 @@ The second command should see your Windows NVIDIA GPU. WSL uses the Windows driv
 [GPU compute guide](https://learn.microsoft.com/windows/wsl/tutorials/gpu-compute).
 The Studio installer does not reboot Windows or accept the Linux first-run prompts
 for you. Once these prerequisites are ready, the remaining installation is scripted.
+
+For **Kimodo only**, finish WSL's first-run setup, then use the optional motion
+installer. The NVIDIA GPU check above is for UniRig; Kimodo does not require it
+or the `apt-get update` command. Its portable build tools are installed privately.
 
 ## Automatic installation
 
@@ -149,11 +162,27 @@ are left alone with an error so that a manual migration can be reviewed.
 # Recheck an installed setup without changing dependencies.
 .\Install-Studio.ps1 -VerifyOnly
 # Use -SkipRig too when checking a native-only installation.
+
+# Workshop plus optional CPU motion generation; asks for model-licence acceptance.
+.\Install-Studio.ps1 -WorkshopOnly -WithKimodo -NoLaunch
+
+# Select a configured WSL2 distribution specifically for Kimodo.
+.\Install-Studio.ps1 -WorkshopOnly -WithKimodo -KimodoDistribution Ubuntu-22.04 -NoLaunch
 ```
 
 `-AcceptDinoV3License` is available for users who have already read and accepted
 those exact terms, including scripted deployment under their own authority. It
 must not be supplied by another agent as a substitute for your decision.
+
+`-WithKimodo` is opt-in. It installs the pinned CPU runtime, portable build tools,
+weights and reference skeleton, validates a short motion, then writes the local
+configuration. `-AcceptKimodoModelLicenses` is available for users who have already
+read and accepted the NVIDIA and Meta terms. Without it, the console asks for
+consent. The option does not install WSL or change Linux system packages. To add
+or resume it later, double-click **Install Kimodo.cmd**. A custom runtime
+configuration is preserved; an invalid configuration is reported for review.
+The [motion setup guide](docs/MOTION_GENERATION.md#optional-automatic-installation-on-windows)
+describes storage, prerequisites and manual configuration.
 
 `config/runtime.json` stores the selected WSL distribution. Preserve or review it
 when changing distributions. `TRELLIS_UNIRIG_ENV` can select a different Linux

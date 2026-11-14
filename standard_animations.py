@@ -15,7 +15,7 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=str(work/'rigged.glb'))
 scene=bpy.context.scene;scene.render.fps=24;scene.frame_start=0
 arms=[o for o in scene.objects if o.type=='ARMATURE']
-if len(arms)!=1: raise ValueError('Ce premier outil nécessite un seul squelette par modèle.')
+if len(arms)!=1: raise ValueError('This tool requires one skeleton per model.')
 arm=arms[0];bones=list(arm.data.bones)
 meshes=[o for o in scene.objects if o.type=='MESH']
 arm.data.pose_position='REST';bpy.context.view_layer.update()
@@ -31,7 +31,7 @@ world={b.name:(arm.matrix_world@b.head_local,arm.matrix_world@b.tail_local) for 
 roots=[b for b in bones if not b.parent]
 mapping={};warning=''
 try:
-    if len(roots)!=1: raise ValueError('Le squelette possède plusieurs racines.')
+    if len(roots)!=1: raise ValueError('The skeleton has multiple roots.')
     root=roots[0];cx=world[root.name][0].x
     def limb(sign,kind):
         candidates=[]
@@ -49,7 +49,7 @@ try:
                 if not (low.z+height*.57<h.z<low.z+height*.9 and abs(h.x-cx)>height*.07 and sign*v.x>height*.065 and abs(v.z)<height*.23 and sign*(ct.x-ch.x)>height*.06):continue
                 score=abs(h.x-cx)/height+abs(v.z)/height
             candidates.append((score,b,c))
-        if not candidates: raise ValueError('Membres humanoïdes non reconnus avec assez de confiance.')
+        if not candidates: raise ValueError('Humanoid limbs could not be identified with enough confidence.')
         _,upper,lower=min(candidates,key=lambda x:x[0]);return upper,lower
     for label,sign in [('left',1),('right',-1)]:
         for kind in ('arm','leg'):
@@ -57,7 +57,7 @@ try:
             mapping[label+'_'+kind]=upper.name;mapping[label+'_'+('forearm' if kind=='arm' else 'shin')]=lower.name
         shin=arm.data.bones[mapping[label+'_shin']]
         if shin.children:mapping[label+'_foot']=max(shin.children,key=lambda b:b.length).name
-    if len(set(mapping.values()))!=len(mapping): raise ValueError('Correspondance ambiguë entre les membres.')
+    if len(set(mapping.values()))!=len(mapping): raise ValueError('The limb mapping is ambiguous.')
     left_parent=arm.data.bones[mapping['left_leg']].parent
     right_parents=[arm.data.bones[mapping['right_leg']],*arm.data.bones[mapping['right_leg']].parent_recursive]
     while left_parent and left_parent not in right_parents:left_parent=left_parent.parent

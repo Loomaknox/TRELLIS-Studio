@@ -1,9 +1,9 @@
-import {icon} from './card-menu.js?v=3.3.6';
+import {icon} from './card-menu.js?v=3.4.0';
 const names={closeLighting:'close',resetLighting:'rotate',lightingToggle:'sun',saveProfileAs:'copy',updateProfile:'edit',closeProfile:'close',confirmProfile:'check',copyReferencePrompt:'copy',resetAdvanced:'rotate',generate:'sparkles',cancel:'close',createTerrain:'terrain',shutdown:'power',
  openLibrary:'grid',toggleCollection:'grid',showTrash:'trash',favorite:'star',pagePrev:'chevron-left',pageNext:'chevron-right',confirmDelete:'trash',closeImage:'close',
  selectModels:'select',clearSelection:'close',selectPage:'select',selectMatches:'grid',compareSelection:'compare',classifySelection:'tag',exportSelectionButton:'download',trashSelection:'trash',
  applyBatch:'check',keepBatch:'close',confirmBatchTrash:'trash',closeImport:'close',confirmImport:'import',closePrint:'close',confirmPrint:'print',prepareExport:'download',newExport:'plus',cancelExportTask:'close',
- compareFrame:'fit',comparePlay:'play',rerunDiagnostics:'rotate',animationTabLibrary:'grid',animationTabAdded:'check',cancelRigSetup:'back',resetRigSetup:'rotate',confirmRigSetup:'skeleton',createRig:'skeleton'};
+ compareFrame:'fit',comparePlay:'play',rerunDiagnostics:'rotate',animationTabLibrary:'grid',animationTabPersonal:'motion',animationTabAdded:'check',cancelRigSetup:'back',resetRigSetup:'rotate',confirmRigSetup:'skeleton',createRig:'skeleton'};
 function decorate(button){
  if(button.hasAttribute('data-landmark'))return;
  for(const n of [...button.childNodes])if(n.nodeType===Node.TEXT_NODE)n.textContent=n.textContent.replace(/^[\s]*[＋+↻↺←→▦☆★×✕]\s*/,'');

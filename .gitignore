@@ -224,6 +224,7 @@
 
 !/tests/humanoid_profiles.py
 !/tests/finishing_board.py
+!/tests/normal_donor.py
 !/tests/export_preflight.py
 !/tests/unity_reimport.py
 !/tests/unity_reimport_editor.cs
@@ -243,3 +244,53 @@
 !/installer/windows/Manage-Shortcuts.ps1
 !/installer/windows/trellis-studio.ico
 !/studio_version.py
+
+# Public, configurable launchers. Per-install settings and binaries stay ignored.
+!/installer/caddy-manifest.json
+!/installer/install_caddy.py
+!/installer/audit_public.py
+!/installer/windows/Build-Tray.ps1
+!/installer/windows/StudioTray.cs
+!/installer/windows/Server-Control.ps1
+!/installer/windows/Tray-Control.ps1
+!/installer/windows/Configure-Firewall.ps1
+!/Open TRELLIS Tray.cmd
+!/tests/server_internet.py
+!/tests/public_packaging.py
+!/tests/windows_controller.ps1
+!/tests/windows_controller_integration.ps1
+!/tests/windows_tray.cs
+!/docs/RELEASE_3.4.0.md
+!/web/hologram-viewer.js
+!/tests/hologram_viewer.mjs
+
+# Persistent personal motions and generation progress UI; runtime data stay private.
+!/generated_animations.py
+!/generated_animation_api.py
+!/generated_animation_runtime.py
+!/generated_animation_runner.py
+!/generated_animation_worker.py
+!/generated_motion.py
+!/web/personal-animation-library.js
+!/web/personal-animation-previews.js
+!/web/personal-animation.css
+!/web/generation-wait.js
+!/web/generation-wait.css
+!/tests/generated_motion.py
+!/tests/generated_animations.py
+!/tests/generated_animations_server.py
+!/tests/generated_animation_updates.py
+!/tests/generated_animation_runtime.py
+!/tests/generated_animation_mcp.py
+!/tests/check_text_encoding.py
+!/docs/MOTION_GENERATION.md
+
+# Optional, pinned Kimodo installer. Downloaded models and runtime settings stay private.
+!/Install Kimodo.cmd
+!/installer/install_kimodo.py
+!/installer/kimodo-manifest.json
+!/installer/kimodo_install_common.py
+!/installer/kimodo_install_linux.py
+!/installer/windows/Install-Kimodo.ps1
+!/tests/kimodo_installer.py
+!/tests/kimodo_windows.ps1

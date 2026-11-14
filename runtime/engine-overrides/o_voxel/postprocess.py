@@ -52,6 +52,8 @@ def to_glb(
     use_tqdm: bool = False,
     adaptive_mesh: Optional[Callable] = None,
     repair_surface: bool = False,
+    remesh_resolution: int = 512,
+    texture_sampling: str = 'trilinear',
 ):
     """
     Convert an extracted mesh to a GLB file.
@@ -73,6 +75,8 @@ def to_glb(
         repair_surface: check for outliers in the opt-in surface reconstruction
         remesh_band: size of the remeshing band
         remesh_project: projection factor for remeshing
+        remesh_resolution: explicit DC grid ceiling (512, 768 or 1024), not the generation grid
+        texture_sampling: interpolation in the material voxel volume, after nearest-surface projection
         mesh_cluster_threshold_cone_half_angle_rad: threshold for cone-based clustering in uv unwrapping
         mesh_cluster_refine_iterations: number of iterations for refining clusters in uv unwrapping
         mesh_cluster_global_iterations: number of global iterations for clustering in uv unwrapping
@@ -82,6 +86,13 @@ def to_glb(
     """
     if repair_surface and not remesh:
         raise ValueError('Surface repair requires reconstruction.')
+    if type(remesh_resolution) is not int or remesh_resolution not in (512, 768, 1024):
+        raise ValueError('Reconstruction grid ceiling must be 512, 768 or 1024.')
+    if texture_sampling not in ('trilinear', 'nearest'):
+        raise ValueError('Material voxel interpolation must be trilinear or nearest.')
+    input_triangles = len(faces)
+    dc_resolution = None
+    reconstructed_triangles = None
     # --- Input Normalization (AABB, Voxel Size, Grid Size) ---
     if isinstance(aabb, (list, tuple)):
         aabb = np.array(aabb)
@@ -153,6 +164,7 @@ def to_glb(
     if verbose:
         print(f"Initial mesh: {mesh.num_vertices} vertices, {mesh.num_faces} faces")
     vertices, faces = mesh.read()
+    cleaned_source_triangles = len(faces)
     if use_tqdm:
         pbar.update(1)
         
@@ -186,6 +198,7 @@ def to_glb(
         mesh, adaptive_report = adaptive_mesh(
             vertices, faces, bvh, decimation_target, float(voxel_size.min()), verbose,
         )
+        adaptive_report['reference'] = 'input surface after initial cleanup'
     elif not remesh:
         # Step 1: Aggressive simplification (3x target)
         mesh.simplify(decimation_target * 3, verbose=verbose)
@@ -220,12 +233,13 @@ def to_glb(
         scale = (aabb[1] - aabb[0]).max().item()
         resolution = grid_size.max().item()
 
-        # Cap DC grid resolution to control peak VRAM during remeshing.
-        # DC resolution only affects the intermediate mesh shell density — the
-        # texture is baked from attr_volume at full voxel resolution regardless.
-        # At 1024 DC produces ~41M faces only to simplify to ~200K (99.5% waste).
-        # At 512 DC produces ~10M — still 50x the target — saving ~2-3GB VRAM.
-        dc_resolution = min(int(resolution), 512)
+        # Keep the historical 512 cap unless the caller explicitly chooses a
+        # denser reconstruction. This changes the reconstructed geometry, not the
+        # attribute volume resolution. Never silently lower it after an OOM.
+        dc_resolution = min(int(resolution), remesh_resolution)
+        if verbose:
+            print(f'Reconstruction grid: {dc_resolution} (requested ceiling {remesh_resolution}, '
+                  f'generated grid {int(resolution)})', flush=True)
         
         # Free CuMesh internal buffers before the heavy remesh allocation —
         # vertices/faces are still held separately for BVH texture baking later
@@ -252,6 +266,7 @@ def to_glb(
 
         mesh = cumesh.CuMesh()
         mesh.init(remesh_verts, remesh_faces)
+        reconstructed_triangles = len(remesh_faces)
         del remesh_verts, remesh_faces
 
         if verbose:
@@ -336,7 +351,7 @@ def to_glb(
     
     # --- Texture Baking (Attribute Sampling) ---
     if not torch.isfinite(out_vertices).all() or not torch.isfinite(out_uvs).all():
-        raise ValueError('Maillage ou UV non finis : export refusé. Réessayer avec une autre finition.')
+        raise ValueError('The mesh or UVs contain non-finite values. Export stopped; try different finishing settings.')
     if use_tqdm:
         pbar.set_description("Sampling attributes")
     if verbose:
@@ -353,7 +368,7 @@ def to_glb(
     if _rasterizer == 'torch' or dr is None:
         mask, tri_id, bary = rasterize_uv(out_uvs, out_faces, texture_size)
         if not mask.any():
-            raise ValueError('Aucun texel UV couvert : export refusé pour éviter une texture vide.')
+            raise ValueError('No UV texels are covered. Export stopped to avoid creating an empty texture.')
         tri_verts = out_vertices[out_faces[tri_id[mask]]]              # (N_texels, 3, 3)
         valid_pos = (tri_verts * bary[mask].unsqueeze(-1)).sum(dim=1)  # (N_texels, 3)
         del tri_id, bary, tri_verts
@@ -411,14 +426,14 @@ def to_glb(
     coords = coords_cpu.cuda()
     del attr_volume_cpu, coords_cpu
     
-    # Trilinear sampling from the attribute volume (Color, Material props)
+    # Material interpolation is independent of the nearest-surface BVH projection.
     attrs = torch.zeros(texture_size, texture_size, attr_volume.shape[1], device='cuda', dtype=attr_volume.dtype)
     attrs[mask] = grid_sample_3d(
         attr_volume,
         torch.cat([torch.zeros_like(coords[:, :1]), coords], dim=-1),
         shape=torch.Size([1, attr_volume.shape[1], *grid_size.tolist()]),
         grid=((valid_pos - aabb[0]) / voxel_size).reshape(1, -1, 3),
-        mode='trilinear',
+        mode=texture_sampling,
     )
     
     # Free attr_volume and coords now that texture baking is done
@@ -482,6 +497,16 @@ def to_glb(
         vertex_normals=normals_np,
         process=False,
         visual=trimesh.visual.TextureVisuals(uv=uvs_np, material=material)
+    )
+    textured_mesh.metadata['finishing'] = dict(
+        method='remesh' if remesh else 'direct', input_triangles=input_triangles,
+        cleaned_source_triangles=cleaned_source_triangles,
+        generated_grid_resolution=int(grid_size.max()),
+        remesh_resolution_requested=remesh_resolution if remesh else None,
+        remesh_resolution_actual=dc_resolution, reconstructed_triangles=reconstructed_triangles,
+        output_triangles=len(faces_np), texture_size=texture_size,
+        texture_sampling=texture_sampling, texture_projection='nearest point on source surface',
+        initial_fill_used=initial_fill_used,
     )
     if adaptive_report is not None:
         textured_mesh.metadata['adaptive_finishing'] = adaptive_report

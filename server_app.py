@@ -1,4 +1,4 @@
-"""Opt-in LAN edition of TRELLIS Studio."""
+"""Authenticated TRELLIS Server with optional local HTTPS reverse proxy."""
 import argparse
 import asyncio
 import base64
@@ -25,6 +25,7 @@ import uvicorn
 
 from server_runtime import ROOT, ServerRuntime, remove_child, tree_bytes
 from server_store import DEFAULT_DISK_LIMIT, SESSION_SECONDS, Store, StoreError
+from server_setup import network_settings
 from studio_version import VERSION
 from studio_workspace import ID, read, write
 
@@ -157,7 +158,7 @@ def app_for(data, public_url, setup_token=None, on_setup=None):
     limiter = RateLimit()
     origin = public_url.rstrip('/')
     parsed = urlsplit(origin)
-    if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username:
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username is not None:
         raise ValueError('Configure the public HTTP or HTTPS origin without a path.')
 
     @asynccontextmanager
@@ -527,7 +528,7 @@ def app_for(data, public_url, setup_token=None, on_setup=None):
     def audit(request: Request):
         user = actor(request, admin=True)
         names = {entry['id']: entry['first_name'] + ' ' + entry['last_name'] for entry in store.list_users(user['id'])}
-        return {'entries': [{**entry, 'actor_name': names.get(entry['actor_id'], 'Serveur'), 'subject_name': names.get(entry['target_id'], '')}
+        return {'entries': [{**entry, 'actor_name': names.get(entry['actor_id'], 'Server'), 'subject_name': names.get(entry['target_id'], '')}
                             for entry in store.audit(user['id'])]}
 
     @app.get('/server/api/admin/status')
@@ -683,6 +684,16 @@ def main():
     directory = Path(args.data_dir or settings.get('data_dir') or ROOT / 'server-data').resolve()
     if ROOT.is_relative_to(directory) or any(directory.is_relative_to(ROOT / name) for name in ('outputs', 'trash', 'exports', 'web', 'config', 'models', 'engine', '.venv')):
         parser.error('Choose a separate server data folder.')
+    if args.recover_admin:
+        # Recovery is local and offline, including when a certificate file is unavailable.
+        with exclusive_instance(directory):
+            store = Store(directory / 'server.sqlite3')
+            new = getpass('New administrator password: ')
+            if new != getpass('Repeat password: '):
+                parser.error('The passwords do not match.')
+            store.recover_admin(args.recover_admin, new)
+        print('Administrator password reset. Enroll two-factor authentication at the next sign-in.')
+        return
     host = args.host or settings.get('host', '127.0.0.1')
     port = args.port or settings.get('port', 7862)
     tls_cert, tls_key = settings.get('tls_cert'), settings.get('tls_key')
@@ -690,6 +701,7 @@ def main():
         parser.error('Provide both the HTTPS certificate and its private key.')
     scheme = 'https' if tls_cert else 'http'
     public_url = settings.get('public_url', f'{scheme}://{host}:{port}')
+    reverse_proxy = False
     if not 1 <= port <= 65535:
         parser.error('Use a valid port.')
     if args.setup_only:
@@ -697,33 +709,30 @@ def main():
             parser.error('Setup requires a local installer token.')
         host, tls_cert, tls_key, public_url = '127.0.0.1', None, None, f'http://127.0.0.1:{port}'
     else:
-        loopback = host == 'localhost' or ipaddress.ip_address(host).is_loopback
-        if not loopback and not tls_cert:
-            parser.error('LAN access requires an HTTPS certificate and key.')
-        if urlsplit(public_url).scheme != scheme:
-            parser.error('The server address and HTTPS settings do not match.')
+        try:
+            network = network_settings({**settings, 'host': host, 'port': port, 'public_url': public_url})
+        except (ValueError, TypeError, OSError) as error:
+            parser.error(str(error))
+        host, port, public_url = network['host'], network['port'], network['public_url']
+        tls_cert, tls_key = network['tls_cert'], network['tls_key']
+        reverse_proxy = network['reverse_proxy']
+        loopback = ipaddress.ip_address(host).is_loopback
     with exclusive_instance(directory):
         store = Store(directory / 'server.sqlite3')
-        if args.recover_admin:
-            new = getpass('New administrator password: ')
-            if new != getpass('Repeat password: '):
-                parser.error('The passwords do not match.')
-            store.recover_admin(args.recover_admin, new)
-            print('Administrator password reset. Enroll double authentication at the next sign-in.')
-            return
         if args.setup_only and store.has_admin():
             return
         if not args.setup_only and not store.has_admin():
             parser.error('Install and create the initial administrator before starting the server.')
-        if not args.setup_only and not loopback and not any(user['role'] == 'admin' and user['status'] == 'active'
+        if not args.setup_only and (not loopback or reverse_proxy) and not any(user['role'] == 'admin' and user['status'] == 'active'
                                                           and not user['password_change_required'] for user in store.all_users()):
-            parser.error('Change the initial administrator password locally before enabling LAN access.')
+            parser.error('Change the initial administrator password locally before enabling network access.')
         token = args.setup_token_file.read_text(encoding='utf-8').strip() if args.setup_only else None
         if args.setup_only and (len(token) < 32 or len(token) > 200):
             parser.error('Invalid installer token.')
         app = app_for(directory, public_url, token, lambda: setattr(server, 'should_exit', True))
         server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, ssl_certfile=tls_cert, ssl_keyfile=tls_key,
-                                               proxy_headers=False, workers=1))
+                                               proxy_headers=reverse_proxy,
+                                               forwarded_allow_ips='127.0.0.1' if reverse_proxy else '', workers=1))
         if args.setup_only:
             server.run()
         else:
