@@ -9,6 +9,13 @@ from studio_import import validate_glb
 from studio_workspace import read, write
 
 
+def staged_reference(folder, name):
+    path = folder / name
+    if path.parent != folder or path.resolve().parent != folder:
+        raise ValueError('Invalid projection reference.')
+    return path
+
+
 def run(folder):
     request = read(folder / 'finishing-request.json')
     operation = request['operation']
@@ -25,14 +32,21 @@ def run(folder):
 
     try:
         progress('Reading the selected model', .03)
+        references = []
         with TemporaryDirectory(prefix='finish-', dir=folder) as directory:
             target = Path(directory) / 'model.glb'
             if operation == 'texture_projection':
-                from texture_projection import project_texture
-                reference = folder / request['reference_file']
-                if reference.resolve().parent != folder:
-                    raise ValueError('Invalid projection reference.')
-                report = project_texture(source, reference, target, options=request['options'], progress=progress)
+                from texture_projection import project_texture, project_texture_views
+                if 'views' in request:
+                    views = [(staged_reference(folder, view['reference_file']), view['options']) for view in request['views']]
+                    references = [reference for reference, _ in views]
+                    if len({reference.resolve() for reference in references}) != 2:
+                        raise ValueError('Expected two staged projection references.')
+                    report = project_texture_views(source, views, target, progress=progress)
+                else:
+                    reference = staged_reference(folder, request['reference_file'])
+                    references = [reference]
+                    report = project_texture(source, reference, target, options=request['options'], progress=progress)
                 completed = 'Texture projection ready'
             elif operation == 'baked_game_copy':
                 from baked_game_copy import run_baked_game_copy
@@ -48,7 +62,7 @@ def run(folder):
                           texture_size=request['options']['texture_size'])
         write(folder / 'result.json', result)
         source.unlink(missing_ok=True)
-        if operation == 'texture_projection':
+        for reference in references:
             reference.unlink(missing_ok=True)
         status('done', completed, 100, result=result)
     except Exception as error:

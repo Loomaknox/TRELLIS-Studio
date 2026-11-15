@@ -354,6 +354,15 @@ class TextureProjection(Contract):
         return self
 
 
+class MultiViewTextureProjection(Contract):
+    views: list[TextureProjection] = Field(
+        min_length=2, max_length=2,
+        description='Two independently aligned reference images to blend into one texture copy.')
+
+
+TextureProjectionRequest = TextureProjection | MultiViewTextureProjection
+
+
 class BakedGameCopy(Contract):
     profile: Literal['object', 'humanoid'] = 'object'
     triangles: int | None = Field(default=None, ge=5000, le=150000)

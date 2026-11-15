@@ -44,7 +44,7 @@ $taskRequired+=@('Install Kimodo.cmd','installer/install_kimodo.py','installer/k
     'installer/kimodo_install_common.py','installer/kimodo_install_linux.py','installer/windows/Install-Kimodo.ps1')
 $taskRequired+=@('texture_projection.py','baked_game_copy.py','game_bake_blender.py','model_finishing_api.py',
     'model_finishing_worker.py','web/texture-projection.js','web/texture-projection-geometry.js',
-    'web/texture-projection.css',('docs/RELEASE_'+$taskPackage.version+'.md'))
+    'web/texture-projection-auto-align.js','web/texture-projection.css',('docs/RELEASE_'+$taskPackage.version+'.md'))
 foreach($taskItem in $taskRequired) {
     if ($taskItem -cnotin $taskFiles) { throw "Required public payload is missing: $taskItem" }
 }

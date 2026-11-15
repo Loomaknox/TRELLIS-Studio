@@ -17,7 +17,7 @@ from api_contract import (
     Animation, AnimationBatch, AnimationRemoval, Assign, BakedGameCopy, Export, Folder, Game, Generation, Identifier, ImportModel,
     GeneratedAnimationCreate, GeneratedAnimationApply,
     JobRetry, LOD, Metadata, Motion, MultiViewGeneration, PrintCopy, Refinish, Rig,
-    SavedView, TextureProjection, VERSION,
+    SavedView, TextureProjectionRequest, VERSION,
 )
 
 ROOT=Path(__file__).resolve().parent
@@ -179,12 +179,12 @@ async def queue_refinish(model_id: Identifier, recipe: Refinish) -> dict[str, An
 
 @tool(read=True)
 async def get_texture_projection_options(model_id: Identifier) -> dict[str, Any]:
-    """Check support and list saved reference images for a completed static model."""
+    """Check support, saved reference images and the view limit for a completed static model."""
     return await api('GET', f'/models/{model_id}/texture-projection')
 
 @tool()
-async def queue_texture_projection(model_id: Identifier, recipe: TextureProjection) -> dict[str, Any]:
-    """Project an image region into the base color of a linked copy. Supply an orthographic or perspective camera (preset view or custom basis) and normalized rectangles. Use linked_selection to align the source mask with four matching points per image, and source_polygon for a freeform outline. Poll get_model."""
+async def queue_texture_projection(model_id: Identifier, recipe: TextureProjectionRequest) -> dict[str, Any]:
+    """Project into the base color of a linked copy. Submit one view recipe or a views list with two independently aligned recipes. Each view uses a saved reference or upload ID, a camera and normalized rectangles. Use linked_selection with four matching points per image for affine alignment, and source_polygon for a freeform outline. Poll get_model."""
     return await api('POST', f'/models/{model_id}/texture-projection',
                      recipe.model_dump(mode='json', exclude_none=True))
 

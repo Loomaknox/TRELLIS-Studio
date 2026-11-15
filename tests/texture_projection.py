@@ -142,6 +142,50 @@ class TextureProjectionTests(unittest.TestCase):
         self.assertFalse(np.any(new[15:110, 145:235, :3]))  # Separate back-face UV island.
         self.assertEqual(int(new[192, 192, 0]), 188)  # Visible strip itself receives the reference.
 
+    def test_two_views_preserve_geometry_and_paint_separate_front_and_rear_islands(self):
+        rear = self.root / 'rear.png'
+        Image.new('RGBA', (128, 128), (255, 0, 0, 255)).save(self.reference)
+        Image.new('RGBA', (128, 128), (0, 0, 255, 255)).save(rear)
+        source_doc, source_binary = read(self.source)
+        source_hash = hashlib.sha256(self.source.read_bytes()).hexdigest()
+        front_options = options(opacity=1)
+        back_options = options(camera={'view': 'back', 'frame': [-.5, -.5, .5, .5]}, opacity=1)
+        report = projection.project_texture_views(self.source, [(self.reference, front_options), (rear, back_options)], self.output)
+        self.assertEqual(report['view_count'], 2)
+        self.assertEqual(report['overlap_texels'], 0)
+        self.assertEqual(report['projected_texels'], sum(view['projected_texels'] for view in report['views']))
+        original, result = color(self.source), color(self.output)
+        np.testing.assert_array_equal(result[64, 38, :3], [255, 0, 0])
+        np.testing.assert_array_equal(result[64, 192, :3], [0, 0, 255])
+        np.testing.assert_array_equal(result[..., 3], original[..., 3])
+        source_after = hashlib.sha256(self.source.read_bytes()).hexdigest()
+        self.assertEqual(source_after, source_hash)
+        result_doc, result_binary = read(self.output)
+        self.assertEqual(result_binary[:len(source_binary)], source_binary)
+        for key in ('nodes', 'meshes', 'accessors'):
+            self.assertEqual(source_doc[key], result_doc[key])
+        result_doc['materials'][0]['pbrMetallicRoughness']['baseColorTexture'] = source_doc['materials'][0]['pbrMetallicRoughness']['baseColorTexture']
+        self.assertEqual(source_doc['materials'], result_doc['materials'])
+        self.assertEqual(len(result_doc['images']), len(source_doc['images']) + 1)
+
+    def test_shared_view_uses_weighted_linear_fusion_without_stacking_opacity(self):
+        other = self.root / 'other.png'
+        Image.new('RGBA', (128, 128), (255, 0, 0, 255)).save(self.reference)
+        Image.new('RGBA', (128, 128), (0, 0, 255, 255)).save(other)
+        report = projection.project_texture_views(self.source, [(self.reference, options()), (other, options())], self.output)
+        self.assertEqual(report['overlap_texels'], report['projected_texels'])
+        self.assertEqual(report['blend_mode'], 'confidence_weighted')
+        expected = projection._srgb(np.array([.5 * 1.33 / 2.33, 0, .5 / 2.33]))
+        np.testing.assert_array_equal(color(self.output)[64, 38, :3], expected)
+
+    def test_invalid_second_view_does_not_publish_a_partial_projection(self):
+        transparent = self.root / 'transparent.png'
+        Image.new('RGBA', (128, 128)).save(transparent)
+        with self.assertRaisesRegex(projection.TextureProjectionError, r'View 2: No visible surface'):
+            projection.project_texture_views(self.source, [(self.reference, options()), (transparent, options())], self.output)
+        self.assertFalse(self.output.exists())
+        self.assertFalse(list(self.root.glob('.projection-*')))
+
     def test_overlapping_uvs_cannot_repaint_hidden_reused_surfaces(self):
         fixture(self.source, occluder=False, overlap=True)
         with self.assertRaisesRegex(projection.TextureProjectionError, 'overlapping UV'):
