@@ -59,7 +59,9 @@ In **Present your model**, **Save card turntable** records a compact six-second 
 
 Select **Dense Master** in single-image or multi-view mode to retain the full decoded geometry and material volume. Its working GLB has a default ceiling of 1.2 million triangles. Studio measures surface deviation after simplification and keeps a lighter mesh when it meets the tolerance. Increase the ceiling in the generation settings to allow more geometry when needed. Use **Keep source for finishing variants** with other profiles and **Preview reference** to check how thin parts, hands and feet survive the cutout.
 
-Enable **Repair holes on the working mesh** with Dense Master to rebuild the surface before the first GLB export. The decoded cache is retained for later variants. Remesh displays the triangle counts of the current GLB and the cached source when known. Each variant is generated from that cache, which can contain many more triangles than the working GLB.
+Choose **Repair holes** under **Master finishing** with Dense Master to rebuild the surface before the first GLB export. The decoded cache is retained for later variants. Remesh displays the triangle counts of the current GLB and the cached source when known. Each variant is generated from that cache, which can contain many more triangles than the working GLB.
+
+Choose **HD Reconstruction (768)** with Dense Master, or in **Remesh** for a compatible saved source, to rebuild a cracked surface at the HD budget. The recipe uses a 768 reconstruction grid, band 1, surface projection 0, small-hole filling, and no pre-decimation. Check close-ups of seams, fingers and openings because reconstruction can soften fine geometry.
 
 On a completed model with a saved source, open **Remesh** in the viewer toolbar or **Refinish model** in the card menu.
 
@@ -73,6 +75,8 @@ In **Fixed**, the value is a target. In **Adaptive**, it is a ceiling for the sa
 **Repair holes** reconstructs a linked variant from the saved master and projects the rebuilt surface toward it to retain detail. The budget still applies. With Adaptive, Studio measures the simplification against the rebuilt surface. Review thin parts and fine edges in **Compare**, since the reconstruction can soften them or close a narrow intentional gap.
 
 **Transfer master detail to a normal map** is enabled by default for Medium when Blender is available. It transfers the master’s surface relief into the GLB's tangent-space normal texture while keeping the finished geometry and the original material textures. View the result in **PBR** and use **Compare** to review details. Thin cables, holes and other silhouette details still depend on the finished geometry. The new card is linked to the original and variants run without neural inference.
+
+Use **Prepare → Game Copy from HD** to place protected regions on a compatible static model. Set their radius and priority before creating a reduced copy with newly baked textures. The **Humanoid** profile already prioritizes the face and hands on an upright, front-facing T-pose. Add regions for details such as buckles, cables, handles or grille openings. Regions influence where triangles are spent within the selected budget.
 
 Open **Finishing board** from the same card or from **Prepare** to queue several editable finishing recipes from one cache. Compare the measured results at their original scale with the camera held in place, then mark the preferred version. That choice is recorded separately from the asset's visual review.
 

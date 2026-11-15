@@ -201,10 +201,37 @@ with isolated_workspace('humanoid_profiles'):
             'upload_id': front, 'profile_id': DENSE_MASTER, 'overrides': {'repair_surface': 'true'}})
         send(client, '/api/v1/generations/multiview', expected=400, json={
             'upload_id': front, 'left_upload_id': side, 'repair_surface': True})
+        reconstructed = [
+            send(client, '/api/v1/generations', json={
+                'upload_id': front, 'profile_id': DENSE_MASTER, 'overrides': {'hd_reconstruction': True}}),
+            send(client, '/api/generate', expected=200, files={'image': image()}, data={
+                'preset': DENSE_MASTER, 'queue_only': 'true', 'hd_reconstruction': 'true'}),
+            send(client, '/api/v1/generations/multiview', json={
+                'upload_id': front, 'left_upload_id': side, 'profile_id': DENSE_MASTER, 'hd_reconstruction': True}),
+            send(client, '/api/generate-multiview', files=files, data={
+                'profile_id': DENSE_MASTER, 'hd_reconstruction': 'true'}),
+        ]
+        for result in reconstructed:
+            s = settings(result['id'])
+            assert s['hd_reconstruction'] is True and s['profile_snapshot']['hd_reconstruction'] is True
+            assert 'repair_surface' not in s and 'adaptive_finishing' not in s
+            assert s['keep_finishing_source'] is True and s['triangles'] == 1_200_000
+            effective = options_for_job(s)
+            assert effective['mesh_mode'] == 'remesh' and effective['remesh_resolution'] == 768
+            assert effective['remesh_project'] == 0 and effective['remesh_band'] == 1
+            assert effective['repair_holes'] is True and effective['pre_simplify'] is False
+        for overrides in ({'resolution': 512}, {'repair_surface': True}):
+            send(client, '/api/v1/generations', expected=400, json={
+                'upload_id': front, 'profile_id': DENSE_MASTER,
+                'overrides': {'hd_reconstruction': True, **overrides}})
+        send(client, '/api/v1/generations', expected=400, json={
+            'upload_id': front, 'overrides': {'hd_reconstruction': True}})
+        send(client, '/api/v1/generations/multiview', expected=422, json={
+            'upload_id': front, 'left_upload_id': side, 'profile_id': DENSE_MASTER, 'hd_reconstruction': 'true'})
         send(client,'/api/generate-multiview',expected=400,files=files,data={'profile_id':'unknown'})
         send(client,'/api/v1/generations/multiview',expected=422,json={'upload_id':front,'left_upload_id':side,'profile_id':'unknown'})
         assert builtin_profiles()[0]==before
         assert app.PIXAL_CHARACTER_OPTIONS==standard_options and app.PIXAL_CHARACTER_PROFILE==standard_profile
         launch.assert_not_called()
     assert 'torch' not in sys.modules
-    print('PASS: legacy profiles, Dense Master mono/multiview, forced cache and opt-in surface repair.')
+    print('PASS: legacy profiles, Dense Master mono/multiview, forced cache and opt-in reconstruction.')

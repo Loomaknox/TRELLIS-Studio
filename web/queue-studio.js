@@ -216,8 +216,14 @@ export function createQueueStudio({api, refresh}) {
     const priority = prioritySelect(item.priority);
     const canRepairSurface = runtime.features?.includes('repair_surface') &&
       (refinish || saved.preset === 'dense_master');
-    const repairSurface = checkbox(!!saved.repair_surface);
-    const finishing = saved.repair_surface ? saved.generation_options : item.retry_finishing;
+    const finishingModes = [['saved', 'Standard finishing']];
+    if (canRepairSurface) finishingModes.push(['repair', 'Repair holes']);
+    if (runtime.features?.includes('hd_reconstruction') && (refinish || saved.preset === 'dense_master')) {
+      finishingModes.push(['hd', 'HD Reconstruction (768)']);
+    }
+    const surfaceMode = select(finishingModes, saved.hd_reconstruction ? 'hd' : saved.repair_surface ? 'repair' : 'saved');
+    const hdChoice = surfaceMode.querySelector('[value="hd"]');
+    const finishing = saved.repair_surface || saved.hd_reconstruction ? saved.generation_options : item.retry_finishing;
     const method = select([['remesh', 'Rebuild surface'], ['direct', 'Simplify existing surface']], finishing?.mesh_mode);
     const preSimplify = checkbox(finishing?.pre_simplify);
     const repair = checkbox(finishing?.repair_holes);
@@ -230,18 +236,27 @@ export function createQueueStudio({api, refresh}) {
       field('Geometry resolution', resolution, refinish ? 'Uses the saved geometry cache.' : pixal ? 'Pixal3D uses 1024³.' : ''),
       field(saved.adaptive_finishing ? 'Maximum triangles' : 'Triangle target', triangles), field('Texture size', texture), field('Height · m', height),
       field('Priority', priority));
-    if (canRepairSurface) {
-      retry.body.append(field('Repair holes', repairSurface, 'Rebuild the surface before simplifying.'));
+    if (finishingModes.length > 1) {
+      retry.body.append(field('Surface treatment', surfaceMode, 'HD Reconstruction requires a 1024 or higher geometry source.'));
     }
+    const syncSurfaceMode = () => {
+      if (!hdChoice) return;
+      hdChoice.disabled = Number(resolution.value) < 1024;
+      if (hdChoice.disabled && surfaceMode.value === 'hd') surfaceMode.value = 'saved';
+    };
+    syncSurfaceMode();
     if (finishing?.mesh_mode && !adaptiveRefinish) {
       const legacyFields = [field('Finishing method', method), field('Pre-simplify dense meshes to 2M', preSimplify),
         field('Fill small holes', repair)];
       const syncFinishing = () => {
-        for (const control of legacyFields) control.hidden = repairSurface.checked;
+        for (const control of legacyFields) control.hidden = surfaceMode.value !== 'saved';
       };
-      repairSurface.addEventListener('change', syncFinishing);
+      surfaceMode.addEventListener('change', syncFinishing);
+      resolution.addEventListener('change', () => { syncSurfaceMode(); syncFinishing(); });
       syncFinishing();
       retry.body.append(...legacyFields);
+    } else {
+      resolution.addEventListener('change', syncSurfaceMode);
     }
     if (refinish && (canBakeNormals || saved.bake_normals)) {
       retry.body.append(field('Transfer master detail to a normal map', bakeNormals,
@@ -274,8 +289,9 @@ export function createQueueStudio({api, refresh}) {
         height_m: height.valueAsNumber, priority: Number(priority.value)};
       if (!fixedResolution) changes.resolution = Number(resolution.value);
       if (refinish && bakeNormals.checked !== !!saved.bake_normals) changes.bake_normals = bakeNormals.checked;
-      if (canRepairSurface && repairSurface.checked !== !!saved.repair_surface) changes.repair_surface = repairSurface.checked;
-      if (finishing?.mesh_mode && !adaptiveRefinish && !repairSurface.checked) {
+      if (canRepairSurface && (surfaceMode.value === 'repair') !== !!saved.repair_surface) changes.repair_surface = surfaceMode.value === 'repair';
+      if (hdChoice && (surfaceMode.value === 'hd') !== !!saved.hd_reconstruction) changes.hd_reconstruction = surfaceMode.value === 'hd';
+      if (finishing?.mesh_mode && !adaptiveRefinish && surfaceMode.value === 'saved') {
         if (method.value !== finishing.mesh_mode) changes.mesh_mode = method.value;
         if (preSimplify.checked !== finishing.pre_simplify) changes.pre_simplify = preSimplify.checked;
         if (repair.checked !== finishing.repair_holes) changes.repair_holes = repair.checked;

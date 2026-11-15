@@ -14,7 +14,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from generation_options import (normalize_options, options_for_job, schema as generation_schema,
                                 DEFAULT_PROFILE, DEFAULT_GENERATION, GENERATION_PRESETS, GAME_D_ADVANCED, PROFILE_ADVANCED,
                                 DENSE_MASTER, DENSE_MASTER_NAME, DENSE_MASTER_TRIANGLES, DENSE_MASTER_FINISHING,
-                                HUMANOID_EXPERIMENTAL, TRIANGLE_MIN, TRIANGLE_MAX)
+                                HUMANOID_EXPERIMENTAL, TRIANGLE_MIN, TRIANGLE_MAX, validate_hd_reconstruction)
 from asset_taxonomy import ASSET_TYPES, SYSTEM_TYPES, schema as taxonomy_schema
 from generation_profiles import DENSE_MASTER_DESCRIPTION, ProfileStore, builtin_profiles
 from studio_import import FORMATS, MAX_BYTES, find_blender, validate_glb, copy_version
@@ -218,7 +218,7 @@ def status():
                 export_active=EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None,
                 resolution=DEFAULT_GENERATION['resolution'], default_profile=DEFAULT_PROFILE, local=True, studio_version=VERSION,source_revision=SOURCE_REVISION,ui_revision=UI_REVISION,multi_view=pixal3d['ready'],pixal3d=pixal3d,
                 edition='server' if WORKSPACE_CONFIG else 'desktop',
-                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','pixal3d_multiview','pixal3d_face_projection','texture_projection','baked_game_copy'], texture_sizes=textures,supported_resolutions=resolutions)
+                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','hd_reconstruction','pixal3d_multiview','pixal3d_face_projection','texture_projection','baked_game_copy'], texture_sizes=textures,supported_resolutions=resolutions)
 
 @app.get('/api/components')
 def components():
@@ -1031,6 +1031,7 @@ async def generate_multiview(
     reference_prompt: Annotated[str, Form()] = '',
     keep_finishing_source: Annotated[bool, Form()] = False,
     repair_surface: Annotated[bool, Form()] = False,
+    hd_reconstruction: Annotated[bool, Form()] = False,
     reproject_face: Annotated[bool, Form()] = False,
     queue_priority: Annotated[int, Form()] = 0,
     reference_edits: Annotated[str, Form()] = '',
@@ -1040,6 +1041,11 @@ async def generate_multiview(
         raise HTTPException(400, 'Unknown Pixal3D profile. Choose a profile advertised by Studio.')
     if repair_surface and profile['id'] != DENSE_MASTER:
         raise HTTPException(400, 'Choose Dense Master to repair the surface during generation.')
+    try:
+        validate_hd_reconstruction(hd_reconstruction, preset=profile['id'], resolution=profile['resolution'],
+                                   repair_surface=repair_surface)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
     keep_finishing_source = keep_finishing_source or profile.get('keep_finishing_source', False)
     if (side_angle not in (40, 90) or not 0.01 <= height_m <= 100
         or not 0 <= seed <= 2147483647 or not -2 <= queue_priority <= 2
@@ -1078,12 +1084,15 @@ async def generate_multiview(
     settings['profile_snapshot'] = dict(profile, engine='pixal3d', triangles=settings['triangles'],
         texture_size=settings['texture_size'], generation_options=generation_options,
         keep_finishing_source=keep_finishing_source)
-    if profile['id'] == DENSE_MASTER:
+    if profile['id'] == DENSE_MASTER and not hd_reconstruction:
         settings['adaptive_finishing'] = True
         settings['profile_snapshot']['adaptive_finishing'] = True
     if repair_surface:
         settings['repair_surface'] = True
         settings['profile_snapshot']['repair_surface'] = True
+    if hd_reconstruction:
+        settings['hd_reconstruction'] = True
+        settings['profile_snapshot']['hd_reconstruction'] = True
     if reference_edits:
         settings['reference_edits'] = edits
     if reproject_face:
@@ -1123,6 +1132,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                    reference_prompt: str = Form(''), resolution: int = Form(DEFAULT_GENERATION['resolution']), advanced_settings: str = Form(''),
                    keep_finishing_source: Annotated[bool,Form()]=False,
                    repair_surface: Annotated[bool,Form()]=False,
+                   hd_reconstruction: Annotated[bool,Form()]=False,
                    profile_id: str = Form(''), parent_id: Annotated[str,Form()]='', queue_only: Annotated[bool,Form()]=False, queue_priority: Annotated[int,Form()]=0, queue_hold: Annotated[bool,Form()]=False,
                    reference_edits: Annotated[str, Form()] = ''):
     if WORKSPACE_CONFIG:
@@ -1141,6 +1151,8 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
         or texture_size not in (0,1024,2048,4096) or resolution not in (512,1024,1536) or len(reference_prompt)>6000 or len(name)>80):
         raise HTTPException(400, 'Invalid settings.')
     try:
+        validate_hd_reconstruction(hd_reconstruction, preset=preset, resolution=resolution,
+                                   repair_surface=repair_surface)
         if len(advanced_settings)>12000:raise ValueError('Advanced settings are too large.')
         incoming=json.loads(advanced_settings) if advanced_settings else {}
         if not isinstance(incoming,dict):raise ValueError('Malformed advanced settings.')
@@ -1178,7 +1190,8 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                         generation_options=advanced,settings_version=2)
         if keep_finishing_source: settings['keep_finishing_source'] = True
         if repair_surface: settings['repair_surface'] = True
-        if preset == DENSE_MASTER: settings['adaptive_finishing'] = True
+        if hd_reconstruction: settings['hd_reconstruction'] = True
+        if preset == DENSE_MASTER and not hd_reconstruction: settings['adaptive_finishing'] = True
         if reference_edits:
             settings['reference_edits'] = edits
         if profile: settings['profile'] = dict(id=profile['id'], name=profile['name'])
@@ -1189,10 +1202,12 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                 generation_options=advanced)
             if experimental:
                 settings['profile_snapshot']['experimental'] = True
-            if preset == DENSE_MASTER:
+            if preset == DENSE_MASTER and not hd_reconstruction:
                 settings['profile_snapshot']['adaptive_finishing'] = True
             if repair_surface:
                 settings['profile_snapshot']['repair_surface'] = True
+            if hd_reconstruction:
+                settings['profile_snapshot']['hd_reconstruction'] = True
         if parent_id:settings['parent_id']=parent_id
         with TemporaryDirectory(prefix='.trellis2-', dir=OUTPUT) as staging:
             staged = Path(staging)

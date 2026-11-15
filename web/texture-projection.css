@@ -413,3 +413,190 @@
     .tp-popover { animation: none; }
     .tp-toolbar .tool-button, .tp-view-controls .tool-button { transition: none; }
 }
+.game-copy-dialog {
+    --gc-border: #414d3d;
+    --gc-muted: #aab7a4;
+    --gc-accent: #c4f58a;
+    width: min(1160px, calc(100vw - 28px));
+    max-width: 1160px;
+    max-height: calc(100dvh - 24px);
+}
+
+.game-copy-dialog:has(.gc-surface[hidden]) { width: min(560px, calc(100vw - 28px)); }
+.game-copy-dialog .studio-dialog-head { align-items: center; padding: 15px 20px; }
+.game-copy-dialog .studio-dialog-head h2 { margin: 0; font-size: 24px; }
+.game-copy-dialog .studio-dialog-head .eyebrow:empty { display: none; }
+.game-copy-dialog .gc-model-name { overflow-wrap: anywhere; margin: 4px 0 0; color: var(--gc-muted); }
+.game-copy-dialog .wb-body { padding: 15px 20px; }
+.game-copy-dialog .wb-notice { margin: 0 20px 10px; }
+.game-copy-dialog .studio-dialog-actions { padding: 11px 20px; }
+.gc-footnote { flex: 1 1 235px; color: var(--gc-muted); font-size: 11px; line-height: 1.45; }
+
+#bakedGameForm { display: grid; gap: 14px; }
+#bakedGameForm:has(> .gc-surface:not([hidden])) { grid-template-columns: minmax(0, 1fr) minmax(258px, 306px); }
+.gc-surface,
+.gc-sidebar { min-width: 0; }
+.gc-surface {
+    padding: 9px;
+    border: 1px solid var(--gc-border);
+    border-radius: 12px;
+    background: #1b231e;
+}
+.gc-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; margin-bottom: 8px; }
+.gc-tool-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--gc-border);
+    border-radius: 9px;
+    background: #141c17;
+}
+.game-copy-dialog .gc-tool {
+    min-height: 31px;
+    padding: 5px 9px;
+    border-radius: 6px;
+    gap: 6px;
+    font-size: 12px;
+    line-height: 1.2;
+    color: #d2dfca;
+    background: transparent;
+    white-space: nowrap;
+}
+.game-copy-dialog .gc-tool .ui-icon { width: 14px; height: 14px; }
+.game-copy-dialog .gc-tool:not(:disabled):hover { background: #2a392b; }
+.game-copy-dialog .gc-tool[aria-pressed=true] {
+    border-color: #677e51;
+    background: #31422d;
+    color: var(--gc-accent);
+}
+.gc-viewport {
+    position: relative;
+    height: clamp(310px, 48dvh, 540px);
+    border: 1px solid #445145;
+    overflow: hidden;
+    border-radius: 8px;
+    background: radial-gradient(ellipse at 50% 44%, #526054, #272e2a 80%);
+}
+.gc-viewport canvas { display: block; width: 100%; height: 100%; cursor: grab; outline-offset: -3px; }
+.gc-viewport canvas:active { cursor: grabbing; }
+.gc-viewport.is-picking canvas { cursor: crosshair; }
+.gc-viewport canvas:focus-visible { outline: 2px solid var(--gc-accent); }
+.gc-viewport-state {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    margin: 0;
+    padding: 18px;
+    text-align: center;
+    color: #d2dfd0;
+}
+.gc-reticle {
+    position: absolute;
+    pointer-events: none;
+    width: 19px;
+    height: 19px;
+    transform: translate(-50%, -50%);
+    border: 1px solid var(--gc-accent);
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px #121b13aa;
+}
+.gc-reticle::before,
+.gc-reticle::after {
+    content: '';
+    position: absolute;
+    background: var(--gc-accent);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+.gc-reticle::before { width: 25px; height: 1px; }
+.gc-reticle::after { width: 1px; height: 25px; }
+.gc-view-help { min-height: 18px; margin: 7px 4px 1px; font-size: 11px; line-height: 1.45; color: var(--gc-muted); }
+.gc-sidebar { display: grid; align-content: start; gap: 10px; }
+.gc-options,
+.gc-regions { min-width: 0; margin: 0; padding: 11px 13px 13px; border: 1px solid var(--gc-border); border-radius: 10px; background: #1a211c; }
+.gc-options legend { padding: 0 5px; font-size: 13px; font-weight: 600; color: #e1ebdb; }
+.game-copy-dialog .gc-options .field,
+.game-copy-dialog .gc-zone-editor .field { margin: 0; gap: 5px; }
+.game-copy-dialog .gc-options .field input,
+.game-copy-dialog .gc-options .field select { min-height: 34px; padding: 7px 9px; }
+.gc-field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 12px; }
+.gc-options .hint { margin: 4px 0 0; }
+.gc-options .hint:empty { display: none; }
+.gc-options .check { margin: 0; }
+.gc-section-head { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; }
+.game-copy-dialog .gc-section-head h3 { margin: 0; font-size: 13px; }
+.gc-section-head > button { margin-left: auto; }
+.gc-count { color: var(--gc-muted); font: 10px Consolas, monospace; }
+.gc-no-zones { margin: 7px 0 0; }
+.gc-zone-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0 1px 3px;
+    max-height: 105px;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+}
+.gc-zone-list:empty { display: none; }
+.game-copy-dialog .gc-zone-list .gc-tool { border-color: #43543d; }
+.game-copy-dialog .gc-zone-list .gc-tool[aria-pressed=true] { border-color: #789661; }
+.gc-zone-editor { border-top: 1px solid var(--gc-border); margin-top: 9px; padding-top: 7px; }
+.gc-zone-editor strong { color: #dcead7; font-size: 11px; }
+.gc-zone-editor .field > span { display: flex; justify-content: space-between; gap: 6px; }
+.gc-zone-editor output { color: var(--gc-accent); font: 11px Consolas, monospace; }
+.game-copy-dialog .gc-zone-editor input[type=range] {
+    appearance: none;
+    width: 100%;
+    height: 23px;
+    padding: 0;
+    border: 0;
+    margin: 0 0 3px;
+    background: transparent;
+    cursor: pointer;
+    outline-offset: 1px;
+}
+.gc-zone-editor input[type=range]::-webkit-slider-runnable-track {
+    height: 5px;
+    background: #68795f;
+    border: 1px solid #899a7c;
+    border-radius: 6px;
+}
+.gc-zone-editor input[type=range]::-moz-range-track {
+    height: 3px;
+    background: #68795f;
+    border: 1px solid #899a7c;
+    border-radius: 6px;
+}
+.gc-zone-editor input[type=range]::-webkit-slider-thumb {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5.5px;
+    border: 1px solid #a9d486;
+    border-radius: 50%;
+    background: var(--gc-accent);
+    box-shadow: 0 0 0 2px #243326;
+}
+.gc-zone-editor input[type=range]::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border: 1px solid #a9d486;
+    border-radius: 50%;
+    background: var(--gc-accent);
+    box-shadow: 0 0 0 2px #243326;
+}
+
+@media (max-width: 720px) {
+    #bakedGameForm:has(> .gc-surface:not([hidden])) { grid-template-columns: minmax(0, 1fr); }
+    .game-copy-dialog .studio-dialog-head,
+    .game-copy-dialog .wb-body,
+    .game-copy-dialog .studio-dialog-actions { padding-left: 12px; padding-right: 12px; }
+    .game-copy-dialog .wb-notice { margin-inline: 12px; }
+    .gc-viewport { height: clamp(226px, 35dvh, 360px); }
+    .gc-footnote { flex-basis: 100%; }
+}

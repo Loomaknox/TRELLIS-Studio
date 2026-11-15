@@ -118,7 +118,10 @@ Sources: [MCP setup](https://learn.chatgpt.com/docs/extend/mcp?surface=cli),
 4. Poll `get_model`; inspect `state`, progress and any `operation_error`.
 5. Use `get_finishing_options` to read the retained master and available
    budgets. Queue a linked variant with `queue_refinish`, including surface
-   repair or normal-map baking when needed.
+   repair or normal-map baking when needed. Set `hd_reconstruction: true` to
+   reconstruct a supported saved source with the 768 grid. For new Dense Master
+   jobs use `overrides.hd_reconstruction` on `queue_generation`, or the
+   top-level option on `queue_multiview_generation`.
 6. Use `retry_job` to create a new attempt of a failed or cancelled queue job
    with the saved recipe and optional corrections. Poll the new ID with
    `get_model`.
@@ -234,7 +237,10 @@ are implicitly linked. Four matching alignment points may surround the selected
 region instead of sitting inside it. Feathering stays inside the source mask;
 old rectangle/ellipse recipes remain valid. `get_baked_game_copy_options` suggests a budget and
 `queue_baked_game_copy` makes a triangle-reduced copy with new UVs and baked
-materials from the selected GLB. Both operations return new, linked model IDs.
+materials from the selected GLB. Pass `protected_regions` with a Y-up source
+GLB `center`, `radius`, and `strength` from 0 to 1 for each priority region.
+The upright T-pose humanoid profile gives automatic priority to face and hands
+and adds any supplied regions. Both operations return new, linked model IDs.
 Poll `get_model` and review the exported result. [Recipe fields](API.md#texture-projection-and-baked-game-copies)
 
 Collection tools include folders, assignments and saved views. History tools

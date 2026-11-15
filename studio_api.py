@@ -9,13 +9,15 @@ from PIL import Image
 from studio_workspace import Workspace,read,write,name,checkpoint,revisions,ID,SNAPSHOT_FILES,SNAPSHOT_DIRS,finishing_source
 from library_actions import validate_ids
 from glb_data import read as read_glb,animation_info
-from generation_options import DENSE_MASTER, GENERATION_PRESETS, TRIANGLE_MAX, TRIANGLE_MIN, options_for_job
+from generation_options import (DENSE_MASTER, DENSE_MASTER_TRIANGLES, GENERATION_PRESETS,
+                                HD_RECONSTRUCTION_FINISHING, TRIANGLE_MAX, TRIANGLE_MIN,
+                                options_for_job, validate_hd_reconstruction)
 from pixal3d_runtime import validate_views
 from reference_preparation import PREPARED_VIEWS
 
 RETRY_STATES = {'error', 'cancelled'}
 RETRY_FIELDS = {'resolution', 'texture_size', 'triangles', 'height_m', 'priority',
-                'mesh_mode', 'pre_simplify', 'repair_holes', 'bake_normals', 'repair_surface'}
+                'mesh_mode', 'pre_simplify', 'repair_holes', 'bake_normals', 'repair_surface', 'hd_reconstruction'}
 RETRY_FINISHING_FIELDS = ('mesh_mode', 'pre_simplify', 'repair_holes')
 PREPARED_REFERENCES = (*PREPARED_VIEWS.values(), 'conditioning.png')
 PRESENTATION_FILES = dict(thumbnail='thumbnail.png', capture='capture.png', turntable='turntable.webm')
@@ -81,6 +83,17 @@ class FinishingRecipe(NamedTuple):
     remesh_resolution: int
     texture_sampling: str
     normal_source: str
+    hd_reconstruction: bool
+
+
+def cached_source_resolution(source):
+    result = read(source / 'result.json', {})
+    if isinstance(result, dict) and type(result.get('resolution')) is int:
+        return result['resolution']
+    settings = read(source / 'settings.json', {})
+    if isinstance(settings, dict) and type(settings.get('resolution')) is int:
+        return settings['resolution']
+    return 512
 
 
 def triangle_presets(record):
@@ -195,15 +208,17 @@ class StudioServices:
             raise HTTPException(409, 'This model has no reusable finishing source.')
         return folder, record, source_id
 
-    def finishing_recipe(self, data, record, options):
+    def finishing_recipe(self, data, record, options, source_resolution):
         if not isinstance(data, dict) or set(data) - {'triangles', 'texture_size', 'mesh_mode', 'repair_holes',
                                                         'pre_simplify', 'adaptive_finishing',
                                                         'budget_preset', 'bake_normals', 'repair_surface',
-                                                        'remesh_resolution', 'texture_sampling', 'normal_source'}:
+                                                        'remesh_resolution', 'texture_sampling', 'normal_source',
+                                                        'hd_reconstruction'}:
             raise ValueError('Only finishing settings can be changed.')
         settings = record['settings']
         preset = data.get('budget_preset')
-        triangles = data.get('triangles', settings['triangles'])
+        hd_reconstruction = data.get('hd_reconstruction', False)
+        triangles = data.get('triangles', DENSE_MASTER_TRIANGLES if hd_reconstruction else settings['triangles'])
         if 'budget_preset' in data:
             budgets = triangle_presets(record)
             if not isinstance(preset, str) or preset not in budgets or 'triangles' in data:
@@ -215,6 +230,10 @@ class StudioServices:
         pre_simplify = data.get('pre_simplify', options['pre_simplify'])
         adaptive = data.get('adaptive_finishing', False)
         repair_surface = data.get('repair_surface', False)
+        validate_hd_reconstruction(hd_reconstruction, resolution=source_resolution, repair_surface=repair_surface,
+                                   refinish=True)
+        if hd_reconstruction and (adaptive or preset):
+            raise ValueError('HD Reconstruction uses a fixed triangle ceiling. Choose a manual budget or use 1.2M.')
         bake_normals = data.get('bake_normals', preset == 'medium' and bool(self.g['find_blender']()))
         remesh_resolution = data.get('remesh_resolution', options['remesh_resolution'])
         texture_sampling = data.get('texture_sampling', options['texture_sampling'])
@@ -242,12 +261,20 @@ class StudioServices:
             inspect_parent_normal_source(self.output, parent.name, finishing_source(parent, settings))
         if adaptive or preset:
             mesh_mode, repair, pre_simplify = 'direct', False, False
+        if hd_reconstruction:
+            # Keep the base options so a retry can turn off HD Reconstruction.
+            # The effective recipe is applied by options_for_job while enabled.
+            mesh_mode = options['mesh_mode']
+            repair = options['repair_holes']
+            pre_simplify = options['pre_simplify']
+            remesh_resolution = options['remesh_resolution']
         return FinishingRecipe(triangles, texture_size, mesh_mode, repair, pre_simplify, adaptive, preset,
-                               bake_normals, repair_surface, remesh_resolution, texture_sampling, normal_source)
+                               bake_normals, repair_surface, remesh_resolution, texture_sampling, normal_source,
+                               hd_reconstruction)
 
     def create_finishing_variant(self, variant, folder, record, source_id, options, recipe):
         (triangles, texture_size, mesh_mode, repair, pre_simplify, adaptive, preset, bake_normals,
-         repair_surface, remesh_resolution, texture_sampling, normal_source) = recipe
+         repair_surface, remesh_resolution, texture_sampling, normal_source, hd_reconstruction) = recipe
         variant.mkdir()
         settings = dict(record['settings'])
         settings.pop('keep_finishing_source', None)
@@ -255,6 +282,7 @@ class StudioServices:
         settings.pop('budget_preset', None)
         settings.pop('bake_normals', None)
         settings.pop('repair_surface', None)
+        settings.pop('hd_reconstruction', None)
         for key in ('normal_source', 'normal_source_id', 'normal_source_model_sha256', 'normal_source_normalization'):
             settings.pop(key, None)
         if adaptive:
@@ -271,12 +299,17 @@ class StudioServices:
                                 normal_source_normalization=donor['normalization'])
         if repair_surface:
             settings['repair_surface'] = True
+        if hd_reconstruction:
+            settings['hd_reconstruction'] = True
         if isinstance(settings.get('profile_snapshot'), dict):
             snapshot = settings['profile_snapshot'].copy()
             snapshot.pop('adaptive_finishing', None)
             snapshot.pop('repair_surface', None)
+            snapshot.pop('hd_reconstruction', None)
             if repair_surface:
                 snapshot['repair_surface'] = True
+            if hd_reconstruction:
+                snapshot['hd_reconstruction'] = True
             settings['profile_snapshot'] = snapshot
         settings.update(created=time.time(), parent_id=folder.name, source_kind='refinish',
                         finish_source_id=source_id, triangles=triangles, texture_size=texture_size,
@@ -292,6 +325,8 @@ class StudioServices:
         mode_label = 'adaptive ≤' if adaptive else preset.title() if preset else mesh_mode
         if repair_surface:
             mode_label = 'Repair · adaptive ≤' if adaptive else 'Repair'
+        if hd_reconstruction:
+            mode_label = 'HD 768 ≤'
         normal_label = ' + normal map' if bake_normals else ''
         suffix = f' · {mode_label} {triangles / 1000:g}k · {texture_size // 1024}K{normal_label}'
         metadata.update(display_name=label[:80-len(suffix)] + suffix, review_state='review', favorite=False)
@@ -332,7 +367,8 @@ class StudioServices:
         supported_resolutions, supported_textures = self.g['generation_capabilities']()
         reference_files = ['input.png']
         if refinish:
-            if not finishing_source(folder, saved):
+            source_id = finishing_source(folder, saved)
+            if not source_id:
                 raise HTTPException(409, 'Restore the source model and its finishing cache before retrying.')
             supported_resolutions = [saved.get('resolution', 512)]
         elif pixal:
@@ -377,6 +413,19 @@ class StudioServices:
                 settings['repair_surface'] = True
             else:
                 settings.pop('repair_surface', None)
+        hd_reconstruction = changes.get('hd_reconstruction', saved.get('hd_reconstruction', False))
+        source_resolution = cached_source_resolution(self.output / source_id) if refinish else resolution
+        validate_hd_reconstruction(hd_reconstruction, preset=saved.get('preset'), resolution=source_resolution,
+                                   repair_surface=settings.get('repair_surface', False), refinish=refinish)
+        if 'hd_reconstruction' in changes:
+            if hd_reconstruction:
+                settings['hd_reconstruction'] = True
+                settings.pop('adaptive_finishing', None)
+                settings.pop('budget_preset', None)
+            else:
+                settings.pop('hd_reconstruction', None)
+                if not refinish and saved.get('preset') == DENSE_MASTER:
+                    settings['adaptive_finishing'] = True
         if 'bake_normals' in changes:
             bake_normals = changes['bake_normals']
             if not refinish or type(bake_normals) is not bool:
@@ -391,8 +440,8 @@ class StudioServices:
             settings['pipeline_type'] = {512: '512', 1024: '1024_cascade', 1536: '1536_cascade'}[resolution]
         finishing = {key: changes[key] for key in RETRY_FINISHING_FIELDS if key in changes}
         if finishing:
-            if (refinish and saved.get('adaptive_finishing')) or settings.get('repair_surface'):
-                raise ValueError('These mesh settings are controlled by Adaptive or Repair holes.')
+            if (refinish and settings.get('adaptive_finishing')) or settings.get('repair_surface') or hd_reconstruction:
+                raise ValueError('These mesh settings are controlled by Adaptive, Repair holes or HD Reconstruction.')
             if 'mesh_mode' in finishing and finishing['mesh_mode'] not in ('direct', 'remesh'):
                 raise ValueError('Choose a valid mesh finishing method.')
             if any(type(finishing[key]) is not bool for key in ('pre_simplify', 'repair_holes') if key in finishing):
@@ -406,6 +455,11 @@ class StudioServices:
                 settings['profile_snapshot'].pop('repair_surface', None)
                 if settings.get('repair_surface'):
                     settings['profile_snapshot']['repair_surface'] = True
+            if 'hd_reconstruction' in changes:
+                for key in ('hd_reconstruction', 'adaptive_finishing'):
+                    settings['profile_snapshot'].pop(key, None)
+                    if settings.get(key):
+                        settings['profile_snapshot'][key] = True
             if finishing:
                 settings['profile_snapshot']['generation_options'] = settings['generation_options']
 
@@ -564,7 +618,7 @@ class StudioServices:
             try:
                 specs=json.loads(specifications)
                 if not isinstance(specs,list) or not 1<=len(specs)<=30 or len(specs)!=len(images):raise ValueError('Choose 1–30 images, with one recipe per image.')
-                if any(not isinstance(s,dict) or set(s)-{'name','profile_id','height_m','seed','priority','remove_bg','triangles','texture_size','resolution','advanced_settings','asset_type','reference_prompt','parent_id','keep_finishing_source','repair_surface','reference_edits'} for s in specs):raise ValueError('Unknown queue settings.')
+                if any(not isinstance(s,dict) or set(s)-{'name','profile_id','height_m','seed','priority','remove_bg','triangles','texture_size','resolution','advanced_settings','asset_type','reference_prompt','parent_id','keep_finishing_source','repair_surface','hd_reconstruction','reference_edits'} for s in specs):raise ValueError('Unknown queue settings.')
                 for spec in specs:
                     for key,limit in [('name',80),('profile_id',80),('asset_type',80),('reference_prompt',6000),('parent_id',32)]:
                         if key in spec and (not isinstance(spec[key],str) or len(spec[key])>limit):raise ValueError('Invalid '+key+'.')
@@ -574,6 +628,7 @@ class StudioServices:
                     if 'remove_bg' in spec and type(spec['remove_bg']) is not bool:raise ValueError('Invalid background removal setting.')
                     if 'keep_finishing_source' in spec and type(spec['keep_finishing_source']) is not bool:raise ValueError('Invalid finishing cache setting.')
                     if 'repair_surface' in spec and type(spec['repair_surface']) is not bool:raise ValueError('Invalid surface repair setting.')
+                    if 'hd_reconstruction' in spec and type(spec['hd_reconstruction']) is not bool:raise ValueError('Invalid HD Reconstruction setting.')
                     if 'advanced_settings' in spec and not isinstance(spec['advanced_settings'],dict):raise ValueError('Invalid advanced settings.')
                     if 'reference_edits' in spec and not isinstance(spec['reference_edits'],dict):raise ValueError('Invalid reference corrections.')
                     if spec.get('parent_id') and not ID.fullmatch(spec['parent_id']):raise ValueError('Invalid parent model.')
@@ -587,6 +642,7 @@ class StudioServices:
                     if not profile:raise HTTPException(400,'Profile not found.')
                     s=profile['settings'];params=dict(name=spec.get('name',Path(file.filename or 'Model').stem),preset=s['preset'],height_m=spec.get('height_m',1),seed=spec.get('seed',42),remove_bg=spec.get('remove_bg',s['remove_bg']),triangles=spec.get('triangles',s['triangles']),asset_type=spec.get('asset_type','object'),texture_size=spec.get('texture_size',s['texture_size']),reference_prompt=spec.get('reference_prompt',''),resolution=spec.get('resolution',s['resolution']),advanced_settings=json.dumps(spec.get('advanced_settings',s['advanced'])),profile_id=profile['id'],parent_id=spec.get('parent_id',''),queue_only=True,queue_priority=spec.get('priority',0),queue_hold=True,keep_finishing_source=spec.get('keep_finishing_source',False))
                     params['repair_surface'] = spec.get('repair_surface', False)
+                    params['hd_reconstruction'] = spec.get('hd_reconstruction', False)
                     if spec.get('reference_edits'):
                         params['reference_edits'] = json.dumps(spec['reference_edits'], allow_nan=False)
                     result=await self.g['generate'](image=file,**params);created.append(result['id'])
@@ -608,8 +664,9 @@ class StudioServices:
                 folder, record, source_id = self.finishing_model(identifier, available=True)
                 try:
                     settings = record['settings']
-                    options = options_for_job({**settings, 'repair_surface': False})
-                    recipe = self.finishing_recipe(await request.json(), record, options)
+                    options = options_for_job({**settings, 'repair_surface': False, 'hd_reconstruction': False})
+                    recipe = self.finishing_recipe(await request.json(), record, options,
+                                                   cached_source_resolution(self.output / source_id))
                 except (ValueError, TypeError) as error:
                     raise HTTPException(400, str(error)) from error
                 try:
@@ -643,6 +700,7 @@ class StudioServices:
                         triangle_presets=triangle_presets(record),
                         normal_bake=normal_bake,
                         repair_surface=True,
+                        hd_reconstruction=cached_source_resolution(source) >= HD_RECONSTRUCTION_FINISHING['remesh_resolution'],
                         remesh_resolutions=[512, 768, 1024], texture_sampling_modes=['trilinear', 'nearest'],
                         normal_sources=normal_sources,
                         parent_normal_source=parent_normal_source,
@@ -660,8 +718,9 @@ class StudioServices:
                     if not isinstance(variants, list) or not 1 <= len(variants) <= 3:
                         raise ValueError('Choose one to three finishing recipes.')
                     settings = record['settings']
-                    options = options_for_job({**settings, 'repair_surface': False})
-                    recipes = [self.finishing_recipe(value, record, options) for value in variants]
+                    options = options_for_job({**settings, 'repair_surface': False, 'hd_reconstruction': False})
+                    source_resolution = cached_source_resolution(self.output / source_id)
+                    recipes = [self.finishing_recipe(value, record, options, source_resolution) for value in variants]
                     if len(set(recipes)) != len(recipes):
                         raise ValueError('Choose different finishing recipes for each variant.')
                 except (ValueError, TypeError) as error:

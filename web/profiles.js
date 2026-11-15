@@ -4,7 +4,7 @@ const steps={game_d:20,high_detail:20,humanoid_experimental:20,dense_master:20,f
 const startupKey='trellis.studio.startup-profile';
 export async function createProfileControls(advanced,{changed=()=>{}}={}){
   let profiles=[],selected=null,saving=false,edit=false,sourceRequired=false,previousKeep=false;
-  let repairSupported=false;
+  let repairSupported=false, hdSupported=false;
   let startupProfile='';
   function read(){const {texture_seed,...options}=advanced.read();return {preset:$('preset').value,resolution:Number($('resolution').value),
     triangles:Number($('triangles').value)||({game_d:28000,high_detail:250000,humanoid_experimental:250000,dense_master:1200000,fast:25000,balanced:50000,detail:100000}[$('preset').value]),
@@ -14,7 +14,8 @@ export async function createProfileControls(advanced,{changed=()=>{}}={}){
   const equal=(a,b)=>{const x=resolved(a),y=resolved(b);return Object.keys(x).every(k=>k==='advanced'?Object.keys(x[k]).every(f=>x[k][f]===y[k][f]):x[k]===y[k]);};
   function sync(){
     if(!selected)return;
-    const activePreset=$('pixalMode').checked?$('pixalProfileChoice').value:$('preset').value;
+    const pixal = $('pixalMode').checked;
+    const activePreset=pixal?$('pixalProfileChoice').value:$('preset').value;
     const experimental=activePreset==='humanoid_experimental', dense=activePreset==='dense_master';
     const requiresSource=experimental||dense;
     if(requiresSource!==sourceRequired){
@@ -26,10 +27,16 @@ export async function createProfileControls(advanced,{changed=()=>{}}={}){
     $('humanoidProfileHelp').hidden=!experimental;
     if($('denseMasterProfileHelp'))$('denseMasterProfileHelp').hidden=!dense;
     $('denseMasterRepairField').hidden=!dense;
-    $('denseMasterRepair').disabled=!dense||!repairSupported;
-    $('denseMasterRepairHint').textContent=repairSupported
-      ?'Some fine edges may soften during repair.'
-      :'Restart Studio to enable hole repair.';
+    const finishing = $('denseMasterFinishing');
+    finishing.disabled = !dense;
+    finishing.querySelector('[value="repair"]').disabled = !repairSupported;
+    finishing.querySelector('[value="hd_reconstruction"]').disabled = !hdSupported || (!pixal && Number($('resolution').value) < 1024);
+    if (!dense || finishing.selectedOptions[0]?.disabled) finishing.value = 'direct';
+    $('denseMasterFinishingHint').textContent = {
+      direct: 'Adaptive reduction within the triangle ceiling.',
+      repair: 'Fills small gaps. Some fine edges may soften.',
+      hd_reconstruction: 'Rebuilds the master on a 768 grid. Requires 1024 or higher generation resolution.',
+    }[finishing.value];
     $('finishingSourceHelp').hidden=requiresSource;
     if(experimental&&!$('pixalMode').checked)$('assetType').value='humanoid';
     const recipe=read(),dirty=!equal(recipe,selected.settings);
@@ -38,7 +45,9 @@ export async function createProfileControls(advanced,{changed=()=>{}}={}){
     $('profileState').classList.toggle('dirty',dirty);
     $('profileSummary').textContent=`${recipe.resolution}³ · ${dense?'up to ':''}${recipe.triangles.toLocaleString('en-US')} triangles · texture ${recipe.texture_size/1024}K`;
     $('monoTrianglesLabel').textContent=dense?'Maximum triangles':'Target triangles';
-    $('monoTrianglesHint').textContent=dense
+    $('monoTrianglesHint').textContent=finishing.value==='hd_reconstruction'
+      ?'0 = 1.2 million triangle ceiling. The result may be lower.'
+      :dense
       ?'0 = profile ceiling. Studio chooses a lighter mesh when it meets the surface tolerance.'
       :'0 = profile · up to 8,000,000. The result may be lower.';
     $('generationSummary').textContent=`${selected.name.replace(' · recommended','')}${dirty?' · modified':''} · local compute`;
@@ -55,6 +64,7 @@ export async function createProfileControls(advanced,{changed=()=>{}}={}){
     selected=profiles.find(p=>p.id===id);if(!selected)return;
     $('profileChoice').querySelector('[data-variant]')?.remove();
     const s=selected.settings;
+    $('denseMasterFinishing').value = 'direct';
     for(const [key,value] of Object.entries({preset:s.preset,resolution:s.resolution,triangles:s.triangles,textureSize:s.texture_size}))$(key).value=String(value);
     const textureSeed=advanced.read().texture_seed;
     $('removeBg').checked=s.remove_bg;advanced.apply({...s.advanced,texture_seed:textureSeed});
@@ -110,9 +120,10 @@ export async function createProfileControls(advanced,{changed=()=>{}}={}){
     finally{saving=false;$('confirmProfile').disabled=false;}
   };
   return {sync,reset:()=>apply('game_d'),
-    setRepairCapability(available){
-      if(repairSupported===available)return;
+    setFinishingCapabilities(available, hdAvailable){
+      if(repairSupported===available && hdSupported===hdAvailable)return;
       repairSupported=available;
+      hdSupported=hdAvailable;
       sync();
     },
     restoreSource(value){sourceRequired=false;previousKeep=!!value;$('keepFinishingSource').checked=!!value;sync();},

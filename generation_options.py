@@ -12,6 +12,25 @@ DENSE_MASTER_TRIANGLES = 1_200_000
 DENSE_MASTER_FINISHING = dict(mesh_mode='direct', pre_simplify=False, repair_holes=False)
 SURFACE_REPAIR_FINISHING = dict(mesh_mode='remesh', pre_simplify=False, repair_holes=True,
                                 remesh_project=.45, remesh_band=1.)
+HD_RECONSTRUCTION_FINISHING = dict(
+    mesh_mode='remesh', pre_simplify=False, repair_holes=True, remesh_project=0.,
+    remesh_band=1., remesh_resolution=768, qem_edge_weight=.01, qem_skinny_weight=.001,
+)
+
+
+def validate_hd_reconstruction(enabled, *, preset=None, resolution, repair_surface=False, refinish=False):
+    if type(enabled) is not bool:
+        raise ValueError('HD Reconstruction must be true or false.')
+    if not enabled:
+        return
+    if repair_surface:
+        raise ValueError('Choose either HD Reconstruction or Repair holes.')
+    if not refinish and preset != DENSE_MASTER:
+        raise ValueError('Choose Dense Master to use HD Reconstruction.')
+    if resolution < HD_RECONSTRUCTION_FINISHING['remesh_resolution']:
+        raise ValueError('HD Reconstruction requires a 1024 or 1536 geometry source.')
+
+
 GENERATION_PRESETS = {
     'game_d': (20, 28000, 2048), 'high_detail': (20, 250000, 2048),
     HUMANOID_EXPERIMENTAL: (20, 250000, 2048), DENSE_MASTER: (20, DENSE_MASTER_TRIANGLES, 2048),
@@ -105,6 +124,8 @@ def options_for_job(settings):
     base=int(settings.get('steps',GENERATION_PRESETS.get(settings.get('preset'),(12,))[0]))
     profile_base=PROFILE_ADVANCED.get(settings.get('preset'), {})
     repair = SURFACE_REPAIR_FINISHING if settings.get('repair_surface') is True else {}
+    if settings.get('hd_reconstruction') is True:
+        repair = HD_RECONSTRUCTION_FINISHING
     if isinstance(settings.get('generation_options'),dict):
         return normalize_options({**profile_base,**settings['generation_options'],**repair},base)
     overrides={**profile_base,**{k:settings[k] for k in BY_KEY if k in settings}}

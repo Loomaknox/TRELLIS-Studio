@@ -59,7 +59,7 @@ class Generation(Contract):
     height_m:float=Field(default=1,ge=.01,le=100)
     seed:int=Field(default=42,ge=0,le=2147483647)
     priority:int=Field(default=0,ge=-2,le=2)
-    overrides:dict=Field(default_factory=dict,examples=[{}],description='Optional recipe overrides: triangles, texture_size, resolution, remove_bg, advanced_settings, asset_type, reference_prompt, parent_id, keep_finishing_source, repair_surface (Dense Master only).')
+    overrides:dict=Field(default_factory=dict,examples=[{}],description='Optional recipe overrides: triangles, texture_size, resolution, remove_bg, advanced_settings, asset_type, reference_prompt, parent_id, keep_finishing_source, repair_surface or hd_reconstruction (Dense Master only).')
     reference_edits: dict[Literal['front'], ReferenceEdit] | None = None
 
 class MultiViewGeneration(ReferenceUploads):
@@ -75,6 +75,7 @@ class MultiViewGeneration(ReferenceUploads):
     reference_prompt: str = Field(default='', max_length=6000)
     keep_finishing_source: bool = False
     repair_surface: bool = False
+    hd_reconstruction: bool = Field(default=False, strict=True, description='Reconstruct the Dense Master at grid 768. Mutually exclusive with repair_surface.')
     reproject_face: bool = False
     priority: int = Field(default=0, ge=-2, le=2)
 
@@ -246,6 +247,7 @@ class JobRetry(Contract):
     repair_holes: bool | None = None
     bake_normals: bool | None = None
     repair_surface: bool | None = None
+    hd_reconstruction: bool | None = Field(default=None, strict=True)
 
 
 class Refinish(Contract):
@@ -258,6 +260,7 @@ class Refinish(Contract):
     adaptive_finishing: bool | None = None
     bake_normals: bool | None = None
     repair_surface: bool | None = None
+    hd_reconstruction: bool | None = Field(default=None, strict=True, description='Reconstruct a cached HD source at grid 768.')
     remesh_resolution: Literal[512, 768, 1024] | None = None
     texture_sampling: Literal['trilinear', 'nearest'] | None = None
     normal_source: Literal['decoded', 'parent'] | None = None
@@ -291,6 +294,7 @@ class FinishingOptions(Contract):
     triangle_presets: dict[str, int]
     normal_bake: bool
     repair_surface: bool
+    hd_reconstruction: bool = False
     remesh_resolutions: list[int]
     texture_sampling_modes: list[str]
     normal_sources: list[str]
@@ -363,11 +367,28 @@ class MultiViewTextureProjection(Contract):
 TextureProjectionRequest = TextureProjection | MultiViewTextureProjection
 
 
+PROTECTED_REGION_LIMIT = 24
+PROTECTED_REGION_COORD_LIMIT = 3.4028234663852886e38  # GLB POSITION uses float32.
+PROTECTED_REGION_RADIUS_LIMIT = 4 * PROTECTED_REGION_COORD_LIMIT
+ModelCoordinate = Annotated[float, Field(strict=True, ge=-PROTECTED_REGION_COORD_LIMIT,
+                                           le=PROTECTED_REGION_COORD_LIMIT)]
+
+
+class ProtectedRegion(Contract):
+    center: tuple[ModelCoordinate, ModelCoordinate, ModelCoordinate] = Field(
+        description='Surface center in the source GLB coordinate system (Y up).')
+    radius: float = Field(gt=0, le=PROTECTED_REGION_RADIUS_LIMIT, strict=True,
+                          description='Radius in source GLB units.')
+    strength: float = Field(ge=0, le=1, strict=True, description='Relative reduction priority from 0 to 1.')
+
+
 class BakedGameCopy(Contract):
     profile: Literal['object', 'humanoid'] = 'object'
     triangles: int | None = Field(default=None, ge=5000, le=150000)
     texture_size: Literal[1024, 2048, 4096] = 2048
     bake_normals: bool = True
+    protected_regions: list[ProtectedRegion] = Field(default_factory=list, max_length=PROTECTED_REGION_LIMIT,
+        description='Optional soft spherical priorities. They add to the selected profile’s priority weights.')
 
     @model_validator(mode='after')
     def default_budget(self):
