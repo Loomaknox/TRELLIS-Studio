@@ -79,6 +79,7 @@
 !/tests/rig_landmarks_blender.py
 !/tests/texture_projection.py
 !/tests/texture-projection-geometry.mjs
+!/tests/texture-projection-auto-align.mjs
 !/tests/baked_game_copy.py
 !/tests/game_copy_installer.py
 !/tests/model_finishing_api.py
@@ -113,6 +114,7 @@
 /web/*
 !/web/texture-projection.js
 !/web/texture-projection-geometry.js
+!/web/texture-projection-auto-align.js
 !/web/texture-projection.css
 !/web/advanced-controls.js
 !/web/animation-studio.css

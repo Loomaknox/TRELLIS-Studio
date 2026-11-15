@@ -185,6 +185,49 @@
     gap: 8px;
     margin-top: 9px;
 }
+.tp-auto-align {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 6px 10px;
+    min-width: 0;
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid var(--tp-border);
+}
+.tp-auto-align-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.tp-auto-align #projectionAutoAlign {
+    background: #c4f58a12;
+    border-color: #c4f58a42;
+    color: #d9f8b9;
+}
+.tp-auto-align #projectionAutoAlign:not(:disabled):hover { background: #c4f58a24; border-color: #c4f58a75; }
+.tp-auto-align #projectionAutoAlign:disabled { opacity: .5; }
+.tp-auto-align-status {
+    max-width: 40ch;
+    margin: 0;
+    color: var(--tp-muted);
+    font-size: 11px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+.tp-auto-align-status:empty { display: none; }
+.tp-auto-align[data-state=success] .tp-auto-align-status { color: #d9f8b9; }
+.tp-auto-align[data-state=error] .tp-auto-align-status { color: #e6c29a; }
+.tp-auto-align progress {
+    appearance: none;
+    grid-column: 1/-1;
+    width: 100%;
+    height: 6px;
+    margin: 1px 0 0;
+    border: 0;
+    border-radius: 6px;
+    background: #495643;
+    accent-color: var(--tp-accent);
+}
+.tp-auto-align progress::-webkit-progress-bar { border-radius: 6px; background: #495643; }
+.tp-auto-align progress::-webkit-progress-value { border-radius: 6px; background: var(--tp-accent); }
+.tp-auto-align progress::-moz-progress-bar { border-radius: 6px; background: var(--tp-accent); }
 .tp-instruction, .tp-alignment-status {
     font-size: 12px;
     line-height: 1.5;
@@ -294,6 +337,8 @@
     .tp-toolbar .tool-button.tp-shape-caret { width: 17px; }
     .tp-toolbar .tool-button .ui-icon { width: 16px; height: 16px; }
     .tp-camera-adjustments { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tp-auto-align { grid-template-columns: minmax(0, 1fr); }
+    .tp-auto-align-status { max-width: none; }
     .tp-columns { gap: 5px; }
     .tp-card { padding: 5px; }
     .tp-pane-header { gap: 4px; }

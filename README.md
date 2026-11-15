@@ -133,13 +133,15 @@ Foot-contact measurements are estimates. The workshop does not guarantee foot lo
 
 ### Game and printing preparation
 
-**Texture Projection** starts from a completed static GLB. Choose a preset
-view such as **Back**, or use **Orbit** and the camera controls to match an
-angled reference. Select an area on the reference with the lasso, polygon,
-rectangle or ellipse, then move or resize the overlay. Use corresponding
-guides for precise alignment. The preview camera determines the visible
-surfaces that receive the projected base color. The result is a linked copy
-that keeps the source geometry, UVs and other maps.
+**Texture Projection** starts from a completed static GLB. With a cutout
+reference, open the camera menu and choose **Auto Align** to estimate the
+view and fit the overlay. Review the result and use **Orbit** or paired
+guides for precise alignment. Symmetric shapes and differences between
+the mesh and the reference can make the angle ambiguous. Presets such as
+**Back** are available for straightforward views. Select an area with the
+lasso, polygon, rectangle or ellipse. The preview camera determines which
+visible surfaces receive the projected base color. The linked copy keeps the
+source geometry, UVs and other maps.
 
 **Game Copy from HD** reduces the selected static HD model, unwraps new UVs,
 and bakes base color, roughness, metallic and optional tangent-space normals

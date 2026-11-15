@@ -367,6 +367,11 @@ that URL and inspect the completed GLB and its result report.
   donor's color, roughness, metallic and optional tangent normals. The result
   reports the actual count. The worker requires Blender and PyMeshLab.
 
+The Studio browser can estimate a camera with **Auto Align**, using a
+transparent cutout and rendered model previews. The browser sends the
+resulting camera with the usual projection recipe when the user creates
+a texture copy.
+
 A projection camera uses one of six preset views or `view: "custom"`. Front
 looks along −Z with +X to the right and +Y up. A custom view supplies `basis`
 as three right-handed orthonormal vectors in world coordinates, ordered right,

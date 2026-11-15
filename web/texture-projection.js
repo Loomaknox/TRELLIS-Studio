@@ -8,6 +8,9 @@ import {
     simplifyLasso,
 } from './texture-projection-geometry.js?v=3.6.0';
 import { button, dialog, el, field, input, select } from './workbench-ui.js?v=3.4.0';
+import { matchTextureProjectionCamera, readReferenceSilhouette } from './texture-projection-auto-align.js?v=3.6.0-auto-align';
+
+const MATCH_RENDER_SIZE = 128;
 
 const cameraViews = {
     front: [0, 0], back: [180, 0], left: [-90, 0], right: [90, 0],
@@ -56,7 +59,7 @@ function loadImage(url) {
 }
 
 async function loadProjectionPreview(url, isCurrent) {
-    let gltf, renderer, keepPreview = false;
+    let gltf, renderer, matchTarget, matchPixels, topDownPixels, keepPreview = false;
     try {
         gltf = await new GLTFLoader().loadAsync(url);
         if (!isCurrent()) return null;
@@ -89,7 +92,32 @@ async function loadProjectionPreview(url, isCurrent) {
         const orthographic = new THREE.OrthographicCamera();
         const perspective = new THREE.PerspectiveCamera();
         keepPreview = true;
-        return { render, dispose };
+        return { render, sample, dispose };
+
+        function sample(pose) {
+            if (renderer.getContext().isContextLost()) throw new Error('The preview renderer is unavailable.');
+            if (!matchTarget) {
+                matchTarget = new THREE.WebGLRenderTarget(MATCH_RENDER_SIZE, MATCH_RENDER_SIZE, {
+                    colorSpace: THREE.SRGBColorSpace,
+                });
+                matchPixels = new Uint8Array(MATCH_RENDER_SIZE ** 2 * 4);
+                topDownPixels = new Uint8Array(matchPixels.length);
+            }
+            const previousTarget = renderer.getRenderTarget();
+            try {
+                renderer.setRenderTarget(matchTarget);
+                render(pose);
+                renderer.readRenderTargetPixels(matchTarget, 0, 0, MATCH_RENDER_SIZE, MATCH_RENDER_SIZE, matchPixels);
+            } finally {
+                renderer.setRenderTarget(previousTarget);
+            }
+            const stride = MATCH_RENDER_SIZE * 4;
+            for (let row = 0; row < MATCH_RENDER_SIZE; row++) {
+                const offset = (MATCH_RENDER_SIZE - row - 1) * stride;
+                topDownPixels.set(matchPixels.subarray(offset, offset + stride), row * stride);
+            }
+            return { data: topDownPixels, width: MATCH_RENDER_SIZE, height: MATCH_RENDER_SIZE };
+        }
 
         function render(pose) {
             const yaw = THREE.MathUtils.degToRad(pose.yaw);
@@ -139,6 +167,7 @@ async function loadProjectionPreview(url, isCurrent) {
     }
 
     function dispose() {
+        matchTarget?.dispose();
         disposeModel(gltf?.scene);
         renderer?.dispose();
         renderer?.forceContextLoss();
@@ -265,11 +294,11 @@ export function createTextureProjection({ api, startJob }) {
         ['yaw', 'Yaw (°)', -180, 180], ['pitch', 'Pitch (°)', -90, 90], ['roll', 'Roll (°)', -180, 180],
         ['fov', 'Field of view (°)', 12, 90],
     ]) {
-        const control = input('number', 0, { min, max, step: 1 });
+        const control = input('number', 0, { min, max, step: 0.1 });
         control.id = `projectionCamera${titleCase(key)}`;
         control.onchange = () => {
             if (control.value.trim() === '' || !Number.isFinite(Number(control.value))) {
-                control.value = Math.round(cameraPose[key]);
+                control.value = Number(cameraPose[key].toFixed(1));
                 return;
             }
             const value = bound(Number(control.value), min, max);
@@ -281,7 +310,29 @@ export function createTextureProjection({ api, startJob }) {
         cameraField.hidden = key === 'fov';
         cameraAdjustments.append(cameraField);
     }
-    cameraPanel.append(el('strong', 'tp-popover-title', 'Projection camera'), cameraTools, cameraAdjustments);
+    const autoAlignPanel = el('section', 'tp-auto-align');
+    autoAlignPanel.setAttribute('role', 'group');
+    autoAlignPanel.setAttribute('aria-label', 'Automatic camera alignment');
+    const autoAlignButton = button('Auto Align', 'sparkles', 'secondary tp-tool', alignAutomatically);
+    autoAlignButton.id = 'projectionAutoAlign';
+    const cancelAlignmentButton = button('Cancel', 'close', 'secondary tp-tool', () => {
+        cancelAutoAlign('Alignment canceled.');
+        changed();
+        autoAlignButton.focus({ preventScroll: true });
+    });
+    cancelAlignmentButton.id = 'projectionCancelAutoAlign';
+    cancelAlignmentButton.setAttribute('aria-label', 'Cancel automatic alignment');
+    const autoAlignActions = el('div', 'tp-auto-align-actions');
+    autoAlignActions.append(autoAlignButton, cancelAlignmentButton);
+    const autoAlignStatus = el('p', 'tp-auto-align-status', 'Match the camera to a cutout reference.');
+    autoAlignStatus.id = 'projectionAutoAlignStatus';
+    autoAlignStatus.setAttribute('role', 'status');
+    autoAlignButton.setAttribute('aria-describedby', autoAlignStatus.id);
+    const autoAlignProgress = el('progress');
+    autoAlignProgress.id = 'projectionAutoAlignProgress';
+    autoAlignProgress.setAttribute('aria-label', 'Matching camera views');
+    autoAlignPanel.append(autoAlignActions, autoAlignStatus, autoAlignProgress);
+    cameraPanel.append(el('strong', 'tp-popover-title', 'Projection camera'), autoAlignPanel, cameraTools, cameraAdjustments);
     const overlayButton = dockButton('projectionOverlayToggle', 'layers', 'Toggle reference overlay', () => {
         overlay.checked = !overlay.checked;
         changed();
@@ -569,6 +620,7 @@ export function createTextureProjection({ api, startJob }) {
         cameraRequest = 0,
         cameraFit = false;
     let panelOpen = null;
+    let autoAlignRun = null;
     let sourceRect = [0, 0, 1, 1],
         sourcePolygon = null,
         placement = [1, 0, 0, 0, 1, 0],
@@ -648,6 +700,9 @@ export function createTextureProjection({ api, startJob }) {
         if (history.length > 40) history.shift();
     }
     function undo() {
+        if (autoAlignRun) return;
+        if (autoAlignPanel.dataset.state === 'success') ui.notice.textContent = '';
+        setAutoAlignStatus();
         if (draft.length) {
             draft.pop();
             changed();
@@ -675,6 +730,74 @@ export function createTextureProjection({ api, startJob }) {
     }
     function supportsPerspective() {
         return board?.camera_projections?.includes('perspective') === true;
+    }
+    function setAutoAlignStatus(message = 'Match the camera to a cutout reference.', state = 'idle') {
+        autoAlignStatus.textContent = message;
+        autoAlignPanel.dataset.state = state;
+    }
+    function cancelAutoAlign(message) {
+        autoAlignRun?.abort();
+        autoAlignRun = null;
+        setAutoAlignStatus(message);
+    }
+    async function alignAutomatically() {
+        if (autoAlignButton.disabled || !preview || !sides.source.image) return;
+        const image = sides.source.image;
+        const canvas = document.createElement('canvas');
+        const scale = Math.min(1, 256 / Math.max(image.naturalWidth, image.naturalHeight));
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        let referenceSilhouette;
+        try {
+            const context = canvas.getContext('2d', { willReadFrequently: true });
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+            referenceSilhouette = readReferenceSilhouette(context.getImageData(0, 0, canvas.width, canvas.height));
+        } catch (error) {
+            setAutoAlignStatus(error.message, 'error');
+            return;
+        }
+        const run = new AbortController();
+        autoAlignRun = run;
+        autoAlignProgress.removeAttribute('value');
+        setAutoAlignStatus('Matching camera views…', 'running');
+        changed();
+        cancelAlignmentButton.focus({ preventScroll: true });
+        try {
+            const result = await matchTextureProjectionCamera(referenceSilhouette, preview.sample, cameraPose, {
+                signal: run.signal,
+                onProgress({ tested, total }) {
+                    autoAlignProgress.max = total;
+                    autoAlignProgress.value = tested;
+                },
+            });
+            if (autoAlignRun !== run || !ui.element.open) return;
+            autoAlignRun = null;
+            if (result.applied) {
+                setCamera(result.pose, true);
+                setAutoAlignStatus('Camera matched. Review the overlay.', 'success');
+                closeToolbarPanel(true);
+                ui.notice.textContent = 'Camera matched. Review the overlay before creating a texture copy.';
+            } else if (result.ambiguous) {
+                setAutoAlignStatus('Several angles fit this reference. Use Orbit to choose a view.', 'error');
+            } else if (result.reason === 'close') {
+                setAutoAlignStatus('The current angle already fits the reference.', 'success');
+            } else if (result.reason === 'time-limit') {
+                setAutoAlignStatus('The model took too long to match. Set the angle with Orbit.', 'error');
+            } else {
+                setAutoAlignStatus('No view matches this cutout closely. Check the reference or use Orbit.', 'error');
+            }
+        } catch (error) {
+            if (autoAlignRun !== run) return;
+            autoAlignRun = null;
+            setAutoAlignStatus(error.message, 'error');
+        } finally {
+            if (ui.element.open && autoAlignRun === null) {
+                changed();
+                if (!cameraPanel.hidden && document.activeElement === cancelAlignmentButton) {
+                    autoAlignButton.focus({ preventScroll: true });
+                }
+            }
+        }
     }
     function selectTool(value) {
         const enableGuides = value === 'guides' && !useGuides.checked;
@@ -709,6 +832,11 @@ export function createTextureProjection({ api, startJob }) {
         if (!preview || pending || sameCamera(cameraPose, next)) return;
         if (next.view === 'custom' && !supportsCustom()) return;
         if (next.projection === 'perspective' && !supportsPerspective()) return;
+        if (autoAlignRun) cancelAutoAlign('Alignment canceled.');
+        else if (autoAlignPanel.dataset.state === 'success') {
+            setAutoAlignStatus();
+            ui.notice.textContent = '';
+        }
         if (save) remember();
         if (useGuides.checked || sides.target.points.some(Boolean)) {
             const transform = activeTransform();
@@ -920,6 +1048,7 @@ export function createTextureProjection({ api, startJob }) {
         submit.disabled =
             pending ||
             uploading ||
+            !!autoAlignRun ||
             !board?.supported ||
             !cameraRecipe ||
             gesture?.kind === 'orbit' ||
@@ -955,8 +1084,12 @@ export function createTextureProjection({ api, startJob }) {
             control.disabled = pending || !preview || (projection === 'perspective' && !supportsPerspective());
         }
         cameraOptions.disabled = pending || !preview;
+        autoAlignPanel.hidden = !supportsCustom() || !supportsPerspective();
+        autoAlignButton.disabled = pending || uploading || !ready || !cameraRecipe || !!autoAlignRun
+            || !!gesture || autoAlignPanel.hidden;
+        cancelAlignmentButton.hidden = autoAlignProgress.hidden = !autoAlignRun;
         for (const [key, control] of Object.entries(cameraInputs)) {
-            if (document.activeElement !== control) control.value = Math.round(cameraPose[key]);
+            if (document.activeElement !== control) control.value = Number(cameraPose[key].toFixed(1));
             control.disabled = cameraOptions.disabled || (key !== 'fov' && !supportsCustom());
         }
         cameraInputs.fov.closest('label').hidden = cameraPose.projection !== 'perspective';
@@ -965,7 +1098,8 @@ export function createTextureProjection({ api, startJob }) {
         for (const { control, value } of rangeOutputs) value.value = `${Math.round(Number(control.value) * 100)}%`;
         const viewName = titleCase(cameraPose.view);
         sides.target.heading.textContent = `Model · ${viewName}`;
-        viewStatus.textContent = cameraRecipe ? `${viewName} · ${titleCase(cameraPose.projection)}` : '';
+        viewStatus.textContent = autoAlignRun ? 'Matching reference…'
+            : cameraRecipe ? `${viewName} · ${titleCase(cameraPose.projection)}` : '';
         for (const key of ['source', 'target']) {
             const side = sides[key];
             side.placeholder.hidden = !!side.image;
@@ -997,7 +1131,7 @@ export function createTextureProjection({ api, startJob }) {
         undoPointButton.disabled = !draft.length;
         guidePanel.hidden = guideTop.hidden = !useGuides.checked;
         placementPanel.hidden = mode !== 'placement' || useGuides.checked;
-        undoButton.disabled = pending || (!history.length && !draft.length);
+        undoButton.disabled = pending || !!autoAlignRun || (!history.length && !draft.length);
         placementScale.disabled = useGuides.checked || !ready || pending;
         for (const b of nudge.children) b.disabled = placementScale.disabled;
         const relative = initialPlacement[0] ? placement[0] / initialPlacement[0] : 1;
@@ -1296,6 +1430,7 @@ export function createTextureProjection({ api, startJob }) {
     };
     overlay.onchange = overlayOpacity.oninput = opacity.oninput = feather.oninput = changed;
     async function chooseReference(descriptor, selection) {
+        cancelAutoAlign();
         const version = ++imageVersion;
         sides.source.image = null;
         sides.source.error = '';
@@ -1337,6 +1472,7 @@ export function createTextureProjection({ api, startJob }) {
         const item = board?.references?.find((entry) => entry.id === reference.value);
         if (item) chooseReference(item, { reference: item.id });
         else {
+            cancelAutoAlign();
             imageVersion++;
             selectedReference = null;
             sides.source.image = null;
@@ -1357,6 +1493,7 @@ export function createTextureProjection({ api, startJob }) {
             upload.value = '';
             return;
         }
+        cancelAutoAlign();
         const version = opening;
         uploading = true;
         changed();
@@ -1428,6 +1565,7 @@ export function createTextureProjection({ api, startJob }) {
         opening++;
         imageVersion++;
         base = board = cameraRecipe = selectedReference = null;
+        cancelAutoAlign();
         if (cameraRequest) cancelAnimationFrame(cameraRequest);
         cameraRequest = 0;
         cameraFit = false;
