@@ -134,9 +134,46 @@ loads UniRig's own checkpoint; it does not download pretrained OPT language-mode
 weights, a text tokenizer or an extra Hugging Face configuration on first use.
 
 The installer does not run the upstream all-purpose installer. Background removal
-uses **rembg/U2-Net**, and the Studio UV baking path uses its **MIT PyTorch
+uses **rembg/U2-Net**, and TRELLIS generation's UV baking path uses its **MIT PyTorch
 rasteriser**. Optional research-only upstream render packages and RMBG-2.0 weights
 are not installed by the Studio dependency selection.
+
+### CPU texture projection and baked game copies
+
+The Workshop setup includes the CPU libraries for texture projection and
+**PyMeshLab 2025.7.post1** for reducing a selected static HD model. Full Studio
+includes the same dependencies. PyMeshLab is downloaded from its published
+Windows CPython 3.11 wheel (about 55 MB); neither that wheel nor Blender is
+embedded in the Setup executable. Setup checks the exact PyMeshLab version and
+executes a small real reduction before recording the Workshop as ready.
+
+Texture projection does not require Blender or CUDA. **Baked game copies also
+require Blender**, which creates new UVs and transfers the selected HD model's
+base colour, metallic/roughness and optional tangent-space normals. Install
+Blender 5.2 LTS separately. Standard installations under `Program Files` are
+detected automatically; for a portable installation, set `TRELLIS_BLENDER` to
+the full `blender.exe` path before starting Studio or Server. Workshop remains
+usable without Blender and explains which preparation operations need it.
+
+For an existing source installation, close Studio/Server and refresh only the
+Workshop dependencies without downloading AI models:
+
+```powershell
+.\Install-Studio.ps1 -WorkshopOnly -NoLaunch
+.\Install-Studio.ps1 -WorkshopOnly -VerifyOnly
+```
+
+For an installed Windows release, stop its running services and rerun Setup
+over the same installation folder. Setup and the Desktop launcher detect changed
+dependency pins through the Workshop marker. Existing collections, account data
+and configuration remain separate from these dependency files. A small test bake
+is still recommended on each machine; setup verification is not a full bake.
+
+PyMeshLab retains its [GPL-3.0 licence](https://github.com/cnr-isti-vclab/PyMeshLab/blob/main/LICENSE)
+and [upstream attribution](https://pypi.org/project/pymeshlab/2025.7.post1/).
+Blender retains its own GPL and third-party notices. See
+[third-party notices](THIRD_PARTY_NOTICES.md). Neither dependency is relicensed
+under the Studio code's MIT licence.
 
 A model/configuration already present with the expected hash is reused. A completed
 file with a different hash is preserved and reported; it is not silently replaced.

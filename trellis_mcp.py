@@ -14,10 +14,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from starlette.responses import JSONResponse
 from api_contract import (
-    Animation, AnimationBatch, AnimationRemoval, Assign, Export, Folder, Game, Generation, Identifier, ImportModel,
+    Animation, AnimationBatch, AnimationRemoval, Assign, BakedGameCopy, Export, Folder, Game, Generation, Identifier, ImportModel,
     GeneratedAnimationCreate, GeneratedAnimationApply,
     JobRetry, LOD, Metadata, Motion, MultiViewGeneration, PrintCopy, Refinish, Rig,
-    SavedView, VERSION,
+    SavedView, TextureProjection, VERSION,
 )
 
 ROOT=Path(__file__).resolve().parent
@@ -176,6 +176,27 @@ async def get_finishing_options(model_id: Identifier) -> dict[str, Any]:
 async def queue_refinish(model_id: Identifier, recipe: Refinish) -> dict[str, Any]:
     """Create a linked Remesh variant from the saved cache. Surface repair and normal baking are optional. Poll get_model."""
     return await api('POST', f'/models/{model_id}/refinish', recipe.model_dump(exclude_none=True))
+
+@tool(read=True)
+async def get_texture_projection_options(model_id: Identifier) -> dict[str, Any]:
+    """Check support and list saved reference images for a completed static model."""
+    return await api('GET', f'/models/{model_id}/texture-projection')
+
+@tool()
+async def queue_texture_projection(model_id: Identifier, recipe: TextureProjection) -> dict[str, Any]:
+    """Project an image region into the base color of a linked copy. Supply the camera and normalized rectangles. Use linked_selection to align the source mask with four matching points per image, and source_polygon for a freeform outline. Poll get_model."""
+    return await api('POST', f'/models/{model_id}/texture-projection',
+                     recipe.model_dump(mode='json', exclude_none=True))
+
+@tool(read=True)
+async def get_baked_game_copy_options(model_id: Identifier) -> dict[str, Any]:
+    """Check whether a static master can be reduced and baked, and read its suggested triangle budget."""
+    return await api('GET', f'/models/{model_id}/baked-game-copy')
+
+@tool()
+async def queue_baked_game_copy(model_id: Identifier, recipe: BakedGameCopy) -> dict[str, Any]:
+    """Reduce a completed static model, unwrap the result and bake materials from the selected master. Use the humanoid profile only on a frontal T-pose. Poll get_model and review the result."""
+    return await api('POST', f'/models/{model_id}/baked-game-copy', recipe.model_dump())
 
 @tool(read=True)
 async def get_queue()->dict[str,Any]:

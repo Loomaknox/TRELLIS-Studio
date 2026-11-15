@@ -13,7 +13,9 @@ def digest(path):
     return h.hexdigest()
 
 def run(*args,**kwargs):
-    print('>',*map(str,args),flush=True)
+    label=kwargs.pop('label',None)
+    if label:print(label,flush=True)
+    else:print('>',*map(str,args),flush=True)
     return subprocess.run(list(map(str,args)),cwd=ROOT,check=True,**kwargs)
 
 def fetch(entry,target):
@@ -141,8 +143,9 @@ def record_workshop():
 
 
 def install_workshop(uv):
-    # The workshop includes the CPU QR encoder for Server two-factor setup.
-    names=set('annotated-doc annotated-types anyio click colorama fastapi h11 idna numpy opencv-python-headless opentelemetry-api pillow psutil pydantic pydantic_core python-multipart scipy starlette trimesh typing-inspection typing_extensions uvicorn'.split())
+    # CPU projection/reduction work without the generation models or CUDA.
+    # PyMeshLab is fetched from its published wheel, not bundled in Setup.
+    names=set('annotated-doc annotated-types anyio click colorama fastapi h11 idna numpy opencv-python-headless opentelemetry-api pillow psutil pydantic pydantic_core pymeshlab python-multipart scipy starlette trimesh typing-inspection typing_extensions uvicorn'.split())
     requirements=[line.strip() for line in (ROOT/'requirements-windows.txt').read_text().splitlines()
                   if line.partition('==')[0].strip() in names]
     if len(requirements)!=len(names):raise RuntimeError('Workshop dependency list does not match the Windows lock.')
@@ -154,9 +157,35 @@ def install_workshop(uv):
     record_workshop()
 
 
+GAME_COPY_CHECK = """
+import importlib.metadata
+import numpy as np
+import pymeshlab
+from studio_import import find_blender
+assert importlib.metadata.version('pymeshlab') == '2025.7.post1', 'Expected PyMeshLab 2025.7.post1; rerun Workshop setup.'
+vertices=np.array([(x,y,0.) for y in range(9) for x in range(9)],dtype=np.float64)
+faces=[]
+for y in range(8):
+    for x in range(8):
+        a=y*9+x
+        faces.extend(((a,a+1,a+10),(a,a+10,a+9)))
+mesh=pymeshlab.MeshSet()
+mesh.add_mesh(pymeshlab.Mesh(vertex_matrix=vertices,face_matrix=np.asarray(faces,dtype=np.int32),v_scalar_array=np.ones(len(vertices))))
+mesh.apply_filter('meshing_decimation_quadric_edge_collapse',targetfacenum=64,targetperc=0,qualitythr=.3,preservenormal=True,preservetopology=False,optimalplacement=True,planarquadric=False,autoclean=False,selected=False,qualityweight=True,preserveboundary=True,boundaryweight=5.)
+result=mesh.current_mesh()
+assert 0 < result.face_number() <= 64 and np.isfinite(result.vertex_matrix()).all(), 'The CPU reduction check did not produce a valid mesh.'
+print('PyMeshLab 2025.7.post1: CPU reduction check passed; no generation models or CUDA needed.')
+if find_blender():
+    print('Blender detected for game-copy UV and PBR baking. Validate a small model before production.')
+else:
+    print('Workshop ready without Blender. Baked game copies require Blender 5.2 LTS: install it separately, or set TRELLIS_BLENDER to blender.exe, then reopen Studio.')
+"""
+
+
 def verify(rig=True,workshop_only=False):
     python=ROOT/'.venv/Scripts/python.exe'
     run(python,'-c',"import cv2,fastapi,uvicorn,numpy,psutil,scipy,trimesh; from PIL import Image; from studio_rest import install; from retarget_catalogue import ANIMATIONS, BY_ID; assert callable(cv2.QRCodeEncoder_create); assert len(ANIMATIONS)==len(BY_ID)==84; print('Workshop libraries, QR encoder and animation catalogue ready')")
+    run(python,'-c',GAME_COPY_CHECK,label='Checking CPU game-copy reduction...')
     run(ROOT/'.mcp-venv/Scripts/python.exe','-c','from mcp.server import MCPServer;import httpx;print("MCP ready")')
     if not bundled_web():run('node','--check','web/studio.js')
     if workshop_only:return

@@ -382,6 +382,8 @@ def install(app,g):
     # The UI routes stay functional; the public contract documents v1 only.
     for route in app.routes:
         if getattr(route,'path','')=='/' or getattr(route,'path','').startswith('/api/'):route.include_in_schema=False
+    from model_finishing_api import install as install_model_finishing
+    install_model_finishing(router, g, upload)
     app.include_router(router)
     if server_mode:
         workspace_openapi = app.openapi

@@ -219,6 +219,20 @@ checking the library first, as the request may already have been accepted.
 
 ## Other tools and resources
 
+`get_texture_projection_options` lists compatible references and
+`queue_texture_projection` applies a masked image region using an
+orthographic frame and optional matching landmarks. Use `upload_source` for
+a new reference. Set `linked_selection: true` to evaluate a rectangle or ellipse
+on the reference image through the same affine mapping as the projected color.
+For a lasso or polygon outline, use `mask_shape: "polygon"` with
+`source_polygon` containing 3 to 128 normalized `[x, y]` points; polygon masks
+are implicitly linked. Four matching alignment points may surround the selected
+region instead of sitting inside it. Feathering stays inside the source mask;
+old rectangle/ellipse recipes remain valid. `get_baked_game_copy_options` suggests a budget and
+`queue_baked_game_copy` makes a triangle-reduced copy with new UVs and baked
+materials from the selected GLB. Both operations return new, linked model IDs.
+Poll `get_model` and review the exported result. [Recipe fields](API.md#texture-projection-and-baked-game-copies)
+
 Collection tools include folders, assignments and saved views. History tools
 include linked versions, comments and checkpoints. Removal is a recoverable trash
 operation; permanent deletion and shell execution are not tools. Read-only,

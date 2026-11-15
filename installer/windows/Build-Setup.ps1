@@ -22,12 +22,14 @@ if ($taskPackage.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected a numeri
 # Use the public source allowlist, then include only runtime/documentation trees.
 $taskRoots=@('web','installer','runtime','licenses','animations','unity','UniRig','integrations')
 $taskRootFiles=@('LICENSE','README.md','INSTALLATION.md','SECURITY.md','THIRD_PARTY_NOTICES.md','package.json','package-lock.json')
+$taskDocFiles=@('docs/API.md','docs/MCP.md','docs/DEPENDENCIES.json','docs/WINDOWS_SETUP.md','docs/SERVER.md',
+    'docs/MOTION_GENERATION.md',('docs/RELEASE_'+$taskPackage.version+'.md'))
 $taskFiles=@(git -C $taskRoot -c core.quotePath=false ls-files --cached --others --exclude-standard)
 if ($LASTEXITCODE -ne 0) { throw 'Could not read the TRELLIS Studio public source allowlist.' }
 $taskFiles=@($taskFiles | Sort-Object -Unique | Where-Object {
     $parts=$_ -split '/'
     ($parts.Count -eq 1 -and ($_ -match '\.(py|cmd|ps1)$' -or $taskRootFiles -contains $_ -or $_ -match '^requirements-(windows|mcp-lock|mcp)\.txt$')) -or
-    ($parts.Count -gt 1 -and ($taskRoots -ccontains $parts[0] -or $_ -in @('docs/API.md','docs/MCP.md','docs/DEPENDENCIES.json','docs/WINDOWS_SETUP.md','docs/SERVER.md','docs/MOTION_GENERATION.md')))
+    ($parts.Count -gt 1 -and ($taskRoots -ccontains $parts[0] -or $_ -in $taskDocFiles))
 })
 $taskRequired=@('app.py','package.json','installer/setup.py','installer/windows/check-idle.ps1','installer/windows/Launch.cmd','installer/windows/Launch-Installed.ps1','installer/windows/Manage-Shortcuts.ps1','installer/windows/trellis-studio.ico','Start-Studio.ps1','web/studio.html','animations/library.json','unity/TrellisPackageImporter.cs')
 $taskRequired+=@('server_app.py','server_runtime.py','server_store.py','server_setup.py','Start-Server.ps1','Stop-Server.ps1','Open TRELLIS Server.cmd',
@@ -40,6 +42,9 @@ $taskRequired+=@('generated_animations.py','generated_animation_api.py','generat
     'web/generation-wait.js','web/generation-wait.css','docs/MOTION_GENERATION.md')
 $taskRequired+=@('Install Kimodo.cmd','installer/install_kimodo.py','installer/kimodo-manifest.json',
     'installer/kimodo_install_common.py','installer/kimodo_install_linux.py','installer/windows/Install-Kimodo.ps1')
+$taskRequired+=@('texture_projection.py','baked_game_copy.py','game_bake_blender.py','model_finishing_api.py',
+    'model_finishing_worker.py','web/texture-projection.js','web/texture-projection-geometry.js',
+    'web/texture-projection.css',('docs/RELEASE_'+$taskPackage.version+'.md'))
 foreach($taskItem in $taskRequired) {
     if ($taskItem -cnotin $taskFiles) { throw "Required public payload is missing: $taskItem" }
 }

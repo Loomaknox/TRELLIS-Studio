@@ -144,7 +144,7 @@ def job_path(identifier):
     return folder
 
 def prepared_output_ready(settings, status):
-    return (settings.get('source_kind') not in ('unirig', 'animation_copy') or status.get('state') == 'done'
+    return (settings.get('source_kind') not in ('unirig', 'animation_copy', 'texture_projection', 'baked_game_copy') or status.get('state') == 'done'
             or status.get('operation') == 'animation')
 
 
@@ -212,7 +212,7 @@ def status():
                 export_active=EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None,
                 resolution=DEFAULT_GENERATION['resolution'], default_profile=DEFAULT_PROFILE, local=True, studio_version=VERSION,source_revision=SOURCE_REVISION,ui_revision=UI_REVISION,multi_view=pixal3d['ready'],pixal3d=pixal3d,
                 edition='server' if WORKSPACE_CONFIG else 'desktop',
-                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','pixal3d_multiview','pixal3d_face_projection'], texture_sizes=textures,supported_resolutions=resolutions)
+                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','pixal3d_multiview','pixal3d_face_projection','texture_projection','baked_game_copy'], texture_sizes=textures,supported_resolutions=resolutions)
 
 @app.get('/api/components')
 def components():
@@ -1304,7 +1304,7 @@ async def files(identifier: str, filename: str):
     if filename not in (*REFERENCE_FILES,*PREPARED_VIEWS.values(),'conditioning.png','model.glb','model.stl','print-report.json','Unity.zip','Blender.zip','settings.json','result.json','heightmap.png','heightmap.raw','original.glb','original.fbx','original.obj','original.stl','original.ply') or not (folder / filename).exists():
         raise HTTPException(404)
     settings = json.loads((folder/'settings.json').read_text(encoding='utf-8'))
-    if settings.get('source_kind') in ('unirig', 'animation_copy') and filename in ('model.glb', 'result.json'):
+    if settings.get('source_kind') in ('unirig', 'animation_copy', 'texture_projection', 'baked_game_copy') and filename in ('model.glb', 'result.json'):
         status = read_workspace_json(folder / 'status.json', {})
         if not prepared_output_ready(settings, status):
             raise HTTPException(409, 'The model is available after preparation completes.')

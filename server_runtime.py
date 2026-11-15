@@ -22,7 +22,7 @@ from studio_workspace import ID, finishing_source, read, write
 ROOT = Path(__file__).resolve().parent
 MIB = 1024**2
 LOG = logging.getLogger('trellis.server')
-SAFE_SCRIPTS = {'worker.py', 'pixal3d_worker.py', 'import_worker.py', 'rig_worker.py', 'print_worker.py', 'asset_work.py', 'animation_worker.py', 'generated_animation_worker.py'}
+SAFE_SCRIPTS = {'worker.py', 'pixal3d_worker.py', 'import_worker.py', 'rig_worker.py', 'print_worker.py', 'asset_work.py', 'animation_worker.py', 'generated_animation_worker.py', 'model_finishing_worker.py'}
 REFERENCE_FILES = {'settings.json', 'metadata.json', 'status.json', 'generation.log', 'server-work.json',
                    'input.png', 'left.png', 'right.png', 'back.png', 'conditioning.png', 'prepared.png',
                    'prepared-left.png', 'prepared-right.png', 'prepared-back.png'}
@@ -67,6 +67,9 @@ def children(folder):
 
 
 def reserve_bytes(settings, script, folder):
+    if script == 'model_finishing_worker.py':
+        source_bytes = (folder / 'source.glb').stat().st_size
+        return 128 * MIB + 2 * source_bytes
     if script=='generated_animation_worker.py' and settings.get('generated_animation_action')=='apply':
         return 32*MIB+3*(folder/'source.glb').stat().st_size+tree_bytes(folder/'LODs')
     if script == 'worker.py' and settings.get('source_kind') == 'refinish':
@@ -416,7 +419,7 @@ class ServerRuntime:
             trim = False
             if not export and folder.is_dir():
                 script, _, settings = workspace.job_spec(folder)
-                trim = script in ('worker.py', 'pixal3d_worker.py', 'generated_animation_worker.py') or settings.get('source_kind') == 'animation_copy'
+                trim = script in ('worker.py', 'pixal3d_worker.py', 'generated_animation_worker.py', 'model_finishing_worker.py') or settings.get('source_kind') == 'animation_copy'
             if over or terminal not in TERMINAL:
                 if folder.is_dir():
                     error = 'Disk quota reached. Free space before retrying.' if over else 'Server stopped during the operation.'

@@ -1,0 +1,383 @@
+"""CPU projection contracts: preservation, visibility, overlap, pixels and cancellation."""
+from copy import deepcopy
+import hashlib
+import io
+import json
+from pathlib import Path
+import struct
+import sys
+from tempfile import TemporaryDirectory
+import unittest
+
+import numpy as np
+from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from glb_data import read, accessor, image
+import texture_projection as projection
+from api_contract import TextureProjection
+
+
+def write_glb(path, doc, binary):
+    binary += b'\0' * (-len(binary) % 4)
+    doc['buffers'][0]['byteLength'] = len(binary)
+    text = json.dumps(doc, separators=(',', ':')).encode()
+    text += b' ' * (-len(text) % 4)
+    path.write_bytes(struct.pack('<4sII', b'glTF', 2, 28 + len(text) + len(binary))
+                     + struct.pack('<I4s', len(text), b'JSON') + text
+                     + struct.pack('<I4s', len(binary), b'BIN\0') + binary)
+
+
+def fixture(path, *, occluder=True, overlap=False):
+    vertices, normals, uv, faces = [], [], [], []
+
+    def quad(x0, y0, x1, y1, z, rect, back=False):
+        start = len(vertices)
+        vertices.extend([(x0, y0, z), (x1, y0, z), (x1, y1, z), (x0, y1, z)])
+        normals.extend([(0, 0, -1 if back else 1)] * 4)
+        a, b, c, d = rect
+        uv.extend([(a, d), (c, d), (c, b), (a, b)])
+        triangles = [(0, 2, 1), (0, 3, 2)] if back else [(0, 1, 2), (0, 2, 3)]
+        faces.extend([[start + i for i in triangle] for triangle in triangles])
+
+    quad(-.4, -.4, .4, .4, 0, (.05, .05, .45, .45))
+    quad(-.4, -.4, .4, .4, -.1, (.05, .05, .45, .45) if overlap else (.55, .05, .95, .45), True)
+    if occluder:
+        quad(-.08, -.4, .08, .4, .2, (.55, .55, .95, .95))
+    doc = {'asset': {'version': '2.0'}, 'scene': 0, 'scenes': [{'nodes': [0]}],
+           'nodes': [{'mesh': 0}], 'meshes': [{'primitives': [{}]}], 'materials': [],
+           'buffers': [{'byteLength': 0}], 'bufferViews': [], 'accessors': [],
+           'images': [], 'textures': [], 'samplers': [{'wrapS': 33071, 'wrapT': 33071}]}
+    blob = bytearray()
+
+    def view(payload):
+        blob.extend(b'\0' * (-len(blob) % 4))
+        doc['bufferViews'].append({'buffer': 0, 'byteOffset': len(blob), 'byteLength': len(payload)})
+        blob.extend(payload)
+        return len(doc['bufferViews']) - 1
+
+    def acc(values, kind, component, dtype):
+        values = np.asarray(values, dtype=dtype)
+        entry = {'bufferView': view(values.tobytes()), 'componentType': component,
+                 'count': len(values), 'type': kind}
+        if kind == 'VEC3':
+            entry.update(min=values.min(axis=0).tolist(), max=values.max(axis=0).tolist())
+        doc['accessors'].append(entry)
+        return len(doc['accessors']) - 1
+
+    prim = doc['meshes'][0]['primitives'][0]
+    prim.update(attributes={'POSITION': acc(vertices, 'VEC3', 5126, '<f4'),
+                            'NORMAL': acc(normals, 'VEC3', 5126, '<f4'),
+                            'TEXCOORD_0': acc(uv, 'VEC2', 5126, '<f4')},
+                indices=acc(np.asarray(faces).ravel(), 'SCALAR', 5125, '<u4'), material=0, mode=4)
+    atlas = np.zeros((256, 256, 4), np.uint8)
+    atlas[..., 3] = np.arange(256, dtype=np.uint8)[None, :]
+    for picture in (atlas, np.full((4, 4, 3), [0, 180, 60], np.uint8), np.full((4, 4, 3), [128, 128, 255], np.uint8)):
+        buffer = io.BytesIO()
+        Image.fromarray(picture).save(buffer, format='PNG')
+        doc['images'].append({'bufferView': view(buffer.getvalue()), 'mimeType': 'image/png'})
+        doc['textures'].append({'source': len(doc['images']) - 1, 'sampler': 0})
+    doc['materials'].append({'name': 'Preserved material', 'alphaMode': 'OPAQUE',
+                            'pbrMetallicRoughness': {'baseColorTexture': {'index': 0},
+                                                   'metallicRoughnessTexture': {'index': 1},
+                                                   'roughnessFactor': .7, 'metallicFactor': .3},
+                            'normalTexture': {'index': 2, 'scale': .8}, 'extras': {'keep': True}})
+    write_glb(path, doc, bytes(blob))
+
+
+def options(**updates):
+    result = {'camera': {'view': 'front', 'frame': [-.5, -.5, .5, .5]},
+              'source_rect': [0, 0, 1, 1], 'target_rect': [0, 0, 1, 1],
+              'mask_shape': 'rectangle', 'opacity': .5, 'feather': 0}
+    result.update(updates)
+    return result
+
+
+def color(path):
+    doc, blob = read(path)
+    prim = doc['meshes'][0]['primitives'][0]
+    index = doc['materials'][prim['material']]['pbrMetallicRoughness']['baseColorTexture']['index']
+    return np.asarray(image(doc, blob, doc['textures'][index]['source']).convert('RGBA'))
+
+
+class TextureProjectionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = TemporaryDirectory(prefix='trellis-projection-')
+        self.root = Path(self.temp.name)
+        self.source = self.root / 'source.glb'
+        self.reference = self.root / 'reference.png'
+        self.output = self.root / 'projected.glb'
+        fixture(self.source)
+        Image.new('RGBA', (128, 128), (255, 255, 255, 255)).save(self.reference)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def run_projection(self, **kwargs):
+        return projection.project_texture(self.source, self.reference, self.output, options=options(), **kwargs)
+
+    def test_preserves_glb_geometry_materials_alpha_and_uses_linear_blending(self):
+        original = self.source.read_bytes()
+        before, binary = read(self.source)
+        report = self.run_projection()
+        after, result_binary = read(self.output)
+        self.assertEqual(original, self.source.read_bytes())
+        self.assertEqual(binary, result_binary[:len(binary)])
+        for key in ('meshes', 'nodes', 'accessors', 'scenes', 'samplers'):
+            self.assertEqual(before[key], after[key])
+        expected = deepcopy(after['materials'])
+        expected[0]['pbrMetallicRoughness']['baseColorTexture'] = before['materials'][0]['pbrMetallicRoughness']['baseColorTexture']
+        self.assertEqual(expected, before['materials'])
+        old, new = color(self.source), color(self.output)
+        self.assertTrue(np.array_equal(old[..., 3], new[..., 3]))
+        self.assertEqual(int(new[64, 38, 0]), 188)  # 50% white over black in linear RGB, not 128.
+        self.assertEqual(report['triangles'], 6)
+        self.assertTrue(report['geometry_binary_unchanged'])
+        self.assertGreater(report['occluded_samples'], 0)
+
+    def test_occluded_and_back_surface_texels_are_untouched(self):
+        self.run_projection()
+        new = color(self.output)
+        self.assertEqual(int(new[64, 64, 0]), 0)  # The raised strip hides this panel location.
+        self.assertFalse(np.any(new[15:110, 145:235, :3]))  # Separate back-face UV island.
+        self.assertEqual(int(new[192, 192, 0]), 188)  # Visible strip itself receives the reference.
+
+    def test_overlapping_uvs_cannot_repaint_hidden_reused_surfaces(self):
+        fixture(self.source, occluder=False, overlap=True)
+        with self.assertRaisesRegex(projection.TextureProjectionError, 'overlapping UV'):
+            self.run_projection()
+        self.assertFalse(self.output.exists())
+
+    def test_cancel_during_work_and_output_collision_preserve_originals(self):
+        original = self.source.read_bytes()
+        cancel = [False]
+
+        def progress(stage, fraction):
+            self.assertGreaterEqual(fraction, 0)
+            self.assertLessEqual(fraction, 1)
+            if stage == 'Projecting reference colors':
+                cancel[0] = True
+
+        with self.assertRaises(projection.TextureProjectionCancelled):
+            self.run_projection(progress=progress, cancelled=lambda: cancel[0])
+        self.assertFalse(self.output.exists())
+        self.assertFalse(list(self.root.glob('.projection-*')))
+        self.output.write_bytes(b'preserve destination')
+        with self.assertRaisesRegex(projection.TextureProjectionError, 'new file'):
+            self.run_projection()
+        self.assertEqual(self.output.read_bytes(), b'preserve destination')
+        self.assertEqual(self.source.read_bytes(), original)
+        with self.assertRaises(projection.TextureProjectionError):
+            projection.project_texture(self.source, self.reference, self.source, options=options())
+
+    def test_all_axis_bases_are_orthonormal_and_back_projection_works(self):
+        for basis in projection.VIEWS.values():
+            basis = np.asarray(basis)
+            self.assertTrue(np.array_equal(basis @ basis.T, np.eye(3)))
+            self.assertEqual(round(np.linalg.det(basis)), 1)
+        report = projection.project_texture(self.source, self.reference, self.output,
+                                            options=options(camera={'view': 'back', 'frame': [-.5, -.5, .5, .5]}))
+        new = color(self.output)
+        self.assertEqual(int(new[64, 192, 0]), 188)
+        self.assertEqual(int(new[64, 64, 0]), 0)
+        self.assertEqual(report['options']['camera']['view'], 'back')
+
+    def test_normalized_options_landmarks_and_bad_values(self):
+        good = options(source_points=[[.2, .2], [.8, .2], [.5, .5], [.5, .8]],
+                       target_points=[[.2, .2], [.8, .2], [.5, .5], [.5, .8]])
+        self.assertEqual(projection.normalize_projection_options(good)['source_points'], good['source_points'])
+        bad = [options(camera={'view': [], 'frame': [-1, -1, 1, 1]}), options(opacity=float('nan')),
+               options(camera={'view': 'front', 'frame': [-1, -1, float('inf'), 1]}),
+               options(camera={'view': 'front', 'frame': [-1, -1, 1e100, 1]}),
+               options(camera={'view': 'front', 'frame': [0, 0, 1e-8, 1]}),
+               options(target_rect=[.3, .3, .2, .8]), options(feather=True), options(unknown=1),
+               options(source_points=good['source_points']),
+               options(source_points=good['source_points'], target_points=[[.2, .5], [.4, .5], [.6, .5], [.8, .5]]),
+               options(source_points=good['source_points'][::-1], target_points=good['target_points'])]
+        for value in bad:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                projection.normalize_projection_options(value)
+
+    def test_capabilities_preview_and_unsupported_mesh(self):
+        capability = projection.inspect_texture_projection(self.source)
+        self.assertTrue(capability['supported'])
+        preview = self.root / 'preview.png'
+        info = projection.render_projection_preview(self.source, preview, size=128)
+        self.assertEqual(info['camera']['view'], 'front')
+        with Image.open(preview) as pixels:
+            self.assertEqual(pixels.size, tuple(info['image_size']))
+        before, binary = read(self.source)
+        variants = [dict(animations=[{}]), dict(skins=[{}])]
+        for updates in variants:
+            doc = deepcopy(before)
+            doc.update(updates)
+            write_glb(self.source, doc, binary)
+            self.assertFalse(projection.inspect_texture_projection(self.source)['supported'])
+        doc = deepcopy(before)
+        doc['nodes'][0]['translation'] = [0, 0, 0]
+        write_glb(self.source, doc, binary)
+        self.assertIn('transforms', projection.inspect_texture_projection(self.source)['reason'])
+
+    def test_transparent_reference_does_not_paint_and_nonopaque_material_is_rejected(self):
+        Image.new('RGBA', (128, 128), (255, 0, 0, 0)).save(self.reference)
+        with self.assertRaisesRegex(projection.TextureProjectionError, 'No visible surface'):
+            self.run_projection()
+        self.assertFalse(self.output.exists())
+        doc, blob = read(self.source)
+        doc['materials'][0]['alphaMode'] = 'BLEND'
+        write_glb(self.source, doc, blob)
+        self.assertIn('opaque', projection.inspect_texture_projection(self.source)['reason'])
+
+    def test_exif_reference_orientation_matches_a_physically_transposed_image(self):
+        pixels = np.zeros((64, 128, 3), dtype=np.uint8)
+        pixels[:, :64] = [240, 20, 40]
+        pixels[:, 64:] = [20, 190, 240]
+        metadata = Image.Exif()
+        metadata[274] = 6  # Browser image orientation: 90 degrees clockwise.
+        oriented = self.root / 'oriented.jpg'
+        Image.fromarray(pixels).save(oriented, quality=95, exif=metadata)
+        with Image.open(oriented) as decoded:
+            physically_rotated = decoded.transpose(Image.Transpose.ROTATE_270)
+            physically_rotated.info.clear()
+            physically_rotated.save(self.reference)
+        report = projection.project_texture(self.source, oriented, self.output, options=options())
+        other = self.root / 'physical.glb'
+        projection.project_texture(self.source, self.reference, other, options=options())
+        self.assertEqual(report['reference_size'], [64, 128])
+        self.assertTrue(np.array_equal(color(self.output), color(other)))
+
+    def test_late_cancel_collision_and_source_revision_cannot_publish(self):
+        original = self.source.read_bytes()
+        cancelled = [False]
+
+        def late_cancel(stage, fraction):
+            if stage == 'Saving the texture copy':
+                cancelled[0] = True
+
+        with self.assertRaises(projection.TextureProjectionCancelled):
+            self.run_projection(progress=late_cancel, cancelled=lambda: cancelled[0])
+        self.assertFalse(self.output.exists())
+        self.assertFalse(list(self.root.glob('.projection-*')))
+
+        def create_competing_output(stage, fraction):
+            if stage == 'Saving the texture copy':
+                self.output.write_bytes(b'concurrent output must survive')
+
+        with self.assertRaisesRegex(projection.TextureProjectionError, 'already exists'):
+            self.run_projection(progress=create_competing_output)
+        self.assertEqual(self.output.read_bytes(), b'concurrent output must survive')
+        self.assertFalse(list(self.root.glob('.projection-*')))
+        self.output.unlink()
+
+        def edit_source(stage, fraction):
+            if stage == 'Extending texture island borders':
+                self.source.write_bytes(original + b'external edit')
+
+        with self.assertRaisesRegex(projection.TextureProjectionError, 'source model changed'):
+            self.run_projection(progress=edit_source)
+        self.assertEqual(self.source.read_bytes(), original + b'external edit')
+        self.assertFalse(self.output.exists())
+
+    def test_concave_polygon_uses_source_domain_and_ignores_unrelated_target_guard(self):
+        fixture(self.source, occluder=False)
+        points = [[.1, .1], [.9, .1], [.9, .9], [.1, .9]]
+        recipe = options(mask_shape='polygon', source_polygon=[
+            [.2, .2], [.8, .2], [.8, .4], [.4, .4], [.4, .8], [.2, .8]],
+            source_rect=[.2, .2, .8, .8], target_rect=[.45, .45, .55, .55],
+            source_points=points, target_points=points)
+        original = self.source.read_bytes()
+        report = projection.project_texture(self.source, self.reference, self.output, options=recipe)
+        pixels = color(self.output)
+        self.assertEqual(int(pixels[38, 77, 0]), 188)  # Horizontal arm, outside declared target guard.
+        self.assertEqual(int(pixels[77, 38, 0]), 188)  # Vertical arm.
+        self.assertEqual(int(pixels[77, 77, 0]), 0)    # Concave cutout remains unchanged.
+        self.assertEqual(int(pixels[17, 17, 0]), 0)    # Outside source outline.
+        self.assertTrue(np.allclose(report['effective_target_rect'], [.2, .2, .8, .8]))
+        self.assertEqual(self.source.read_bytes(), original)
+        before, binary = read(self.source)
+        after, changed = read(self.output)
+        self.assertEqual(changed[:len(binary)], binary)
+        self.assertEqual(after['meshes'], before['meshes'])
+        self.assertTrue(np.array_equal(color(self.source)[..., 3], pixels[..., 3]))
+
+    def test_polygon_validation_and_versioned_contract(self):
+        triangle = [[.2, .2], [.8, .2], [.5, .8]]
+        good = options(mask_shape='polygon', source_polygon=triangle + [triangle[0]], linked_selection=True)
+        normalized = projection.normalize_projection_options(good)
+        self.assertEqual(normalized['source_polygon'], triangle)
+        public = TextureProjection.model_validate(dict(good, reference='conditioning'))
+        payload = public.model_dump(mode='json', exclude={'reference', 'upload_id'}, exclude_none=True)
+        self.assertEqual(projection.normalize_projection_options(payload), normalized)
+        for polygon in [triangle[:2], [[.1, .1]] * 129, [[.1, .1], [.5, .5], [.8, .8]],
+                        [[.1, .1], [.9, .9], [.1, .9], [.8, .1]],
+                        [[.1, .1], [.9, .1], [.5, .1], [.9, .9], [.1, .9]],
+                        [[.1, .1], [.9, .1], [.9, .9], [.1, .1], [.1, .9]],
+                        [[float('inf'), .1], [.8, .2], [.5, .8]],
+                        [[-.01, .1], [.8, .2], [.5, .8]], [[True, .1], [.8, .2], [.5, .8]]]:
+            with self.subTest(polygon=polygon), self.assertRaises(ValueError):
+                projection.normalize_projection_options(options(mask_shape='polygon', source_polygon=polygon))
+        for bad in [options(source_polygon=triangle), options(mask_shape='polygon'), options(linked_selection=1)]:
+            with self.subTest(options=bad), self.assertRaises(ValueError):
+                projection.normalize_projection_options(bad)
+        with self.assertRaises(ValueError):
+            TextureProjection.model_validate(dict(options(mask_shape='polygon'), reference='conditioning'))
+
+    def test_polygon_winding_and_feather_remain_strictly_inside_source_outline(self):
+        polygon = [[.2, .2], [.8, .2], [.8, .8], [.2, .8]]
+        recipe = projection.normalize_projection_options(options(
+            mask_shape='polygon', source_polygon=polygon, feather=.1))
+        points = np.array([[.19, .5], [.2, .5], [.23, .5], [.26, .5], [.5, .5], [.81, .5]])
+        alpha = projection._source_alpha(points, recipe, [100, 100])
+        self.assertTrue(np.allclose(alpha, [0, 0, .5, 1, 1, 0]))
+        recipe['source_polygon'] = polygon[::-1]
+        self.assertTrue(np.array_equal(alpha, projection._source_alpha(points, recipe, [100, 100])))
+        recipe['feather'] = 0
+        self.assertTrue(np.array_equal(projection._source_alpha(points, recipe, [100, 100]), [0, 1, 1, 1, 1, 0]))
+
+    def test_linked_affine_rotates_color_and_selection_together(self):
+        fixture(self.source, occluder=False)
+        gradient = np.zeros((128, 128, 4), dtype=np.uint8)
+        gradient[..., 0] = np.arange(128, dtype=np.uint8)[None, :] * 2
+        gradient[..., 1] = 100
+        gradient[..., 3] = 255
+        Image.fromarray(gradient).save(self.reference)
+        source = np.array([[.2, .2], [.8, .2], [.8, .8], [.2, .8]])
+        radians = np.deg2rad(35)
+        rotation = np.array([[np.cos(radians), -np.sin(radians)], [np.sin(radians), np.cos(radians)]])
+        target = (source - .5) @ rotation + .5
+        recipe = options(linked_selection=True, mask_shape='rectangle', source_rect=[.4, .25, .6, .75],
+                         target_rect=[.49, .49, .51, .51], opacity=1,
+                         source_points=source.tolist(), target_points=target.tolist())
+        report = projection.project_texture(self.source, self.reference, self.output, options=recipe)
+        pixels = color(self.output)
+        # UV centres map to camera image coordinates 2 * UV on the front fixture panel.
+        yy, xx = np.mgrid[14:114, 14:114]
+        camera = np.stack(((xx + .5) / 128, (yy + .5) / 128), axis=-1)
+        reference = (camera - .5) @ rotation.T + .5
+        local = pixels[14:114, 14:114, :3]
+        inner = ((reference > [.405, .255]) & (reference < [.595, .745])).all(axis=-1)
+        outside = ((reference < [.395, .245]) | (reference > [.605, .755])).any(axis=-1)
+        self.assertTrue(np.all(local[..., 1][inner] == 100))
+        expected_red = reference[..., 0] * 256 - 1
+        self.assertLess(float(np.abs(local[..., 0][inner] - expected_red[inner]).max()), 2)
+        self.assertFalse(np.any(local[outside]))
+        self.assertGreater(report['effective_target_rect'][2] - report['effective_target_rect'][0], .4)
+
+    def test_small_linked_patch_accepts_surrounding_guides_and_conditioned_detail_fit(self):
+        source = np.array([[.1, .1], [.9, .1], [.9, .9], [.1, .9]])
+        noisy = source.copy()
+        noisy[-1] += [.002, -.002]
+        linked = options(linked_selection=True, source_rect=[.499, .499, .501, .501],
+                         target_rect=[.499, .499, .501, .501], source_points=noisy.tolist(), target_points=source.tolist())
+        projection.normalize_projection_options(linked)
+        with self.assertRaises(ValueError):
+            projection.normalize_projection_options(dict(linked, linked_selection=False))
+        detail = (source - .5) * 1e-6 + .5
+        small = options(linked_selection=True, source_points=detail.tolist(), target_points=detail.tolist())
+        transform, residual = projection._alignment(projection.normalize_projection_options(small))
+        self.assertTrue(np.allclose(transform, [[1, 0], [0, 1], [0, 0]], atol=1e-7))
+        self.assertLess(float(np.abs(residual).max()), 1e-12)
+
+
+if __name__ == '__main__':
+    unittest.main()

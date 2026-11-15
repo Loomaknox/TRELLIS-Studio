@@ -27,11 +27,9 @@ One local generation produced two finishes from the same saved source. The high-
 
 Read the [Windows Setup guide](docs/WINDOWS_SETUP.md) for component installation, repair and uninstall. Downloads are resumable and verified with SHA-256. The uninstaller can stop its own idle local services and keeps the library.
 
-**New in 3.4.0:** a Windows tray controller, configurable Internet setup with Caddy,
-and a reusable generated-motion library with optional automatic Kimodo setup.
-Two-factor authentication is mandatory for administrators and optional for other
-accounts. See the [release notes](docs/RELEASE_3.4.0.md) and
-[Internet setup prerequisites](docs/SERVER.md#internet-access-with-automatic-https).
+**New in 3.5.0:** project a reference onto a selected area of an existing mesh,
+or create a reduced game copy with materials baked from the selected HD model.
+See the [release notes](docs/RELEASE_3.5.0.md).
 
 ### Install from source
 
@@ -49,7 +47,7 @@ accounts. See the [release notes](docs/RELEASE_3.4.0.md) and
 | **Collection** | Search, category/type/review filters, favourites, tags, notes, nested folders, saved views, multiple selection, restorable trash and per-card action menus. |
 | **Review** | PBR/clay/normals/wireframe views, camera presets, adjustable preview lighting, synchronised before/after comparison, topology/UV/material/dimension diagnostics. |
 | **Animate** | UniRig skeleton and skin-weight prediction, editable frontal joint markers, visible skeleton inspection, 84 authored humanoid motions and a separate persistent library of generated motions. |
-| **Prepare** | Linked LOD copies, pivots, centring, orientation, scale and box/convex collisions; dedicated printing copies with STL and topology reports. |
+| **Prepare** | Reference-based color projection, HD-to-game reduction and material baking, linked LOD copies, pivot and collision tools, and dedicated printing copies. |
 | **History** | Parent/child lineage, recipes, comments, recoverable checkpoints and restoration as a new card. |
 | **Present** | Custom thumbnails, transparent PNGs, downloadable turntables and optional lightweight turntables on individual library cards. |
 | **Transfer** | Collection ZIP backup with models, sources, profiles, clips, metadata and prepared resources; optional checkpoints; verified restoration with new IDs. |
@@ -133,6 +131,18 @@ The library uses the **free Standard editions** of Quaternius Universal Animatio
 Foot-contact measurements are estimates. The workshop does not guarantee foot locking or remove every instance of foot sliding. Generated motions do not provide detailed finger animation or guaranteed hand-to-object contacts. Facial animation, automatic gameplay controllers and video-to-motion are not features of this version.
 
 ### Game and printing preparation
+
+**Texture Projection** starts from a completed static GLB. Select an area on a
+saved or uploaded reference using the lasso, polygon, rectangle or ellipse. The
+same outline follows the placement on the model. Move or resize the overlay,
+or match corresponding face guides for precise alignment. A linked copy
+receives the new base color while keeping its geometry, UVs and other maps.
+
+**Game Copy from HD** reduces the selected static HD model, unwraps new UVs,
+and bakes base color, roughness, metallic and optional tangent-space normals
+from that master. Start with 28,000 triangles for an object or 14,000 for a
+frontal T-pose humanoid. Inspect faces, hands, thin parts and materials in
+**Compare**. Blender is required for this operation.
 
 **Automatic LODs** create a linked copy containing full-detail LOD 0 and reduced meshes, preserving available UV/material/skin data. Compare silhouettes with synchronised cameras and export the group.
 

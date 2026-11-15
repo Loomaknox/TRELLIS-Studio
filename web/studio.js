@@ -1,4 +1,4 @@
-import {createStudioWorkbench} from './studio-workbench.js?v=3.4.0-motion1';
+import {createStudioWorkbench} from './studio-workbench.js?v=3.5.0';
 import {createViewerLighting} from './viewer-lighting.js?v=3.4.0';
 import {createHologramViewer} from './hologram-viewer.js?v=3.4.0-quality2';
 import {createGenerationWait} from './generation-wait.js?v=3.4.0';
@@ -76,7 +76,7 @@ function syncVersionNotice(status) {
   $('reloadStudio').hidden = !features || !outdated || olderServer;
   $('versionNotice').hidden = features && !outdated;
 }
-function syncCapabilities(status){multiview.setCapabilities(status.pixal3d);animationStudio?.setCapabilities(status);profileControls?.setRepairCapability(status.features?.includes('repair_surface')===true);availableResolutions=status.supported_resolutions||[512];availableTextures=status.texture_sizes||[1024,2048];for(const option of $('resolution').options)option.disabled=!availableResolutions.includes(Number(option.value));for(const option of $('textureSize').options)option.disabled=Number(option.value)!==0&&!availableTextures.includes(Number(option.value));explainCost();}
+function syncCapabilities(status){multiview.setCapabilities(status.pixal3d);workbench?.setCapabilities(status);animationStudio?.setCapabilities(status);profileControls?.setRepairCapability(status.features?.includes('repair_surface')===true);availableResolutions=status.supported_resolutions||[512];availableTextures=status.texture_sizes||[1024,2048];for(const option of $('resolution').options)option.disabled=!availableResolutions.includes(Number(option.value));for(const option of $('textureSize').options)option.disabled=Number(option.value)!==0&&!availableTextures.includes(Number(option.value));explainCost();}
 function explainCost(){const hint=$('qualityHint');if(!hint)return;const notes=[];if(Number($('resolution').value)===1536)notes.push('1536³ requires more processing time and memory.');if(Number($('textureSize').value)===4096)notes.push('4K uses larger textures; reserve it for close-up objects and large surfaces.');hint.textContent=notes.join(' ');hint.hidden=!notes.length;}
 $('resolution').addEventListener('change',explainCost);$('textureSize').addEventListener('change',explainCost);
 profileControls=await createProfileControls(advancedControls,{changed:()=>{explainCost();updateButtons();}});

@@ -304,6 +304,54 @@ class FinishingBatchAccepted(Contract):
     count: int
     paused: bool
 
+class ProjectionCamera(Contract):
+    view: Literal['front', 'back', 'left', 'right', 'top', 'bottom'] = 'front'
+    frame: tuple[float, float, float, float] = Field(
+        description='Left, bottom, right and top of the orthographic frame in the selected model plane.')
+
+
+class TextureProjection(Contract):
+    camera: ProjectionCamera
+    reference: Literal['prepared', 'conditioning', 'input'] | None = None
+    upload_id: Identifier | None = None
+    source_rect: tuple[Coordinate, Coordinate, Coordinate, Coordinate]
+    target_rect: tuple[Coordinate, Coordinate, Coordinate, Coordinate]
+    source_points: list[tuple[Coordinate, Coordinate]] | None = Field(default=None, min_length=4, max_length=4)
+    target_points: list[tuple[Coordinate, Coordinate]] | None = Field(default=None, min_length=4, max_length=4)
+    source_polygon: list[tuple[Coordinate, Coordinate]] | None = Field(
+        default=None, min_length=3, max_length=128,
+        description='Simple source-image polygon; normalized coordinates with top-left origin. Requires the polygon mask shape.')
+    mask_shape: Literal['ellipse', 'rectangle', 'polygon'] = 'ellipse'
+    linked_selection: bool = Field(
+        default=False, strict=True,
+        description='Evaluate the selection in source-image coordinates using the alignment transform. Polygon masks are always linked.')
+    opacity: float = Field(default=1, gt=0, le=1)
+    feather: float = Field(default=.06, ge=0, le=.5)
+
+    @model_validator(mode='after')
+    def validate_reference(self):
+        if (self.reference is None) == (self.upload_id is None):
+            raise ValueError('Choose one saved reference or upload one image.')
+        if (self.source_points is None) != (self.target_points is None):
+            raise ValueError('Supply all corresponding points on both images.')
+        if (self.source_polygon is not None) != (self.mask_shape == 'polygon'):
+            raise ValueError('Supply a reference polygon only with the polygon mask shape.')
+        return self
+
+
+class BakedGameCopy(Contract):
+    profile: Literal['object', 'humanoid'] = 'object'
+    triangles: int | None = Field(default=None, ge=5000, le=150000)
+    texture_size: Literal[1024, 2048, 4096] = 2048
+    bake_normals: bool = True
+
+    @model_validator(mode='after')
+    def default_budget(self):
+        if self.triangles is None:
+            self.triangles = 14000 if self.profile == 'humanoid' else 28000
+        return self
+
+
 class Folder(Contract):
     name:str=Field(min_length=1,max_length=80)
     parent_id:str=Field(default='',pattern=r'^([a-f0-9]{32})?$')

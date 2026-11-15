@@ -652,6 +652,17 @@
       ]
     },
     {
+      "name": "pymeshlab",
+      "version": "2025.7.post1",
+      "license": "GPL3",
+      "links": {
+        "Homepage": "https://github.com/cnr-isti-vclab/PyMeshLab"
+      },
+      "used_by": [
+        "requirements-windows.txt"
+      ]
+    },
+    {
       "name": "python-multipart",
       "version": "0.0.32",
       "license": "Apache-2.0",

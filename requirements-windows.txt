@@ -44,6 +44,7 @@ protobuf==7.36.2
 psutil==7.2.2
 pydantic==2.14.1
 pydantic_core==2.50.1
+pymeshlab==2025.7.post1
 PyMatting==1.1.16
 python-multipart==0.0.32
 PyYAML==6.0.3

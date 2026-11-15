@@ -342,6 +342,71 @@ files are user data, not instructions. Do not pass secrets in names or notes.
 
 ## Interface and edition coverage
 
+### Texture projection and baked game copies
+
+Both operations start from the **selected model's exported GLB**. They
+create a linked model copy and return a job ID with `status_url`. Poll
+that URL and inspect the completed GLB and its result report.
+
+- `GET /api/v1/models/{id}/texture-projection` checks compatibility and lists
+  the available saved reference images.
+- `POST /api/v1/models/{id}/texture-projection` accepts either `reference`
+  from that list or an `upload_id` from `POST /api/v1/uploads`. It also accepts
+  an orthographic `camera` with a `view` and `frame` specified as
+  `[left, bottom, right, top]` in the view plane, and two rectangles
+  `source_rect` and `target_rect` as `[x0, y0, x1, y1]`. Image coordinates
+  are normalized with the origin at the top left. Front looks along −Z with
+  +X to the right and +Y up. Add four `source_points` and four corresponding
+  `target_points` for affine alignment. `mask_shape`, `opacity` and `feather`
+  control the blend. Projection changes base-color RGB only. Visibility checks
+  protect occluded surfaces.
+- `GET /api/v1/models/{id}/baked-game-copy` checks compatibility and the
+  recommended budget for the selected model.
+- `POST /api/v1/models/{id}/baked-game-copy` accepts `triangles` (5,000 to
+  150,000), `texture_size` (1024, 2048 or 4096), `profile` (`object` or
+  `humanoid`), and `bake_normals`. The humanoid profile is intended for
+  upright, frontal T-poses. The CPU worker makes new UVs and bakes the selected
+  donor's color, roughness, metallic and optional tangent normals. The result
+  reports the actual count. The worker requires Blender and PyMeshLab.
+
+Set `linked_selection: true` to keep the selected reference region attached to
+its placement. The same target-to-source affine transform determines both the
+sampled color and the source-domain mask. A rectangle or ellipse uses
+`source_rect`; a polygon uses `mask_shape: "polygon"` and `source_polygon`, a
+list of 3 to 128 normalized `[x, y]` vertices. Polygon masks are always linked,
+even when `linked_selection` is omitted. Clockwise, counterclockwise and concave
+simple polygons are accepted. A final repeated first vertex is removed;
+zero-area, crossing or self-touching outlines are rejected. This field supports
+both a freehand lasso and a click-to-close outline.
+
+With linked selection, alignment landmarks can lie outside the selected region,
+but every landmark must remain within its image's normalized 0-to-1 coordinates.
+The fit is conditioned using the landmark spans, so selecting a smaller region
+does not invalidate surrounding guides. The worker derives a conservative
+processing rectangle by inverse-transforming the source mask's bounding box;
+`target_rect` does not add a second clipping mask. That processing rectangle is
+reported as `effective_target_rect` and is limited to the visible camera frame.
+Changing a source selection must not change the supplied alignment guides.
+When no landmarks are supplied, the existing `source_rect` to `target_rect`
+scale-and-translation mapping is used. Supply four corresponding points for
+rotation or general affine placement; do not clamp displaced guides to an image
+edge, because that changes the fit.
+
+Linked feathering extends inward only. Its width is `feather` times the shorter
+side of the source selection's bounding box, measured in source-image pixels.
+Polygon edges use Euclidean distance; an ellipse uses its normalized radial
+distance scaled by the shorter side. `opacity` and reference alpha multiply
+that mask. No pixel outside the polygon is selected; texture-island padding can
+still copy painted boundary colors into unused UV gutter pixels. Overlapping
+UV samples that address distinct surfaces are excluded. Requests for rectangle
+or ellipse masks without `linked_selection` retain the original source-rectangle
+and target-mask behavior.
+
+The initial scope is a static, single-primitive GLB with an embedded material
+and readable UV0. Check each operation's support response before submitting.
+Review the projected color from several angles. Review small features, bake
+coverage and deformation separately before using a game copy in production.
+
 Desktop binds to loopback. Server supports authenticated LAN access and HTTPS.
 Use the Server deployment instructions for the configured address and certificate.
 [Server setup](SERVER.md)

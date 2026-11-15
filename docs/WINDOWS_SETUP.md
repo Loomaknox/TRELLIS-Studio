@@ -1,6 +1,6 @@
 # Windows x64 installer
 
-`TRELLIS-Studio-3.4.0-Setup-x64.exe` is the per-user NSIS installer for Windows x64.
+`TRELLIS-Studio-3.5.0-Setup-x64.exe` is the per-user NSIS installer for Windows x64.
 It copies the application and viewer, adds Start menu entries, and never installs
 GPU drivers, Blender or WSL. The executable is unsigned. Do not
 treat a SHA-256 checksum as an Authenticode signature.
@@ -32,7 +32,7 @@ treat a SHA-256 checksum as an Authenticode signature.
 2. Open **TRELLIS Studio** or **TRELLIS Server** from the Start menu. Setup can
    also create a desktop shortcut. The workshop downloads the private Python
    runtime and libraries over HTTPS during Server setup or the first Desktop
-   launch in older installers; the 3.4.0 setup prepares Workshop during installation.
+   launch in older installers. Current Setup prepares Workshop during installation.
    The shortcut opens a tray controller with Start, Stop, Open and Quit actions.
    Quitting the icon leaves services running. It runs on the CPU with the bundled web viewer.
 3. Import a GLB with embedded assets. The workshop supports viewing, inspection,
@@ -40,6 +40,22 @@ treat a SHA-256 checksum as an Authenticode signature.
    importing other formats, some uncommon GLB extensions, and Blender-dependent
    preparation and export formats. Install Blender separately or set
    `TRELLIS_BLENDER` to its executable.
+
+Workshop and Full Studio both install pinned **PyMeshLab 2025.7.post1** for
+CPU-only HD-to-game reduction (about 55 MB downloaded from PyPI, not bundled in
+the executable). Setup verifies its native reduction filter with a small mesh.
+**Baked game copies** additionally need Blender 5.2 LTS for UVs and PBR/normal
+transfer. Standard Blender installations are discovered automatically. Blender
+is not installed by Setup, and Workshop still works when it is absent; the
+setup diagnostic and the operation's availability message explain the missing
+component. Texture projection needs neither Blender nor an NVIDIA GPU.
+
+To update an existing installation, stop Studio/Server and rerun Setup into the
+same folder. Changed dependency pins trigger a Workshop refresh without moving
+the collection or resetting accounts and HTTPS settings. The Desktop launcher
+also checks the saved dependency fingerprint before starting. See the
+[CPU finishing setup guide](../INSTALLATION.md#cpu-texture-projection-and-baked-game-copies)
+for source-installation commands and portable Blender configuration.
 
 For local generation, stop the Studio with **Stop TRELLIS Studio** in the Start
 menu. Choose **Install TRELLIS generation** for the NVIDIA build without WSL, or
