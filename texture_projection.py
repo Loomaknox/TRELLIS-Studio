@@ -44,6 +44,10 @@ MAX_REFERENCE_PIXELS = 16_777_216
 MAX_TRIANGLES = 5_000_000
 POLYGON_EPS = 1e-10
 MIN_POLYGON_AREA = 1e-8
+MIN_SAMPLE_ALPHA = 1 / 255
+FUSION_EDGE_PIXELS = 24
+PRIMARY_VIEW_WEIGHT = 1.33
+LINEAR_RGB_MAX = np.iinfo(np.uint16).max
 
 
 def _number(value, label):
@@ -566,23 +570,7 @@ def _publish(destination, document, binary, material_index, picture, cancelled):
                 pass
 
 
-def project_texture(model_path, reference_path, output_path, *, options, progress=None, cancelled=None):
-    """Project one explicitly aligned reference onto a new GLB, preserving all geometry.
-
-    progress receives (English stage, fraction 0..1). cancelled returns a boolean.
-    Overlapping UV samples are excluded so hidden/reused surfaces are not repainted.
-    """
-    started = time.monotonic()
-    options = normalize_projection_options(options)
-    source, reference, destination = map(Path, (model_path, reference_path, output_path))
-    if destination.exists() or destination.resolve() in (source.resolve(), reference.resolve()):
-        raise TextureProjectionError('Projection must write to a new file, preserving the original model and reference.')
-    if not destination.parent.is_dir():
-        raise TextureProjectionError('The projection output directory does not exist.')
-    _check(cancelled)
-    _progress(progress, 'Checking mesh and reference', 0)
-    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
-    doc, binary, primitive, material_index, atlas, vertices, normals, uv, indices = _load_mesh(source)
+def _load_reference(reference):
     try:
         with Image.open(reference) as opened:
             if opened.width * opened.height > MAX_REFERENCE_PIXELS:
@@ -594,52 +582,25 @@ def project_texture(model_path, reference_path, output_path, *, options, progres
         raise TextureProjectionError('The reference image could not be read.') from error
     if min(ref.shape[:2]) < 2:
         raise TextureProjectionError('The reference image is too small.')
-    transform, residual = _alignment(options)
-    camera = options['camera']
-    plane, basis, perspective = _camera_plane(vertices, camera)
-    normal_plane = normals @ basis.T
-    normal_plane /= np.maximum(np.linalg.norm(normal_plane, axis=1, keepdims=True), 1e-12)
-    projected = _project_camera_plane(plane, perspective)
-    frame = np.asarray(camera['frame'])
-    extent = frame[2:] - frame[:2]
-    normalized = _image_coordinates(projected, frame)
-    target = _processing_rect(options, transform)
-    source_rect = np.asarray(options['source_rect'])
-    local_low = frame[:2] + np.array([target[0], 1 - target[3]]) * extent
-    local_high = frame[:2] + np.array([target[2], 1 - target[1]]) * extent
-    margin = max(local_high - local_low) * .02
-    if np.any(local_low - margin >= local_high + margin):
-        raise TextureProjectionError('The selected region is too small for this camera frame.')
-    depth_frame = [*(local_low - margin), *(local_high + margin)]
-    _progress(progress, 'Checking visible surfaces', .05)
-    depth, _ = _depth(projected, indices, depth_frame, 1024, cancelled)
-    if not np.isfinite(depth).any():
-        raise TextureProjectionError('The model rectangle does not contain a visible surface. Adjust the view or rectangle.')
-    depth_tolerance = max(1e-7, float(np.ptp(vertices, axis=0).max()) * .00085)
-    # Apply the same world-space visibility tolerance to both depth encodings.
-    if perspective:
-        valid = np.isfinite(depth)
-        depth[valid] /= 1 + depth[valid] * depth_tolerance
-    else:
-        depth -= depth_tolerance
-    height, width = atlas.shape[:2]
-    uv_pixels = np.clip(uv, 0, 1) * [width, height] - .5
+    return ref
+
+
+def _uv_coverage(vertices, normals, uv_pixels, indices, width, height, progress, cancelled):
     owner = np.full((height, width), -1, dtype=np.int32)
     ambiguous = np.zeros((height, width), dtype=bool)
     overlap_tolerance = max(1e-9, float(np.ptp(vertices, axis=0).max()) * 1e-6)
-    _progress(progress, 'Checking UV coverage', .15)
+    _progress(progress, 'Checking UV coverage', 0)
     for index, triangle in enumerate(indices):
         if index % 256 == 0:
             _check(cancelled)
             if index % 4096 == 0:
-                _progress(progress, 'Checking UV coverage', .15 + .35 * index / len(indices))
+                _progress(progress, 'Checking UV coverage', index / len(indices))
         for region, u, v, inside in _raster(uv_pixels[triangle], width, height):
             previous = owner[region]
             overlapping = inside & (previous >= 0)
             if overlapping.any():
                 # Shared triangle edges address the same surface point and are safe.
-                # Reused UVs address a different surface (or its reverse side), even
-                # on an exact edge: exclude those samples instead of painting both.
+                # Reused UVs may address a different or reversed surface.
                 yy, xx = np.nonzero(overlapping)
                 coordinates = np.column_stack((xx + region[1].start, yy + region[0].start))
                 previous_triangles = indices[previous[overlapping]]
@@ -660,20 +621,63 @@ def project_texture(model_path, reference_path, output_path, *, options, progres
                 different |= np.einsum('ni,ni->n', old_normal, new_normal) < .5
                 ambiguous[region][overlapping] |= different
             previous[inside & (previous < 0)] = index
+    return owner, ambiguous
+
+
+def _project_view(reference, options, atlas, geometry, coverage, *, capture, progress, cancelled):
+    vertices, normals, uv_pixels, indices = geometry
+    owner, ambiguous = coverage
+    height, width = owner.shape
+    _check(cancelled)
+    ref = _load_reference(reference)
+    transform, residual = _alignment(options)
+    camera = options['camera']
+    plane, basis, perspective = _camera_plane(vertices, camera)
+    normal_plane = normals @ basis.T
+    normal_plane /= np.maximum(np.linalg.norm(normal_plane, axis=1, keepdims=True), 1e-12)
+    projected = _project_camera_plane(plane, perspective)
+    frame = np.asarray(camera['frame'])
+    extent = frame[2:] - frame[:2]
+    normalized = _image_coordinates(projected, frame)
+    target = _processing_rect(options, transform)
+    source_rect = np.asarray(options['source_rect'])
+    local_low = frame[:2] + np.array([target[0], 1 - target[3]]) * extent
+    local_high = frame[:2] + np.array([target[2], 1 - target[1]]) * extent
+    margin = max(local_high - local_low) * .02
+    if np.any(local_low - margin >= local_high + margin):
+        raise TextureProjectionError('The selected region is too small for this camera frame.')
+    depth_frame = [*(local_low - margin), *(local_high + margin)]
+    _progress(progress, 'Checking visible surfaces', 0)
+    depth, _ = _depth(projected, indices, depth_frame, 1024, cancelled)
+    if not np.isfinite(depth).any():
+        raise TextureProjectionError('The model rectangle does not contain a visible surface. Adjust the view or rectangle.')
+    depth_tolerance = max(1e-7, float(np.ptp(vertices, axis=0).max()) * .00085)
+    # Apply the same world-space visibility tolerance to both depth encodings.
+    if perspective:
+        valid = np.isfinite(depth)
+        depth[valid] /= 1 + depth[valid] * depth_tolerance
+    else:
+        depth -= depth_tolerance
     ref_linear = _linear(ref[..., :3])
     ref_alpha = ref[..., 3].astype(np.float32) / 255
-    result = atlas.copy()
+    if capture:
+        # Compact samples keep two 4K views in memory. Work in float32 when blending.
+        picture = np.zeros((height, width, 3), dtype=np.uint16)
+        angle_weight = np.zeros((height, width), dtype=np.float16)
+    else:
+        picture = atlas.copy()
+        angle_weight = None
     weights = np.zeros((height, width), dtype=np.float32)
     projected_xy = normalized[indices]
     candidates = np.flatnonzero((projected_xy.max(axis=1) >= target[:2]).all(axis=1)
                                 & (projected_xy.min(axis=1) <= target[2:]).all(axis=1))
     occluded = overlap = 0
-    _progress(progress, 'Projecting reference colors', .5)
+    _progress(progress, 'Projecting reference colors', .2)
     for step, index in enumerate(candidates):
         if step % 128 == 0:
             _check(cancelled)
             if step % 1024 == 0:
-                _progress(progress, 'Projecting reference colors', .5 + .35 * step / max(1, len(candidates)))
+                _progress(progress, 'Projecting reference colors', .2 + .8 * step / max(1, len(candidates)))
         triangle = indices[index]
         for region, u, v, inside in _raster(uv_pixels[triangle], width, height):
             point = _interp(plane[triangle], u, v)
@@ -701,7 +705,9 @@ def project_texture(model_path, reference_path, output_path, *, options, progres
             alpha *= _smooth(.15, .65, facing) * options['opacity']
             sx, sy = sample[..., 0] * ref.shape[1] - .5, sample[..., 1] * ref.shape[0] - .5
             alpha *= map_coordinates(ref_alpha, [sy, sx], order=1, mode='nearest')
-            eligible = inside & mask & (alpha > 1 / 255)
+            # Match the stored weights for fusion and keep the original single-view cutoff.
+            mask_alpha = alpha.astype(np.float32) if capture else alpha
+            eligible = inside & mask & (mask_alpha > MIN_SAMPLE_ALPHA)
             overlap += int((eligible & ambiguous[region]).sum())
             eligible &= (owner[region] == index) & ~ambiguous[region]
             screen = _screen(projected_point, depth_frame, depth.shape[1], depth.shape[0])
@@ -714,16 +720,118 @@ def project_texture(model_path, reference_path, output_path, *, options, progres
             if not eligible.any():
                 continue
             colors = np.stack([map_coordinates(ref_linear[..., c], [sy, sx], order=1, mode='nearest') for c in range(3)], axis=-1)
-            mixed = _srgb(_linear(atlas[region][..., :3]) * (1 - alpha[..., None]) + colors * alpha[..., None])
-            result[region][..., :3][eligible] = mixed[eligible]
+            if capture:
+                picture[region][eligible] = np.rint(colors[eligible] * LINEAR_RGB_MAX)
+                angle_weight[region][eligible] = .2 + .8 * facing[eligible] ** 2
+            else:
+                mixed = _srgb(_linear(atlas[region][..., :3]) * (1 - alpha[..., None]) + colors * alpha[..., None])
+                picture[region][..., :3][eligible] = mixed[eligible]
             weights[region][eligible] = alpha[eligible]
-    projected = weights > 1 / 255
-    if not projected.any():
+    projected_count = int(np.count_nonzero(weights))
+    if not projected_count:
         reason = 'The selected area has overlapping UVs. Unwrap it into separate islands first.' if overlap else 'No visible surface could receive the reference. Adjust the view, rectangles, or landmarks.'
         raise TextureProjectionError(reason)
+    reference_size = [ref.shape[1], ref.shape[0]]
+    report = {'projected_texels': projected_count, 'occluded_samples': occluded,
+              'overlapping_uv_samples': overlap, 'reference_size': reference_size,
+              'alignment_error_pixels': float(np.linalg.norm(residual * reference_size, axis=1).max()) if len(residual) else 0.,
+              'options': options, 'effective_target_rect': target.tolist()}
+    return picture, weights, angle_weight, report
+
+
+def _edge_confidence(weights, angle_weight, cancelled):
+    # Feather a contribution near its visibility boundary without changing its color.
+    _check(cancelled)
+    distance = cv2.distanceTransform((weights > 0).astype(np.uint8), cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
+    distance /= FUSION_EDGE_PIXELS
+    np.minimum(distance, 1, out=distance)
+    for start in range(0, len(weights), 128):
+        _check(cancelled)
+        rows = slice(start, start + 128)
+        t = distance[rows]
+        angle_weight[rows] *= weights[rows] * (.25 + .75 * t * t * (3 - 2 * t))
+
+
+def _fuse_views(atlas, samples, cancelled):
+    (a, alpha_a, confidence_a, _), (b, alpha_b, confidence_b, _) = samples
+    _edge_confidence(alpha_a, confidence_a, cancelled)
+    _edge_confidence(alpha_b, confidence_b, cancelled)
+    result = atlas.copy()
+    for start in range(0, len(atlas), 128):
+        _check(cancelled)
+        rows = slice(start, start + 128)
+        opacity = np.maximum(alpha_a[rows], alpha_b[rows])
+        visible = opacity > 0
+        if not visible.any():
+            continue
+        a_weight = confidence_a[rows][visible].astype(np.float32) * PRIMARY_VIEW_WEIGHT
+        b_weight = confidence_b[rows][visible].astype(np.float32)
+        b_share = (b_weight / (a_weight + b_weight))[:, None]
+        base = _linear(atlas[rows, :, :3][visible])
+        rgb_a = a[rows][visible].astype(np.float32) / LINEAR_RGB_MAX
+        rgb_b = b[rows][visible].astype(np.float32) / LINEAR_RGB_MAX
+        fused = rgb_a * (1 - b_share) + rgb_b * b_share
+        alpha = opacity[visible, None]
+        result[rows, :, :3][visible] = _srgb(base * (1 - alpha) + fused * alpha)
+    return result
+
+
+def _projection_copy(model_path, views, output_path, progress, cancelled):
+    started = time.monotonic()
+    source, destination = Path(model_path), Path(output_path)
+    views = [(Path(reference), normalize_projection_options(options)) for reference, options in views]
+    if destination.exists() or destination.resolve() in {source.resolve(), *(reference.resolve() for reference, _ in views)}:
+        raise TextureProjectionError('Projection must write to a new file, preserving the original model and reference.')
+    if not destination.parent.is_dir():
+        raise TextureProjectionError('The projection output directory does not exist.')
+    _check(cancelled)
+    _progress(progress, 'Checking mesh and reference', 0)
+    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    doc, binary, _, material_index, atlas, vertices, normals, uv, indices = _load_mesh(source)
+    height, width = atlas.shape[:2]
+    uv_pixels = np.clip(uv, 0, 1) * [width, height] - .5
+
+    def coverage_progress(stage, fraction):
+        _progress(progress, stage, .03 + .29 * fraction)
+
+    owner, ambiguous = _uv_coverage(vertices, normals, uv_pixels, indices, width, height,
+                                    coverage_progress, cancelled)
+    geometry = vertices, normals, uv_pixels, indices
+    multi_view = len(views) == 2
+    samples = []
+    for index, (reference, options) in enumerate(views):
+        def view_progress(stage, fraction):
+            if multi_view:
+                stage = f'View {index + 1} of 2: {stage}'
+            _progress(progress, stage, .32 + .52 * (index + fraction) / len(views))
+
+        try:
+            samples.append(_project_view(reference, options, atlas, geometry, (owner, ambiguous),
+                                         capture=multi_view, progress=view_progress, cancelled=cancelled))
+        except TextureProjectionError as error:
+            if multi_view:
+                raise TextureProjectionError(f'View {index + 1}: {error}') from error
+            raise
+
+    covered = owner >= 0
+    del owner, ambiguous
+    if multi_view:
+        _progress(progress, 'Fusing the two views', .84)
+        result = _fuse_views(atlas, samples, cancelled)
+        projected = (samples[0][1] > 0) | (samples[1][1] > 0)
+        view_reports = [sample[3] for sample in samples]
+        overlap_texels = sum(view['projected_texels'] for view in view_reports) - int(projected.sum())
+        details = {'view_count': 2, 'blend_mode': 'confidence_weighted', 'views': view_reports,
+                   'overlap_texels': overlap_texels,
+                   'occluded_samples': sum(view['occluded_samples'] for view in view_reports),
+                   'overlapping_uv_samples': sum(view['overlapping_uv_samples'] for view in view_reports)}
+    else:
+        result, weights, _, details = samples[0]
+        projected = weights > 0
+        del weights
+    del samples
     _check(cancelled)
     _progress(progress, 'Extending texture island borders', .88)
-    covered = owner >= 0
     distance, nearest = distance_transform_edt(~covered, return_indices=True)
     padding = (~covered) & (distance <= 8) & projected[nearest[0], nearest[1]]
     result[..., :3][padding] = result[nearest[0][padding], nearest[1][padding], :3]
@@ -737,15 +845,30 @@ def project_texture(model_path, reference_path, output_path, *, options, progres
         raise TextureProjectionError('The source model changed during projection. Reload it and try again.')
     _progress(progress, 'Saving the texture copy', .96)
     _publish(destination, doc, binary, material_index, result, cancelled)
-    warnings = ['Overlapping UV samples were excluded.'] if overlap else []
+    warnings = ['Overlapping UV samples were excluded.'] if details['overlapping_uv_samples'] else []
+    if multi_view and not details['overlap_texels']:
+        warnings.append('The projected areas do not overlap. Both areas were projected separately.')
     report = {'state': 'applied', 'modified_texels': int(changed.sum()),
               'projected_texels': int(projected.sum()), 'padding_texels': int(padding.sum()),
-              'occluded_samples': occluded, 'overlapping_uv_samples': overlap,
-              'alignment_error_pixels': float(np.linalg.norm(residual * [ref.shape[1], ref.shape[0]], axis=1).max()) if len(residual) else 0.,
               'triangles': len(indices), 'atlas': [width, height],
-              'reference_size': [ref.shape[1], ref.shape[0]], 'source_sha256': source_hash,
+              'source_sha256': source_hash,
               'geometry_binary_unchanged': True, 'alpha_unchanged': True,
-              'options': options, 'effective_target_rect': target.tolist(),
-              'warnings': warnings, 'seconds': round(time.monotonic() - started, 3)}
+              'warnings': warnings, 'seconds': round(time.monotonic() - started, 3), **details}
     _progress(progress, 'Texture copy ready', 1)
     return report
+
+
+def project_texture(model_path, reference_path, output_path, *, options, progress=None, cancelled=None):
+    """Project one explicitly aligned reference onto a new GLB, preserving all geometry.
+
+    progress receives (English stage, fraction 0..1). cancelled returns a boolean.
+    Overlapping UV samples are excluded so hidden/reused surfaces are not repainted.
+    """
+    return _projection_copy(model_path, [(reference_path, options)], output_path, progress, cancelled)
+
+
+def project_texture_views(model_path, views, output_path, *, progress=None, cancelled=None):
+    """Fuse two (reference path, options) pairs into the base color of a new GLB."""
+    if len(views) != 2:
+        raise TextureProjectionError('Texture projection requires exactly two views for fusion.')
+    return _projection_copy(model_path, views, output_path, progress, cancelled)

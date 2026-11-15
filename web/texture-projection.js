@@ -210,6 +210,28 @@ export function createTextureProjection({ api, startJob }) {
     );
     const summary = el('p', 'tp-model-name');
     ui.element.querySelector('header > div').append(summary);
+    const viewStrip = el('div', 'tp-view-strip');
+    viewStrip.hidden = true;
+    const viewChoices = el('div', 'tp-view-choices');
+    viewChoices.setAttribute('role', 'group');
+    viewChoices.setAttribute('aria-label', 'Projection views');
+    const viewButtonsByIndex = ['One', 'Two'].map((suffix, index) => {
+        const label = `View ${index + 1}`;
+        const control = el('button', 'secondary tp-view-option', label);
+        control.id = `projectionView${suffix}`;
+        control.type = 'button';
+        control.onclick = () => switchView(index);
+        const status = el('span', 'tp-view-readiness');
+        control.append(status);
+        viewChoices.append(control);
+        return { control, label, status };
+    });
+    const addViewButton = button('Add second view', 'plus', 'secondary tp-view-action', () => switchView(1));
+    addViewButton.id = 'projectionAddView';
+    const removeViewButton = button('Remove view 2', 'close', 'secondary tp-view-action', removeSecondView);
+    removeViewButton.id = 'projectionRemoveView';
+    const viewHelp = el('span', 'tp-view-help', 'Align each view separately. Both are blended in the texture copy.');
+    viewStrip.append(viewChoices, addViewButton, removeViewButton, viewHelp);
     const reference = select([['', 'Choose a reference']], '');
     reference.id = 'projectionReference';
     const upload = input('file', '', { accept: 'image/png,image/jpeg,image/webp' });
@@ -594,6 +616,7 @@ export function createTextureProjection({ api, startJob }) {
     const alignmentStatus = el('p', 'tp-alignment-status');
     alignmentStatus.setAttribute('role', 'status');
     ui.body.append(
+        viewStrip,
         referenceFields,
         controlStrip,
         instruction,
@@ -606,6 +629,7 @@ export function createTextureProjection({ api, startJob }) {
     );
     const submit = button('Create texture copy', 'image', 'primary');
     submit.id = 'confirmTextureProjection';
+    const submitLabel = submit.lastChild;
     const viewStatus = el('span', 'tp-projection-status');
     const actions = el('div', 'tp-action-pill tool-pill');
     actions.append(button('Cancel', 'close', 'secondary', () => ui.close()), submit);
@@ -637,6 +661,8 @@ export function createTextureProjection({ api, startJob }) {
         gesture = null,
         history = [],
         scaleStart = null;
+    let inactiveView = null;
+    let activeViewIndex = 0;
     function setupToolbarPanel(panel, opener) {
         panel.hidden = true;
         panel.setAttribute('role', 'dialog');
@@ -695,6 +721,91 @@ export function createTextureProjection({ api, startJob }) {
         useGuides: useGuides.checked,
         activePair,
     });
+    function restoreSnapshot(saved) {
+        ({ sourceRect, sourcePolygon, placement, initialPlacement, cameraPose, mode, activePair, shape } = saved);
+        sides.source.points = saved.sourcePoints;
+        sides.target.points = saved.targetPoints;
+        useGuides.checked = saved.useGuides;
+    }
+    function viewSwitchAvailable() {
+        return !!preview && !pending && !uploading && !sides.source.loading && !gesture && !cameraRequest;
+    }
+    function saveView() {
+        const { bounds, issue } = inspectView();
+        return {
+            alignment: snapshot(),
+            contentBounds,
+            history,
+            draft,
+            selectedReference,
+            referenceChoice: reference.value,
+            sourceImage: sides.source.image,
+            sourceError: sides.source.error,
+            uploadedName: uploadName.textContent,
+            uploadUrl,
+            sourceControls: [overlay.checked, overlayOpacity.value, opacity.value, feather.value],
+            viewports: Object.values(sides).map(({ zoom, viewport, panMode }) => ({
+                zoom: zoom.value, left: viewport.scrollLeft, top: viewport.scrollTop, panMode,
+            })),
+            autoAlignStatus: { text: autoAlignStatus.textContent, state: autoAlignPanel.dataset.state },
+            recipe: issue ? null : projectionRecipe(bounds),
+            readiness: readyLabel(issue),
+        };
+    }
+    function activateView(saved) {
+        closeToolbarPanel();
+        ui.notice.textContent = '';
+        resetView(activeViewIndex === 1 && board?.views?.includes('back') ? 'back' : 'front');
+        if (saved) {
+            restoreSnapshot(saved.alignment);
+            ({ contentBounds, history, draft, selectedReference, uploadUrl } = saved);
+            reference.value = saved.referenceChoice;
+            uploadName.textContent = saved.uploadedName;
+            sides.source.image = saved.sourceImage;
+            sides.source.error = saved.sourceError;
+            if (saved.sourceImage) {
+                const { naturalWidth, naturalHeight } = saved.sourceImage;
+                sides.source.canvas.height = Math.round(1024 * naturalHeight / naturalWidth);
+            }
+            [overlay.checked, overlayOpacity.value, opacity.value, feather.value] = saved.sourceControls;
+            setAutoAlignStatus(saved.autoAlignStatus.text, saved.autoAlignStatus.state);
+        }
+        renderCamera(false);
+        const viewports = Object.entries(sides);
+        viewports.forEach(([, side], index) => {
+            const state = saved?.viewports[index];
+            if (!state) return;
+            side.zoom.value = state.zoom;
+            side.panMode = state.panMode;
+        });
+        changed();
+        viewports.forEach(([key, side], index) => {
+            const state = saved?.viewports[index];
+            applyZoom(key);
+            if (state) {
+                side.viewport.scrollLeft = state.left;
+                side.viewport.scrollTop = state.top;
+            }
+        });
+        viewButtonsByIndex[activeViewIndex].control.focus({ preventScroll: true });
+    }
+    function switchView(index) {
+        if (index === activeViewIndex || board?.max_views !== 2 || !viewSwitchAvailable()) return;
+        if (autoAlignRun) cancelAutoAlign('Alignment canceled.');
+        const saved = inactiveView;
+        inactiveView = saveView();
+        activeViewIndex = index;
+        activateView(saved);
+    }
+    function removeSecondView() {
+        if (activeViewIndex !== 1 || !viewSwitchAvailable()) return;
+        if (autoAlignRun) cancelAutoAlign();
+        if (uploadUrl) URL.revokeObjectURL(uploadUrl);
+        const first = inactiveView;
+        inactiveView = null;
+        activeViewIndex = 0;
+        activateView(first);
+    }
     function remember() {
         history.push(snapshot());
         if (history.length > 40) history.shift();
@@ -711,11 +822,7 @@ export function createTextureProjection({ api, startJob }) {
         const previous = history.pop();
         if (!previous || pending) return;
         const cameraChanged = !sameCamera(previous.cameraPose, cameraPose);
-        ({ sourceRect, sourcePolygon, placement, initialPlacement, cameraPose, mode, activePair } = previous);
-        sides.source.points = previous.sourcePoints;
-        sides.target.points = previous.targetPoints;
-        shape = previous.shape;
-        useGuides.checked = previous.useGuides;
+        restoreSnapshot(previous);
         if (cameraChanged) {
             cameraFit = false;
             queueCamera();
@@ -862,20 +969,22 @@ export function createTextureProjection({ api, startJob }) {
         cameraRequest = requestAnimationFrame(() => {
             cameraRequest = 0;
             if (!preview || !ui.element.open) return;
-            try {
-                const rendered = preview.render(cameraPose);
-                const firstRender = !sides.target.image;
-                sides.target.image = rendered.image;
-                cameraRecipe = rendered.recipe;
-                if (cameraFit || firstRender) initialisePlacement();
-                if (firstRender) applyZoom('target');
-            } catch (error) {
-                ui.notice.textContent = error.message;
-            } finally {
-                cameraFit = false;
-                changed();
-            }
+            const firstRender = !sides.target.image;
+            renderCamera(cameraFit || firstRender);
+            if (firstRender) applyZoom('target');
+            cameraFit = false;
+            changed();
         });
+    }
+    function renderCamera(fit) {
+        try {
+            const rendered = preview.render(cameraPose);
+            sides.target.image = rendered.image;
+            cameraRecipe = rendered.recipe;
+            if (fit) initialisePlacement();
+        } catch (error) {
+            ui.notice.textContent = error.message;
+        }
     }
     function selectionOutline() {
         if (sourcePolygon?.length) return sourcePolygon;
@@ -1032,7 +1141,7 @@ export function createTextureProjection({ api, startJob }) {
                     ctx.font = `${11 * ratio}px sans-serif`;
                 }
     }
-    function changed() {
+    function inspectView() {
         const ready = !!(sides.source.image && sides.target.image),
             transform = ready ? activeTransform() : null;
         const polygonValid =
@@ -1045,20 +1154,42 @@ export function createTextureProjection({ api, startJob }) {
                 bounds[1] >= -1e-8 &&
                 bounds[2] <= 1 + 1e-8 &&
                 bounds[3] <= 1 + 1e-8;
-        submit.disabled =
-            pending ||
-            uploading ||
-            !!autoAlignRun ||
-            !board?.supported ||
-            !cameraRecipe ||
-            gesture?.kind === 'orbit' ||
-            !selectedReference ||
-            !ready ||
-            !validRect(sourceRect) ||
-            !polygonValid ||
-            draft.length > 0 ||
-            !transform ||
-            !fits;
+        const issue = !selectedReference || !ready || !cameraRecipe ? 'Choose a reference and prepare its model view.'
+            : draft.length ? 'Finish the current outline before creating the copy.'
+            : !polygonValid ? 'Draw a closed outline with at least three points and no crossing edges.'
+            : !validRect(sourceRect) ? 'Select an area with a non-zero width and height.'
+            : !transform ? (pointsReady(sides.source.points) && pointsReady(sides.target.points)
+                ? 'The guide pairs do not form a consistent alignment. Check the matching features in both views.'
+                : 'Place all four matching pairs. The selection can be anywhere relative to the guides.')
+            : !fits ? 'The linked selection extends beyond the model view. Move it inward, reduce its scale, or correct the guide pairs.'
+            : '';
+        return { ready, bounds, issue };
+    }
+    function readyLabel(issue) {
+        return !selectedReference ? 'Needs image' : issue ? 'Needs alignment' : 'Ready';
+    }
+    function changed() {
+        const { ready, issue } = inspectView();
+        const multiple = inactiveView !== null;
+        submit.disabled = pending || uploading || !!autoAlignRun || !board?.supported || gesture?.kind === 'orbit'
+            || !!issue || (multiple && !inactiveView.recipe);
+        viewStrip.hidden = board?.max_views !== 2 || !board.supported;
+        const switching = viewSwitchAvailable();
+        viewButtonsByIndex.forEach(({ control, label, status }, index) => {
+            const isActive = index === activeViewIndex;
+            const readiness = isActive ? readyLabel(issue) : inactiveView?.readiness || '';
+            control.hidden = index === 1 && !multiple;
+            control.disabled = !switching && !isActive;
+            control.setAttribute('aria-pressed', String(isActive));
+            control.setAttribute('aria-label', `${label}${readiness ? `, ${readiness}` : ''}`);
+            control.dataset.ready = String(readiness === 'Ready');
+            status.textContent = readiness;
+        });
+        addViewButton.hidden = multiple;
+        removeViewButton.hidden = activeViewIndex !== 1;
+        viewHelp.hidden = !multiple;
+        addViewButton.disabled = removeViewButton.disabled = !switching;
+        submitLabel.nodeValue = multiple ? 'Blend views and create copy' : 'Create texture copy';
         reference.disabled = uploadButton.disabled = pending || uploading || !board?.supported;
         for (const [value, control] of Object.entries(toolButtons)) {
             control.setAttribute('aria-pressed', String(value === mode));
@@ -1099,6 +1230,7 @@ export function createTextureProjection({ api, startJob }) {
         const viewName = titleCase(cameraPose.view);
         sides.target.heading.textContent = `Model · ${viewName}`;
         viewStatus.textContent = autoAlignRun ? 'Matching reference…'
+            : multiple ? `${Number(!issue) + Number(!!inactiveView.recipe)} of 2 views ready`
             : cameraRecipe ? `${viewName} · ${titleCase(cameraPose.projection)}` : '';
         for (const key of ['source', 'target']) {
             const side = sides[key];
@@ -1168,22 +1300,7 @@ export function createTextureProjection({ api, startJob }) {
                         : shape === 'polygon'
                           ? 'Click along the outline, then press Enter or choose Close polygon.'
                           : 'Select the area in the reference and check its placement on the model.';
-        alignmentStatus.textContent = !ready
-            ? ''
-            : draft.length
-              ? 'Finish the current outline before creating the copy.'
-              : !polygonValid
-                ? 'Draw a closed outline with at least three points and no crossing edges.'
-                : !validRect(sourceRect)
-                  ? 'Select an area with a non-zero width and height.'
-                  : !transform
-                    ? useGuides.checked &&
-                      (!pointsReady(sides.source.points) || !pointsReady(sides.target.points))
-                        ? 'Place all four matching pairs. The selection can be anywhere relative to the guides.'
-                        : 'The guide pairs do not form a consistent alignment. Check the matching features in both views.'
-                    : !fits
-                      ? 'The linked selection extends beyond the model view. Move it inward, reduce its scale, or correct the guide pairs.'
-                      : '';
+        alignmentStatus.textContent = ready ? issue : '';
     }
     function applyZoom(key) {
         const side = sides[key],
@@ -1469,6 +1586,9 @@ export function createTextureProjection({ api, startJob }) {
         }
     }
     reference.onchange = () => {
+        if (uploadUrl) URL.revokeObjectURL(uploadUrl);
+        uploadUrl = null;
+        uploadName.textContent = '';
         const item = board?.references?.find((entry) => entry.id === reference.value);
         if (item) chooseReference(item, { reference: item.id });
         else {
@@ -1519,12 +1639,7 @@ export function createTextureProjection({ api, startJob }) {
             upload.value = '';
         }
     };
-    submit.onclick = async () => {
-        if (submit.disabled || !base) return;
-        const transform = activeTransform(),
-            bounds = targetRect(transform),
-            id = base.id,
-            version = opening;
+    function projectionRecipe(bounds) {
         const value = {
             ...selectedReference,
             linked_selection: true,
@@ -1539,6 +1654,20 @@ export function createTextureProjection({ api, startJob }) {
         if (useGuides.checked) {
             value.source_points = sides.source.points.map((p) => [...p]);
             value.target_points = sides.target.points.map((p) => [...p]);
+        }
+        return value;
+    }
+    submit.onclick = async () => {
+        if (submit.disabled || !base) return;
+        const { bounds, issue } = inspectView();
+        if (issue || (inactiveView && !inactiveView.recipe)) return;
+        const id = base.id,
+            version = opening,
+            current = projectionRecipe(bounds);
+        let value = current;
+        if (inactiveView) {
+            const other = inactiveView.recipe;
+            value = { views: activeViewIndex === 0 ? [current, other] : [other, current] };
         }
         pending = true;
         changed();
@@ -1583,6 +1712,8 @@ export function createTextureProjection({ api, startJob }) {
             side.canvas.width = side.canvas.height = 1;
         }
         if (uploadUrl) URL.revokeObjectURL(uploadUrl);
+        if (inactiveView?.uploadUrl) URL.revokeObjectURL(inactiveView.uploadUrl);
+        inactiveView = null;
         uploadUrl = null;
         upload.value = '';
         uploadName.textContent = '';
@@ -1592,40 +1723,51 @@ export function createTextureProjection({ api, startJob }) {
             for (const key of ['source', 'target']) applyZoom(key);
         }
     });
+    function resetView(view) {
+        selectedReference = cameraRecipe = uploadUrl = null;
+        reference.value = uploadName.textContent = '';
+        const [yaw, pitch] = cameraViews[view];
+        cameraPose = { ...defaultCamera(), view, yaw, pitch };
+        scaleStart = null;
+        useGuides.checked = false;
+        overlay.checked = true;
+        overlayOpacity.value = 0.5;
+        shape = 'ellipse';
+        mode = 'selection';
+        opacity.value = 1;
+        feather.value = 0.06;
+        sourceRect = [0, 0, 1, 1];
+        contentBounds = [...sourceRect];
+        sourcePolygon = null;
+        placement = [1, 0, 0, 0, 1, 0];
+        initialPlacement = [...placement];
+        draft = [];
+        hover = null;
+        history = [];
+        activePair = 0;
+        setAutoAlignStatus();
+        for (const side of Object.values(sides)) {
+            side.image = null;
+            side.error = '';
+            side.loading = false;
+            side.points = [];
+            side.canvas.width = side.canvas.height = 1024;
+            side.zoom.value = 1;
+            side.canvas.style.width = '100%';
+            side.panMode = false;
+            side.viewport.scrollTop = side.viewport.scrollLeft = 0;
+            side.zoomValue.textContent = '100%';
+        }
+    }
     return {
         async open(job) {
             if (!job || job.state !== 'done' || ui.element.open) return;
             base = job;
-            board = cameraRecipe = selectedReference = null;
-            cameraPose = defaultCamera();
-            scaleStart = null;
+            board = null;
             pending = uploading = false;
-            useGuides.checked = false;
-            overlay.checked = true;
-            overlayOpacity.value = 0.5;
-            shape = 'ellipse';
-            mode = 'selection';
-            opacity.value = 1;
-            feather.value = 0.06;
-            sourceRect = contentBounds = [0, 0, 1, 1];
-            sourcePolygon = null;
-            placement = [1, 0, 0, 0, 1, 0];
-            initialPlacement = [...placement];
-            draft = [];
-            history = [];
-            activePair = 0;
-            for (const side of Object.values(sides)) {
-                side.image = null;
-                side.error = '';
-                side.loading = false;
-                side.points = [];
-                side.canvas.width = side.canvas.height = 1024;
-                side.zoom.value = 1;
-                side.canvas.style.width = '100%';
-                side.panMode = false;
-                side.viewport.scrollTop = side.viewport.scrollLeft = 0;
-                side.zoomValue.textContent = '100%';
-            }
+            inactiveView = null;
+            activeViewIndex = 0;
+            resetView('front');
             const version = ++opening;
             sides.target.loading = true;
             summary.textContent = nameOf(job);

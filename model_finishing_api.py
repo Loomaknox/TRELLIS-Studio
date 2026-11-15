@@ -5,8 +5,11 @@ import time
 import uuid
 
 from fastapi import HTTPException
+from PIL import Image
 
-from api_contract import BakedGameCopy, Identifier, JobAccepted, TextureProjection
+from api_contract import (
+    BakedGameCopy, Identifier, JobAccepted, MultiViewTextureProjection, TextureProjectionRequest,
+)
 from studio_workspace import write
 
 
@@ -20,6 +23,19 @@ REFERENCE_LABELS = {
 def existing_file(folder, name):
     path = folder / name
     return path if path.is_file() and path.resolve().parent == folder.resolve() else None
+
+
+def check_reference_sizes(paths, max_pixels):
+    for index, path in enumerate(paths, start=1):
+        try:
+            with Image.open(path) as image:
+                pixels = image.width * image.height
+        except Image.DecompressionBombError:
+            pixels = max_pixels + 1
+        except (OSError, ValueError):
+            raise HTTPException(400, f'Choose a readable reference image for view {index}.') from None
+        if pixels > max_pixels:
+            raise HTTPException(400, f'Resize the reference for view {index} to at most 16 megapixels.')
 
 
 def install(router, app, upload):
@@ -38,7 +54,7 @@ def install(router, app, upload):
             for key, label in REFERENCE_LABELS.items() if existing_file(folder, f'{key}.png')
         ]
 
-    async def prepare_copy(folder, record, source, operation, options, reference=None):
+    async def prepare_copy(folder, record, source, operation, *, options=None, projections=()):
         target = app['OUTPUT'] / uuid.uuid4().hex
         label = 'Texture projection' if operation == 'texture_projection' else 'Baked game copy'
         settings = {
@@ -58,9 +74,20 @@ def install(router, app, upload):
         display = metadata.get('display_name') or settings['name']
         suffix = ' · ' + label
         metadata['display_name'] = display[:80 - len(suffix)].rstrip() + suffix
-        request = dict(operation=operation, options=options, result=record.get('result') or {})
-        if reference:
-            request['reference_file'] = 'projection-source' + reference.suffix.lower()
+        request = dict(operation=operation, result=record.get('result') or {})
+        staged_references = {}
+        projection_requests = []
+        for index, (reference, view_options) in enumerate(projections, start=1):
+            numbered = f'-{index}' if len(projections) > 1 else ''
+            name = f'projection-source{numbered}{reference.suffix.lower()}'
+            staged_references[name] = reference
+            projection_requests.append(dict(reference_file=name, options=view_options))
+        if len(projection_requests) > 1:
+            request['views'] = projection_requests
+        elif projection_requests:
+            request.update(projection_requests[0])
+        else:
+            request['options'] = options
 
         def stage():
             target.mkdir()
@@ -69,8 +96,8 @@ def install(router, app, upload):
                 path = existing_file(folder, f'{key}.png')
                 if path:
                     shutil.copy2(path, target / path.name)
-            if reference:
-                shutil.copy2(reference, target / request['reference_file'])
+            for name, reference in staged_references.items():
+                shutil.copy2(reference, target / name)
             write(target / 'settings.json', settings)
             write(target / 'metadata.json', metadata)
             write(target / 'finishing-request.json', request)
@@ -86,23 +113,24 @@ def install(router, app, upload):
         return dict(id=target.name, state='queued', status_url=f'/api/v1/jobs/{target.name}')
 
     @router.get('/models/{identifier}/texture-projection', tags=['Models'],
-                summary='Check support for projecting an image on a static model')
+                summary='Check support for texture projection on a static model')
     async def projection_options(identifier: Identifier):
         from texture_projection import inspect_texture_projection
         folder, _, source = model(identifier)
         support = await asyncio.to_thread(inspect_texture_projection, source)
-        return {**support, 'references': references(folder),
+        return {**support, 'references': references(folder), 'max_views': 2,
                 'views': ['front', 'back', 'left', 'right', 'top', 'bottom', 'custom'],
                 'camera_projections': ['orthographic', 'perspective'],
                 'linked_selection': True, 'mask_shapes': ['ellipse', 'rectangle', 'polygon']}
 
     @router.post('/models/{identifier}/texture-projection', tags=['Models'], status_code=202,
-                 response_model=JobAccepted, summary='Project a reference image onto a linked copy')
-    async def project(identifier: Identifier, recipe: TextureProjection):
-        from texture_projection import inspect_texture_projection, normalize_projection_options
+                 response_model=JobAccepted, summary='Project one or two reference images onto a linked copy')
+    async def project(identifier: Identifier, recipe: TextureProjectionRequest):
+        from texture_projection import MAX_REFERENCE_PIXELS, inspect_texture_projection, normalize_projection_options
+        views = recipe.views if isinstance(recipe, MultiViewTextureProjection) else [recipe]
         try:
-            options = normalize_projection_options(
-                recipe.model_dump(mode='json', exclude={'reference', 'upload_id'}, exclude_none=True))
+            options = [normalize_projection_options(
+                view.model_dump(mode='json', exclude={'reference', 'upload_id'}, exclude_none=True)) for view in views]
         except ValueError as error:
             raise HTTPException(400, str(error)) from None
         async with app['LOCK']:
@@ -111,14 +139,20 @@ def install(router, app, upload):
             support = await asyncio.to_thread(inspect_texture_projection, source)
             if not support['supported']:
                 raise HTTPException(400, support['reason'])
-            if recipe.upload_id:
-                reference, _ = upload(recipe.upload_id, 'image')
-                reference = existing_file(reference.parent, reference.name)
-            else:
-                reference = existing_file(folder, f'{recipe.reference}.png')
-            if not reference or reference.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.webp'):
-                raise HTTPException(400, 'Choose an available reference image first.')
-            return await prepare_copy(folder, record, source, 'texture_projection', options, reference)
+            paths = []
+            for view in views:
+                if view.upload_id:
+                    reference, _ = upload(view.upload_id, 'image')
+                    reference = existing_file(reference.parent, reference.name)
+                else:
+                    reference = existing_file(folder, f'{view.reference}.png')
+                if not reference or reference.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.webp'):
+                    raise HTTPException(400, 'Choose an available reference image first.')
+                paths.append(reference)
+            if len(paths) > 1:
+                await asyncio.to_thread(check_reference_sizes, paths, MAX_REFERENCE_PIXELS)
+            return await prepare_copy(folder, record, source, 'texture_projection',
+                                      projections=list(zip(paths, options, strict=True)))
 
     @router.get('/models/{identifier}/baked-game-copy', tags=['Models'],
                 summary='Check support for a reduced and baked copy of the selected master')
@@ -148,4 +182,4 @@ def install(router, app, upload):
                 raise HTTPException(503, 'Install Blender and PyMeshLab to create a baked game copy.')
             if options['profile'] not in support.get('profiles', ('object', 'humanoid')):
                 raise HTTPException(400, 'Choose Object or use an upright, frontal T-pose for the humanoid profile.')
-            return await prepare_copy(folder, record, source, 'baked_game_copy', options)
+            return await prepare_copy(folder, record, source, 'baked_game_copy', options=options)

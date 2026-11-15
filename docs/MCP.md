@@ -219,12 +219,15 @@ checking the library first, as the request may already have been accepted.
 
 ## Other tools and resources
 
-`get_texture_projection_options` lists compatible references and camera
-modes. `queue_texture_projection` applies a masked image region from a preset
-or custom orthographic or perspective camera. Perspective cameras include a
-world-space origin. Custom cameras include a right, up and outward basis.
-Use `upload_source` for a new reference. Set `linked_selection: true` to evaluate a rectangle or ellipse
-on the reference image through the same affine mapping as the projected color.
+`get_texture_projection_options` lists compatible references, camera modes and
+the view limit. Pass one recipe to `queue_texture_projection` or pass a recipe
+with a `views` list containing two complete view recipes. Each uses a saved
+reference or an ID from `upload_source`, with independent alignment and a
+preset or custom orthographic or perspective camera. Perspective cameras
+include a world-space origin. Custom cameras include a right, up and outward
+basis. Both forms queue one linked texture copy. Set `linked_selection: true`
+to evaluate a rectangle or ellipse on the reference image through the same
+affine mapping as the projected color.
 For a lasso or polygon outline, use `mask_shape: "polygon"` with
 `source_polygon` containing 3 to 128 normalized `[x, y]` points; polygon masks
 are implicitly linked. Four matching alignment points may surround the selected

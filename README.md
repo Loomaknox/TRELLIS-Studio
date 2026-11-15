@@ -140,8 +140,10 @@ guides for precise alignment. Symmetric shapes and differences between
 the mesh and the reference can make the angle ambiguous. Presets such as
 **Back** are available for straightforward views. Select an area with the
 lasso, polygon, rectangle or ellipse. The preview camera determines which
-visible surfaces receive the projected base color. The linked copy keeps the
-source geometry, UVs and other maps.
+visible surfaces receive the projected base color. Add a second view to cover
+another side of the model, and align and mask it independently. Studio blends
+overlapping contributions according to their visibility and viewing angle.
+The linked copy keeps the source geometry, UVs and other maps.
 
 **Game Copy from HD** reduces the selected static HD model, unwraps new UVs,
 and bakes base color, roughness, metallic and optional tangent-space normals

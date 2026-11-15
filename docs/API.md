@@ -349,7 +349,7 @@ create a linked model copy and return a job ID with `status_url`. Poll
 that URL and inspect the completed GLB and its result report.
 
 - `GET /api/v1/models/{id}/texture-projection` checks compatibility and lists
-  saved reference images, `views` and `camera_projections`.
+  saved reference images, `views`, `camera_projections` and `max_views`.
 - `POST /api/v1/models/{id}/texture-projection` accepts either `reference`
   from that list or an `upload_id` from `POST /api/v1/uploads`. It also accepts
   a `camera` and two rectangles, `source_rect` and `target_rect`, as
@@ -358,6 +358,14 @@ that URL and inspect the completed GLB and its result report.
   for affine alignment. `mask_shape`, `opacity` and `feather` control the blend.
   Projection changes base-color RGB only. Visibility checks protect occluded
   surfaces.
+- For two projections, send `{"views": [first_recipe, second_recipe]}` with
+  two complete view recipes. Each view has its own reference or upload ID,
+  camera, selection, placement, opacity and feather. Each reference must be
+  within 16 megapixels. The worker combines visible contributions by viewing
+  angle and distance from each projection boundary. Uncovered texels keep the
+  original color. The result reports `view_count`, `overlap_texels`, and
+  per-view projection statistics in `views`. The overlap count can be zero
+  when the cameras face different sides of the model.
 - `GET /api/v1/models/{id}/baked-game-copy` checks compatibility and the
   recommended budget for the selected model.
 - `POST /api/v1/models/{id}/baked-game-copy` accepts `triangles` (5,000 to
@@ -367,10 +375,10 @@ that URL and inspect the completed GLB and its result report.
   donor's color, roughness, metallic and optional tangent normals. The result
   reports the actual count. The worker requires Blender and PyMeshLab.
 
-The Studio browser can estimate a camera with **Auto Align**, using a
-transparent cutout and rendered model previews. The browser sends the
-resulting camera with the usual projection recipe when the user creates
-a texture copy.
+The Studio browser can estimate each camera with **Auto Align**, using a
+transparent cutout and rendered model previews. Review each placement before
+creating the texture copy. Slight differences between the source images can
+soften fine features in overlapping areas.
 
 A projection camera uses one of six preset views or `view: "custom"`. Front
 looks along −Z with +X to the right and +Y up. A custom view supplies `basis`

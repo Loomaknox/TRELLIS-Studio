@@ -73,6 +73,51 @@
 .texture-projection-dialog input[type=range]:disabled { opacity: .45; cursor: default; }
 .texture-projection-dialog .check { margin: 0; }
 
+.tp-view-strip {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 7px 10px;
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--tp-border);
+}
+.tp-view-choices {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px;
+    border: 1px solid var(--tp-border);
+    border-radius: 11px;
+    background: #151c17;
+}
+.texture-projection-dialog .tp-view-option,
+.texture-projection-dialog .tp-view-action {
+    display: inline-flex;
+    align-items: center;
+    min-height: 29px;
+    gap: 6px;
+    padding: 4px 9px;
+    font-size: 12px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+.texture-projection-dialog .tp-view-option {
+    background: transparent;
+    border-color: transparent;
+    border-radius: 8px;
+}
+.texture-projection-dialog .tp-view-option:hover { background: #253022; }
+.texture-projection-dialog .tp-view-option[aria-pressed=true] {
+    background: #303d29;
+    border-color: #536647;
+    color: #edfae5;
+}
+.tp-view-readiness { font-size: 10px; color: var(--tp-muted); font-weight: 500; }
+.tp-view-option[data-ready=true] .tp-view-readiness { color: var(--tp-accent); }
+.tp-view-action .ui-icon { width: 14px; height: 14px; }
+.tp-view-help { flex: 1 1 220px; font-size: 11px; line-height: 1.4; color: var(--tp-muted); }
+
 .tp-reference-fields {
     display: grid;
     grid-template-columns: auto minmax(0, 340px) minmax(0, 1fr);
@@ -327,6 +372,10 @@
     .texture-projection-dialog .studio-dialog-actions { column-gap: 6px; }
     .texture-projection-dialog .studio-dialog-actions button { padding-inline: 8px; }
     .texture-projection-dialog button.tp-tool { font-size: 11px; padding-inline: 6px; gap: 4px; }
+    .tp-view-strip { gap: 5px 6px; }
+    .texture-projection-dialog .tp-view-option,
+    .texture-projection-dialog .tp-view-action { font-size: 11px; padding-inline: 6px; gap: 4px; }
+    .tp-view-help { flex-basis: 100%; }
     .tp-tool .ui-icon { width: 13px; height: 13px; }
     .tp-upload-name { display: none; }
     .tp-reference-fields { grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; }
