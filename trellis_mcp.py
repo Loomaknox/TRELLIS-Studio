@@ -154,12 +154,12 @@ async def upload_source(file_path:str)->dict[str,Any]:
 
 @tool()
 async def queue_generation(recipe:Generation)->dict[str,Any]:
-    """Queue one image generation with its own profile, scale, seed and priority. Upload an image first. Returns immediately; poll get_model."""
+    """Queue one image generation with its own profile, scale, seed and priority. Dense Master supports HD Reconstruction (768) via overrides.hd_reconstruction. Upload an image first. Returns immediately; poll get_model."""
     return await api('POST','/generations',recipe.model_dump())
 
 @tool()
 async def queue_multiview_generation(recipe:MultiViewGeneration)->dict[str,Any]:
-    """Queue Pixal3D from a front image and at least one posed side/back image. Upload images first. character_pixal is default; humanoid_experimental and dense_master keep the finishing source. Poll get_model; anatomy requires visual review."""
+    """Queue Pixal3D from a front image and at least one posed side/back image. Upload images first. dense_master supports hd_reconstruction with the 768 grid and keeps the finishing source. Poll get_model and review anatomy."""
     return await api('POST','/generations/multiview',recipe.model_dump(exclude_none=True))
 
 @tool()
@@ -174,7 +174,7 @@ async def get_finishing_options(model_id: Identifier) -> dict[str, Any]:
 
 @tool()
 async def queue_refinish(model_id: Identifier, recipe: Refinish) -> dict[str, Any]:
-    """Create a linked Remesh variant from the saved cache. Surface repair and normal baking are optional. Poll get_model."""
+    """Create a linked Remesh variant from the saved cache. Use hd_reconstruction for the 768-grid HD recipe. Surface repair and normal baking are optional. Poll get_model."""
     return await api('POST', f'/models/{model_id}/refinish', recipe.model_dump(exclude_none=True))
 
 @tool(read=True)
@@ -190,13 +190,13 @@ async def queue_texture_projection(model_id: Identifier, recipe: TextureProjecti
 
 @tool(read=True)
 async def get_baked_game_copy_options(model_id: Identifier) -> dict[str, Any]:
-    """Check whether a static master can be reduced and baked, and read its suggested triangle budget."""
+    """Check whether a static master can be reduced and baked, and read its suggested triangle budget and protected region limit."""
     return await api('GET', f'/models/{model_id}/baked-game-copy')
 
 @tool()
 async def queue_baked_game_copy(model_id: Identifier, recipe: BakedGameCopy) -> dict[str, Any]:
-    """Reduce a completed static model, unwrap the result and bake materials from the selected master. Use the humanoid profile only on a frontal T-pose. Poll get_model and review the result."""
-    return await api('POST', f'/models/{model_id}/baked-game-copy', recipe.model_dump())
+    """Reduce a completed static model and bake its materials. Optional protected_regions add weighted surface priorities in the source GLB coordinate system. The humanoid profile also prioritizes face and hands on a frontal T-pose. Poll get_model and review the result."""
+    return await api('POST', f'/models/{model_id}/baked-game-copy', recipe.model_dump(mode='json'))
 
 @tool(read=True)
 async def get_queue()->dict[str,Any]:

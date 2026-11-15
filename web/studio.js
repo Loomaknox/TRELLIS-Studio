@@ -1,4 +1,4 @@
-import {createStudioWorkbench} from './studio-workbench.js?v=3.7.0';
+import {createStudioWorkbench} from './studio-workbench.js?v=3.7.0-mesh1';
 import {createViewerLighting} from './viewer-lighting.js?v=3.4.0';
 import {createHologramViewer} from './hologram-viewer.js?v=3.4.0-quality2';
 import {createGenerationWait} from './generation-wait.js?v=3.4.0';
@@ -15,7 +15,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createAdvancedControls } from './advanced-controls.js?v=3.4.0-quality2';
-import { createProfileControls } from './profiles.js?v=3.4.0';
+import { createProfileControls } from './profiles.js?v=hd-reconstruction';
 import {createCardMenu,updateCardStatus,icon} from './card-menu.js?v=3.4.0';
 import {createCardTurntables} from './card-turntable.js?v=3.4.0';
 const $=id=>document.getElementById(id);
@@ -76,7 +76,7 @@ function syncVersionNotice(status) {
   $('reloadStudio').hidden = !features || !outdated || olderServer;
   $('versionNotice').hidden = features && !outdated;
 }
-function syncCapabilities(status){multiview.setCapabilities(status.pixal3d);workbench?.setCapabilities(status);animationStudio?.setCapabilities(status);profileControls?.setRepairCapability(status.features?.includes('repair_surface')===true);availableResolutions=status.supported_resolutions||[512];availableTextures=status.texture_sizes||[1024,2048];for(const option of $('resolution').options)option.disabled=!availableResolutions.includes(Number(option.value));for(const option of $('textureSize').options)option.disabled=Number(option.value)!==0&&!availableTextures.includes(Number(option.value));explainCost();}
+function syncCapabilities(status){multiview.setCapabilities(status.pixal3d);workbench?.setCapabilities(status);animationStudio?.setCapabilities(status);profileControls?.setFinishingCapabilities(status.features?.includes('repair_surface')===true,status.features?.includes('hd_reconstruction')===true);availableResolutions=status.supported_resolutions||[512];availableTextures=status.texture_sizes||[1024,2048];for(const option of $('resolution').options)option.disabled=!availableResolutions.includes(Number(option.value));for(const option of $('textureSize').options)option.disabled=Number(option.value)!==0&&!availableTextures.includes(Number(option.value));explainCost();}
 function explainCost(){const hint=$('qualityHint');if(!hint)return;const notes=[];if(Number($('resolution').value)===1536)notes.push('1536³ requires more processing time and memory.');if(Number($('textureSize').value)===4096)notes.push('4K uses larger textures; reserve it for close-up objects and large surfaces.');hint.textContent=notes.join(' ');hint.hidden=!notes.length;}
 $('resolution').addEventListener('change',explainCost);$('textureSize').addEventListener('change',explainCost);
 profileControls=await createProfileControls(advancedControls,{changed:()=>{explainCost();updateButtons();}});
@@ -312,8 +312,9 @@ $('form').onsubmit=async event=>{
       form.set('queue_only','true');
       form.set('advanced_settings',JSON.stringify(advancedControls.read()));
     }
-    const repair = $('denseMasterRepair');
-    if (!repair.disabled && repair.checked) form.set('repair_surface', 'true');
+    const finishing = $('denseMasterFinishing');
+    if (!finishing.disabled && finishing.value === 'repair') form.set('repair_surface', 'true');
+    if (!finishing.disabled && finishing.value === 'hd_reconstruction') form.set('hd_reconstruction', 'true');
     referencePreview.append(form);
     const v=await api(usePixal?'/api/generate-multiview':'/api/generate',{method:'POST',body:form});
     if(!selectedId){selectedId=v.id;metadataId=null;}
@@ -349,18 +350,20 @@ async function reuseJob(j){
   try{
     await multiview.restore(j);
     referencePreview.restore(s.reference_edits,s.remove_bg);
-    $('denseMasterRepair').checked = s.repair_surface === true;
+    const finishing = s.hd_reconstruction ? 'hd_reconstruction' : s.repair_surface ? 'repair' : 'direct';
     setMode(false);
     $('parentId').value=j.id;
     $('name').value=(nameOf(j)+' version').slice(0,80);
     $('height').value=String(s.height_m);
     if(multiview.active){
+      $('denseMasterFinishing').value = finishing;
       profileControls.restoreSource(s.keep_finishing_source);
       $('notice').textContent='Saved views and Pixal3D settings restored. Adjust them to compare a new version.';
       return;
     }
     for(const [id,v] of Object.entries({preset:s.preset,seed:s.seed,triangles:s.triangles,textureSize:s.texture_size,resolution:s.resolution||j.result?.resolution||512,assetType:s.asset_type||'object',referencePrompt:j.metadata?.reference_prompt||''}))$(id).value=String(v);
-    const restoredOptions = s.repair_surface ? s.generation_options : j.generation_options;
+    $('denseMasterFinishing').value = finishing;
+    const restoredOptions = finishing === 'direct' ? j.generation_options : s.generation_options;
     advancedControls.apply(restoredOptions||s.generation_options||{});
     $('removeBg').checked=s.remove_bg;
     detailControls.hint();
@@ -412,15 +415,26 @@ function positionRefinish() {
 }
 
 function syncRefinishMode() {
+  const hd = !refinishFields.hd_reconstruction.disabled && refinishFields.hd_reconstruction.checked;
+  if (hd) {
+    refinishFields.budget_mode.value = 'fixed';
+    refinishFields.budget_preset.value = 'manual';
+    refinishFields.repair_surface.checked = false;
+  }
+  for (const fieldset of refinishForm.querySelectorAll('[data-refinish-budgets]')) {
+    fieldset.disabled = hd;
+    fieldset.hidden = hd;
+  }
+  $('refinishRepair').hidden = hd;
   const adaptive = refinishFields.budget_mode.value === 'adaptive';
   const preset = refinishFields.budget_preset.value;
   const manual = preset === 'manual';
   const repair = !refinishFields.repair_surface.disabled && refinishFields.repair_surface.checked;
   $('refinishBudgetField').hidden = !manual;
   refinishFields.triangles.disabled = !manual;
-  $('refinishBudgetLabel').textContent = adaptive ? 'Maximum triangles' : 'Target triangles';
-  $('refinishManualOptions').hidden = !manual || adaptive || repair;
-  $('startRefinishLabel').textContent = repair ? 'Create repaired variant' : 'Create variant';
+  $('refinishBudgetLabel').textContent = hd || adaptive ? 'Maximum triangles' : 'Target triangles';
+  $('refinishManualOptions').hidden = !manual || adaptive || repair || hd;
+  $('startRefinishLabel').textContent = hd ? 'Reconstruct HD variant' : repair ? 'Create repaired variant' : 'Create variant';
   const budgetHint = adaptive ? 'Tests lighter meshes up to the chosen ceiling.' : 'The final count can be lower.';
   const presetHint = {
     medium: 'Budget for a game model.',
@@ -462,6 +476,9 @@ async function openRefinish(job) {
     refinishFields.budget_preset.value = 'medium';
     refinishFields.repair_surface.checked = false;
     refinishFields.repair_surface.disabled = config.repair_surface !== true;
+    refinishFields.hd_reconstruction.checked = false;
+    refinishFields.hd_reconstruction.disabled = config.hd_reconstruction !== true;
+    $('refinishHdReconstruction').hidden = refinishFields.hd_reconstruction.disabled;
     $('refinishRepairHint').textContent = refinishFields.repair_surface.disabled ?
       'Restart Studio to enable hole repair.' : 'Closes gaps using the cached source. Fine edges may soften.';
     refinishFields.triangles.min = limits.min;
@@ -510,10 +527,14 @@ window.addEventListener('scroll', positionRefinish, {capture: true, passive: tru
 
 refinishForm.addEventListener('change', event => {
   const {name} = event.target;
+  if (name === 'hd_reconstruction' && refinishFields.hd_reconstruction.checked) {
+    refinishFields.triangles.value = 1200000;
+    refinishFields.bake_normals.checked = false;
+  }
   if (name === 'budget_preset') {
     refinishFields.bake_normals.checked = !refinishFields.bake_normals.disabled && refinishFields.budget_preset.value === 'medium';
   }
-  if (['budget_mode', 'budget_preset', 'repair_surface'].includes(name)) syncRefinishMode();
+  if (['budget_mode', 'budget_preset', 'repair_surface', 'hd_reconstruction'].includes(name)) syncRefinishMode();
 });
 
 refinishForm.onsubmit = async event => {
@@ -526,10 +547,11 @@ refinishForm.onsubmit = async event => {
     adaptive_finishing: refinishFields.budget_mode.value === 'adaptive',
   };
   if (!refinishFields.repair_surface.disabled && refinishFields.repair_surface.checked) data.repair_surface = true;
+  if (!refinishFields.hd_reconstruction.disabled && refinishFields.hd_reconstruction.checked) data.hd_reconstruction = true;
   if (!refinishFields.bake_normals.disabled) data.bake_normals = refinishFields.bake_normals.checked;
   if (preset === 'manual') {
     data.triangles = refinishFields.triangles.valueAsNumber;
-    if (!data.adaptive_finishing && !data.repair_surface) {
+    if (!data.adaptive_finishing && !data.repair_surface && !data.hd_reconstruction) {
       data.mesh_mode = refinishFields.mesh_mode.value;
       data.repair_holes = refinishFields.repair_holes.checked;
       data.pre_simplify = refinishFields.pre_simplify.checked;

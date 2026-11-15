@@ -116,6 +116,8 @@
 !/web/texture-projection-geometry.js
 !/web/texture-projection-auto-align.js
 !/web/texture-projection.css
+!/web/game-copy-regions.js
+!/web/reduction-region-preview.js
 !/web/advanced-controls.js
 !/web/animation-studio.css
 !/web/animation-studio.js

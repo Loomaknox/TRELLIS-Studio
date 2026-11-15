@@ -54,6 +54,22 @@ class GameCopyTests(TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 game.normalize_game_copy_options(invalid)
 
+    def test_protected_region_options(self):
+        region = dict(center=[-.25, 1, 0], radius=.15, strength=1)
+        normalized = game.normalize_game_copy_options({'protected_regions': [region]})
+        self.assertEqual(normalized['protected_regions'], [region])
+        self.assertNotIn('protected_regions', game.normalize_game_copy_options({'protected_regions': []}))
+        for invalid in (None, region, [region] * (game.PROTECTED_REGION_LIMIT + 1),
+                        [{**region, 'unknown': True}], [{**region, 'center': [0, 0]}],
+                        [{**region, 'center': [0, 0, float('nan')]}],
+                        [{**region, 'center': [0, 0, 10 ** 400]}],
+                        [{**region, 'center': [False, 0, 0]}], [{**region, 'radius': True}],
+                        [{**region, 'radius': 0}], [{**region, 'radius': float('inf')}],
+                        [{**region, 'strength': -.01}], [{**region, 'strength': 1.01}],
+                        [{**region, 'strength': '1'}]):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                game.normalize_game_copy_options({'protected_regions': invalid})
+
     def test_static_capability_and_unused_material(self):
         with TemporaryDirectory() as folder:
             path = Path(folder) / 'source.glb'
@@ -61,6 +77,7 @@ class GameCopyTests(TestCase):
             result = game.inspect_baked_game_copy(path)
             self.assertTrue(result['supported'], result)
             self.assertEqual(result['triangles'], 2)
+            self.assertEqual(result['protected_region_limit'], game.PROTECTED_REGION_LIMIT)
             fixture(path, lambda data: data['materials'].append({}))
             self.assertTrue(game.inspect_baked_game_copy(path)['supported'])
 
@@ -91,6 +108,25 @@ class GameCopyTests(TestCase):
         self.assertGreater(report['hand_vertices'], 10)
         with self.assertRaises(ValueError):
             game._region_weights(body, 'humanoid')
+
+    def test_protected_regions_add_soft_weights_and_keep_profile_priorities(self):
+        vertices = np.array([[x, 0, 0] for x in (0, .25, .5, .75, 1., 2.)])
+        base = np.array([40, 25, 12, 8, 4, 1], float)
+        regions = [dict(center=[0, 0, 0], radius=1, strength=.75),
+                   dict(center=[0, 0, 0], radius=1, strength=.5),
+                   dict(center=[10, 0, 0], radius=1, strength=1),
+                   dict(center=[2, 0, 0], radius=1, strength=0)]
+        weights = base.copy()
+        report = game._add_protected_regions(vertices, weights, regions, 'humanoid')
+        np.testing.assert_allclose(weights, base + [33, 33, 33, 33 * .5 ** 1.5, 0, 0])
+        self.assertEqual(report['affected_vertices'], 4)
+        self.assertEqual([region['affected_vertices'] for region in report['regions']], [4, 4, 0, 0])
+        translation = [2, -4, 1]
+        transformed = [{**region, 'radius': region['radius'] * 2,
+                        'center': (np.asarray(region['center']) * 2 + translation).tolist()} for region in regions]
+        second = base.copy()
+        game._add_protected_regions(vertices * 2 + translation, second, transformed, 'humanoid')
+        np.testing.assert_array_equal(weights, second)
 
     def test_donor_never_overwritten_and_staging_cleans_on_failure(self):
         with TemporaryDirectory() as folder, patch.object(game, 'game_copy_dependencies', return_value={'ready': True}):

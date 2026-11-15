@@ -51,6 +51,7 @@ def run():
         legacy_folder = app.OUTPUT / OTHER
         legacy_settings = read(legacy_folder / 'settings.json')
         legacy_settings['generation_options'] = {'pre_simplify': False}
+        legacy_settings['resolution'] = 512
         app.write_json(legacy_folder / 'settings.json', legacy_settings)
         (legacy_folder / 'generation.log').write_text(
             'Original mesh: 10000 vertices, 19000 faces\nInitial mesh: 11000 vertices, 20000 faces\n',
@@ -149,13 +150,34 @@ def run():
                 refinish_route = f'/api/jobs/{SOURCE}/refinish'
                 info = send('GET', route)
                 assert info['remesh_resolutions'] == [512, 768, 1024]
+                assert info['hd_reconstruction'] is True
                 assert info['texture_sampling_modes'] == ['trilinear', 'nearest']
                 assert info['normal_sources'] == ['decoded']
                 assert not info['parent_normal_source']['available']
                 assert 'normalization' in info['parent_normal_source']['unavailable_reason']
                 for invalid in ({'remesh_resolution': 640}, {'remesh_resolution': '768'},
-                                {'remesh_resolution': True}, {'texture_sampling': 'bicubic'}):
+                                {'remesh_resolution': True}, {'texture_sampling': 'bicubic'},
+                                {'hd_reconstruction': 'true'},
+                                {'hd_reconstruction': True, 'adaptive_finishing': True},
+                                {'hd_reconstruction': True, 'repair_surface': True}):
                     send('POST', refinish_route, 400, json=invalid)
+                reconstructed = send('POST', f'/api/v1/models/{SOURCE}/refinish', 202,
+                                     json={'hd_reconstruction': True})
+                settings = wait_for(reconstructed['id'], 'queued')['settings']
+                assert settings['hd_reconstruction'] is True and settings['triangles'] == 1_200_000
+                assert settings['finish_source_id'] == SOURCE and not settings.get('adaptive_finishing')
+                options = options_for_job(settings)
+                assert options['remesh_resolution'] == 768 and options['remesh_project'] == 0
+                assert options['repair_holes'] and not options['pre_simplify']
+                assert settings['generation_options']['remesh_resolution'] == 512
+                send('POST', f'/api/jobs/{reconstructed["id"]}/cancel')
+                retry = send('POST', f'/api/queue/{reconstructed["id"]}/retry', 202,
+                             json={'hd_reconstruction': False})
+                retry_settings = wait_for(retry['id'], 'queued')['settings']
+                assert 'hd_reconstruction' not in retry_settings
+                assert options_for_job(retry_settings)['remesh_resolution'] == 512
+                assert not send('GET', legacy_route)['hd_reconstruction']
+                send('POST', f'/api/jobs/{OTHER}/refinish', 400, json={'hd_reconstruction': True})
                 send('POST', refinish_route, 400, json={'triangles': 8000001, 'adaptive_finishing': True})
                 adaptive = send('POST', refinish_route, 202, json={'triangles': 8000000, 'adaptive_finishing': True})
                 state = wait_for(adaptive['id'], 'queued')

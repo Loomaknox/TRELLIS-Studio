@@ -193,6 +193,9 @@ button.has-icon{gap:7px}button>.ui-icon{flex-shrink:0;vertical-align:middle}#sav
 #startRefinish { justify-content: center; width: 100%; margin-top: 13px; }
 #startRefinish .ui-icon { width: 16px; height: 16px; }
 #denseMasterRepairField small { display: block; margin-top: 2px; color: #a6b5a0; line-height: 1.35; }
+@media (max-width: 530px) {
+  #denseMasterRepairField { max-inline-size: calc(100dvw - 4rem); }
+}
 #viewport:has(#toolbarRefinishControl:not([hidden])) .viewport-docks { width: max-content; }
 #viewerTools:has(#toolbarRefinishControl:not([hidden])) { max-width: 100%; flex-wrap: wrap; justify-content: center; }
 #toolbarRefinishControl { display: inline-flex; flex: none; }

@@ -67,6 +67,7 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
             const texture = select(textureChoices, textureDefault);
             const modes = [['remesh', 'Remesh and simplify'], ['direct', 'Direct simplification']];
             if (board.repair_surface) modes.unshift(['repair', 'Surface reconstruction']);
+            if (board.hd_reconstruction) modes.push(['hd', 'HD Reconstruction (768)']);
             const mode = select(modes, board.repair_surface ? 'repair' : 'remesh');
             const repair = input('checkbox', '');
             repair.checked = false;
@@ -86,13 +87,16 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
                 normals.disabled = !enabled.checked || !board.normal_bake;
                 donor.disabled = !enabled.checked || !normals.checked || !board.normal_bake;
                 donorField.hidden = !normals.checked;
-                repair.disabled = !enabled.checked || mode.value === 'repair';
-                grid.disabled = !enabled.checked || mode.value === 'direct';
-                gridField.hidden = mode.value === 'direct';
+                repair.disabled = !enabled.checked || mode.value === 'repair' || mode.value === 'hd';
+                grid.disabled = !enabled.checked || mode.value === 'direct' || mode.value === 'hd';
+                gridField.hidden = mode.value === 'direct' || mode.value === 'hd';
                 updateQueueButton();
             };
             enabled.addEventListener('change', toggle);
-            mode.addEventListener('change', toggle);
+            mode.addEventListener('change', () => {
+                if (mode.value === 'hd') triangles.value = 1200000;
+                toggle();
+            });
             normals.addEventListener('change', toggle);
             draft.append(field('Include recipe', enabled), field('Target triangles', triangles),
                 field('Texture size', texture), field('Finishing method', mode), gridField,
@@ -214,8 +218,9 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         const variants = drafts.filter(draft => draft.enabled.checked).map(draft => ({
             triangles: draft.triangles.valueAsNumber,
             texture_size: Number(draft.texture.value),
-            mesh_mode: draft.mode.value === 'repair' ? 'remesh' : draft.mode.value,
+            mesh_mode: draft.mode.value === 'direct' ? 'direct' : 'remesh',
             repair_surface: draft.mode.value === 'repair',
+            ...(draft.mode.value === 'hd' ? {hd_reconstruction: true} : {}),
             repair_holes: draft.repair.checked,
             pre_simplify: false,
             bake_normals: draft.normals.checked,

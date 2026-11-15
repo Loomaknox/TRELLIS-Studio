@@ -11,6 +11,7 @@ import sys
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from api_contract import PROTECTED_REGION_LIMIT
 from server_lan import account, call, login, PASSWORD, serve
 from studio_workspace import read, write
 
@@ -27,7 +28,8 @@ def run():
         'texture_projection': SimpleNamespace(MAX_REFERENCE_PIXELS=16_777_216,
                                               inspect_texture_projection=support,
                                               normalize_projection_options=lambda options: options),
-        'baked_game_copy': SimpleNamespace(inspect_baked_game_copy=support,
+        'baked_game_copy': SimpleNamespace(inspect_baked_game_copy=lambda _: {
+                                               **support(None), 'protected_region_limit': PROTECTED_REGION_LIMIT},
                                            normalize_game_copy_options=lambda options: options),
     }
     with TemporaryDirectory(prefix='trellis-model-finishing-') as directory, patch.dict(sys.modules, prototype):
@@ -51,7 +53,8 @@ def run():
             glb = fixture_glb()
             (source / 'model.glb').write_bytes(glb)
             Image.new('RGB', (16, 16), '#776644').save(source / 'input.png')
-            write(source / 'settings.json', dict(name='Witness', asset_type='humanoid', keep_finishing_source=True))
+            write(source / 'settings.json', dict(name='Witness', asset_type='humanoid', keep_finishing_source=True,
+                                                 hd_reconstruction=True))
             write(source / 'metadata.json', dict(display_name='Witness', favorite=True))
             write(source / 'status.json', dict(state='done', progress=100))
             routes = ['texture-projection', 'baked-game-copy']
@@ -72,7 +75,17 @@ def run():
                 'TextureProjection', 'MultiViewTextureProjection'}
             views = schema['components']['schemas']['MultiViewTextureProjection']['properties']['views']
             assert views['minItems'] == views['maxItems'] == 2
-            assert call(base, 'GET', url + '/' + routes[1], client=alice).json()['default_triangles'] == 14000
+            game_url = url + '/' + routes[1]
+            game_support = call(base, 'GET', game_url, client=alice).json()
+            assert game_support['default_triangles'] == 14000
+            assert game_support['protected_region_limit'] == PROTECTED_REGION_LIMIT
+            regions = schema['components']['schemas']['BakedGameCopy']['properties']['protected_regions']
+            assert regions['maxItems'] == PROTECTED_REGION_LIMIT
+            region = dict(center=[0, .8, .1], radius=.18, strength=.8)
+            for invalid in ([region] * (PROTECTED_REGION_LIMIT + 1), [{**region, 'center': [0, 1]}],
+                            [{**region, 'radius': 0}], [{**region, 'strength': True}]):
+                call(base, 'POST', game_url, 422, alice, json={'protected_regions': invalid})
+            call(base, 'POST', game_url, 404, bob, json={'protected_regions': [region]})
             options = dict(camera=dict(view='front', frame=[-1, -1, 1, 1]), source_rect=[0, 0, 1, 1],
                            target_rect=[0, 0, 1, 1], reference='input')
             call(base, 'POST', url + '/' + routes[0], 422, alice, json={**options, 'reference': None})
@@ -111,12 +124,13 @@ def run():
             assert 'view 2' in rejected.json()['detail']
             operations = [(routes[0], options), (routes[0], linked), (routes[0], oblique),
                           (routes[0], multiview),
-                          (routes[1], dict(profile='humanoid', triangles=14000))]
+                          (routes[1], dict(profile='humanoid', triangles=14000, protected_regions=[region]))]
             for endpoint, recipe in operations:
                 queued = call(base, 'POST', url + '/' + endpoint, 202, alice, json=recipe).json()
                 child = source.parent / queued['id']
                 settings = read(child / 'settings.json')
                 assert settings['parent_id'] == identifier and 'keep_finishing_source' not in settings
+                assert 'hd_reconstruction' not in settings
                 assert (child / 'source.glb').read_bytes() == glb
                 assert read(child / 'server-work.json')['script'] == 'model_finishing_worker.py'
                 request = read(child / 'finishing-request.json')
@@ -132,6 +146,8 @@ def run():
                                for item in request['views'])
                 elif endpoint == routes[0]:
                     assert request['reference_file'] == 'projection-source.png' and 'views' not in request
+                else:
+                    assert request['options']['protected_regions'] == [region]
                 if recipe in (linked, oblique):
                     saved = request['options']
                     assert saved['linked_selection'] and saved['source_polygon'] == outline

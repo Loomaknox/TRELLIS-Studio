@@ -18,6 +18,7 @@ import time
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
+from api_contract import PROTECTED_REGION_COORD_LIMIT, PROTECTED_REGION_LIMIT, PROTECTED_REGION_RADIUS_LIMIT
 from glb_data import accessor, read
 from studio_import import find_blender
 
@@ -34,7 +35,7 @@ LIMITATIONS = [
 def normalize_game_copy_options(options):
     if not isinstance(options, dict):
         raise ValueError('Game-copy options must be an object.')
-    unknown = set(options) - {'profile', 'triangles', 'texture_size', 'bake_normals'}
+    unknown = set(options) - {'profile', 'triangles', 'texture_size', 'bake_normals', 'protected_regions'}
     if unknown:
         raise ValueError('Unknown game-copy option: ' + ', '.join(sorted(unknown)))
     profile = options.get('profile', 'object')
@@ -49,7 +50,27 @@ def normalize_game_copy_options(options):
         raise ValueError('Choose a 1K, 2K or 4K texture atlas.')
     if type(normals) is not bool:
         raise ValueError('Normal-map baking must be true or false.')
-    return dict(profile=profile, triangles=triangles, texture_size=size, bake_normals=normals)
+    regions = options.get('protected_regions', [])
+    if not isinstance(regions, list) or len(regions) > PROTECTED_REGION_LIMIT:
+        raise ValueError(f'Choose up to {PROTECTED_REGION_LIMIT} protected regions.')
+    normalized = []
+    for region in regions:
+        if not isinstance(region, dict) or set(region) != {'center', 'radius', 'strength'}:
+            raise ValueError('Each protected region needs a center, radius and strength.')
+        center, radius, strength = region['center'], region['radius'], region['strength']
+        if not isinstance(center, list) or len(center) != 3 or any(
+                type(value) not in (int, float) or not -PROTECTED_REGION_COORD_LIMIT <= value <= PROTECTED_REGION_COORD_LIMIT
+                for value in center):
+            raise ValueError('Protected region centers must contain three finite GLB coordinates.')
+        if type(radius) not in (int, float) or not 0 < radius <= PROTECTED_REGION_RADIUS_LIMIT:
+            raise ValueError('A protected region radius must be positive and finite.')
+        if type(strength) not in (int, float) or not 0 <= strength <= 1:
+            raise ValueError('Protected region strength must be between 0 and 1.')
+        normalized.append(dict(center=[float(value) for value in center], radius=float(radius), strength=float(strength)))
+    result = dict(profile=profile, triangles=triangles, texture_size=size, bake_normals=normals)
+    if normalized:
+        result['protected_regions'] = normalized
+    return result
 
 
 def game_copy_dependencies():
@@ -155,7 +176,7 @@ def inspect_baked_game_copy(model_path):
         return dict(supported=True, reason=None, ready=dependencies['ready'], dependencies=dependencies,
                     triangles=len(faces), vertices=len(vertices), profiles=profiles,
                     texture_sizes=[1024, 2048, 4096], triangle_limits=[5000, 150000],
-                    has_normal_map=bool(_material(data).get('normalTexture')))
+                    has_normal_map=bool(_material(data).get('normalTexture')), protected_region_limit=PROTECTED_REGION_LIMIT)
     except (OSError, ValueError, KeyError, IndexError, TypeError, OverflowError) as error:
         return dict(supported=False, reason=str(error), ready=dependencies['ready'], dependencies=dependencies)
 
@@ -197,6 +218,32 @@ def _region_weights(vertices, profile):
                          face_vertices=int(face.sum()), hand_vertices=int(hands.sum()),
                          accessory_vertices=int(accessories.sum()), silhouette_vertices=int(silhouette.sum()),
                          weights=dict(face=40, hands=25, accessories=12, silhouette=4, other=1), boundary_weight=5)
+
+
+def _add_protected_regions(vertices, weights, regions, profile):
+    """Add the strongest local contribution per vertex to the existing profile."""
+    maximum_boost = 44. if profile == 'humanoid' else 220.
+    boosts = np.zeros(len(vertices), dtype=np.float64)
+    batch_size = 64 * 1024
+    summaries = []
+    for region in regions:
+        center = np.asarray(region['center'], dtype=np.float64)
+        radius = region['radius']
+        strength = region['strength'] * maximum_boost
+        affected = 0
+        if strength > 0:
+            for start in range(0, len(vertices), batch_size):
+                batch = slice(start, start + batch_size)
+                distance = np.linalg.norm(vertices[batch] - center, axis=1)
+                fraction = np.minimum(distance, radius) / radius
+                influence = np.minimum(2 * (1 - fraction), 1) ** 1.5 * strength
+                np.maximum(boosts[batch], influence, out=boosts[batch])
+                affected += int(np.count_nonzero(influence))
+        summaries.append({**region, 'affected_vertices': affected})
+    weights += boosts
+    return dict(coordinate_space='glTF Y-up model coordinates', regions=summaries,
+                affected_vertices=int(np.count_nonzero(boosts)), maximum_weight_boost=maximum_boost,
+                falloff='Full contribution through half radius, fading to zero at radius; strongest region wins at overlaps.')
 
 
 def _clean(vertices, faces):
@@ -268,13 +315,18 @@ def run_baked_game_copy(source_path, output_glb, *, options, progress=None):
         if not source_triangles:
             raise ValueError('The source contains no nondegenerate triangles.')
         weights, protection = _region_weights(vertices, options['profile'])
+        regions = options.get('protected_regions', [])
+        marked = False
+        if regions:
+            protection['manual'] = _add_protected_regions(vertices, weights, regions, options['profile'])
+            marked = protection['manual']['affected_vertices'] > 0
         notify('Reducing geometry with protected boundaries', .12)
         os.environ.setdefault('OMP_NUM_THREADS', '3')
         import pymeshlab
         parameters = dict(targetfacenum=options['triangles'], targetperc=0, qualitythr=.3,
                           preservenormal=True, preservetopology=False, optimalplacement=True,
                           planarquadric=False, autoclean=False, selected=False,
-                          qualityweight=options['profile'] == 'humanoid', preserveboundary=True, boundaryweight=5.)
+                          qualityweight=options['profile'] == 'humanoid' or marked, preserveboundary=True, boundaryweight=5.)
         attempts = []
         for attempt in range(2):
             meshset = pymeshlab.MeshSet()
@@ -342,6 +394,10 @@ def run_baked_game_copy(source_path, output_glb, *, options, progress=None):
         warnings = list(LIMITATIONS)
         if options['profile'] == 'humanoid':
             warnings.append('Humanoid regions assume a centred upright T-pose facing +Z; they are bounding-box heuristics, not detected anatomy.')
+        if regions:
+            warnings.append('Protected regions give the selected surface extra priority within the triangle budget. Review the result at close range.')
+            if any(region['strength'] > 0 and not region['affected_vertices'] for region in protection['manual']['regions']):
+                warnings.append('Some protected regions contained no source vertices and could not affect the reduction.')
         if len(final_faces) > options['triangles'] * 1.02:
             warnings.append('Boundary constraints prevented the requested triangle budget; inspect the actual output count.')
         if coverage['bake_hit_percent'] < 99:

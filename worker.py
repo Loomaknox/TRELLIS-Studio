@@ -20,7 +20,8 @@ os.environ.update({
 })
 sys.path[:0] = [str(ROOT), str(ROOT / 'engine'), str(ROOT / 'engine' / 'o-voxel')]
 os.chdir(ROOT / 'engine')
-from generation_options import options_for_job, sampler_options, export_options, configure_simplifier
+from generation_options import (options_for_job, sampler_options, export_options, configure_simplifier,
+                                validate_hd_reconstruction)
 from studio_workspace import write
 options = options_for_job(settings)
 started = time.time()
@@ -124,6 +125,10 @@ def load_finishing_source(torch, identifier):
 
 def finish_mesh(torch, source):
     status('running', 'Finishing mesh and baking textures', 83)
+    hd_reconstruction = settings.get('hd_reconstruction', False)
+    validate_hd_reconstruction(hd_reconstruction, preset=settings.get('preset'), resolution=int(source['resolution']),
+                               repair_surface=settings.get('repair_surface', False),
+                               refinish=settings.get('source_kind') == 'refinish')
     import cumesh
     import o_voxel
     configure_simplifier(cumesh, options)
@@ -136,7 +141,7 @@ def finish_mesh(torch, source):
     spec.loader.exec_module(module)
     export = module.to_glb
     export_kwargs = export_options(options)
-    adaptive = settings.get('adaptive_finishing') is True
+    adaptive = settings.get('adaptive_finishing') is True and not hd_reconstruction
     adaptive_master = adaptive and settings.get('source_kind') != 'refinish'
     repair_surface = settings.get('repair_surface') is True
     if adaptive:
@@ -146,7 +151,10 @@ def finish_mesh(torch, source):
             export_kwargs.update(remesh=False, repair_holes=False)
         if not repair_surface:
             status('running', 'Measuring detail against the master mesh', 84)
-    if repair_surface:
+    if hd_reconstruction:
+        export_kwargs['repair_surface'] = True
+        status('running', 'Reconstructing the HD surface at 768', 84)
+    elif repair_surface:
         export_kwargs['repair_surface'] = True
         status('running', 'Reconstructing the surface to close holes', 84)
     vertices, faces = source['vertices'].cuda(), source['faces'].cuda()
@@ -168,6 +176,8 @@ def finish_mesh(torch, source):
         requested_generation_resolution=requested_resolution,
         pre_simplified=len(faces) != len(source['faces']),
     )
+    if hd_reconstruction:
+        result.metadata['finishing']['hd_reconstruction'] = True
     if source.get('coordinate_system') == 'y_up':
         # Pixal3D is already Y-up. Undo O-Voxel's Z-up to Y-up export conversion.
         result.apply_transform([[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]])

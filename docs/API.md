@@ -296,6 +296,14 @@ preview setting. Previewing uses zero generation credits.
   with a manual budget, or `{"budget_preset":"medium","adaptive_finishing":true}`
   for an adaptive budget. Add `"bake_normals":true` to bake a normal map with
   Blender. The master remains available and the new job has its own status URL.
+- `{"hd_reconstruction":true}` creates a linked HD master from a compatible
+  retained cache. It uses a 768 reconstruction grid, band 1, surface projection
+  0, small-hole filling and no pre-decimation. The default triangle ceiling is
+  1,200,000. A decoded resolution of at least 768 is required. For a new Dense
+  Master generation, set `overrides.hd_reconstruction` in `/generations`, or
+  `hd_reconstruction` on the top-level `/generations/multiview` recipe. This
+  option and `repair_surface` are mutually exclusive. Reconstruction improves
+  surface continuity on cracked meshes and can soften fine geometry.
 - `POST /models/{id}/finishing-board` accepts `{"variants":[...]}` with one
   to three distinct recipes. Poll `GET /jobs/{id}` for each returned ID. Save a
   completed variant as the board's choice with
@@ -367,13 +375,19 @@ that URL and inspect the completed GLB and its result report.
   per-view projection statistics in `views`. The overlap count can be zero
   when the cameras face different sides of the model.
 - `GET /api/v1/models/{id}/baked-game-copy` checks compatibility and the
-  recommended budget for the selected model.
+  recommended budget for the selected model and returns `protected_region_limit`.
 - `POST /api/v1/models/{id}/baked-game-copy` accepts `triangles` (5,000 to
   150,000), `texture_size` (1024, 2048 or 4096), `profile` (`object` or
-  `humanoid`), and `bake_normals`. The humanoid profile is intended for
-  upright, frontal T-poses. The CPU worker makes new UVs and bakes the selected
-  donor's color, roughness, metallic and optional tangent normals. The result
-  reports the actual count. The worker requires Blender and PyMeshLab.
+  `humanoid`), `bake_normals`, and optionally `protected_regions`. The humanoid
+  profile gives extra priority to the face and hands of an upright, frontal
+  T-pose. Use Object and pick zones for other poses or shapes. Each region
+  contains a `center` of three coordinates in the source GLB's Y-up coordinate
+  system, a positive `radius` in the same units, and `strength` from 0 to 1.
+  An example is `{"center":[0,1.55,0.09],"radius":0.12,"strength":0.8}`.
+  Regions give the enclosed geometry soft priority within the requested budget.
+  The CPU worker makes new UVs and bakes the selected donor's color, roughness,
+  metallic and optional tangent normals. The result reports actual triangle
+  counts and affected vertices. The worker requires Blender and PyMeshLab.
 
 The Studio browser can estimate each camera with **Auto Align**, using a
 transparent cutout and rendered model previews. Review each placement before

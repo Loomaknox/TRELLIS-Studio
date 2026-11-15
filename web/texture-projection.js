@@ -9,6 +9,7 @@ import {
 } from './texture-projection-geometry.js?v=3.7.0';
 import { button, dialog, el, field, input, select } from './workbench-ui.js?v=3.4.0';
 import { matchTextureProjectionCamera, readReferenceSilhouette } from './texture-projection-auto-align.js?v=3.7.0';
+import { createGameCopyRegions } from './game-copy-regions.js';
 
 const MATCH_RENDER_SIZE = 128;
 
@@ -1830,29 +1831,59 @@ export function createTextureProjection({ api, startJob }) {
 }
 
 export function createBakedGameCopy({api, startJob}) {
-    const ui = dialog('bakedGameCopy', 'Game Copy from HD', 'DETAIL TRANSFER',
-        'Create a lighter copy with new UVs and textures baked from the selected high-detail model.');
-    const summary = el('p', 'hint'), profile = select([['object', 'Object · 28K triangles'], ['humanoid', 'Humanoid · 14K triangles']], 'object');
+    const ui = dialog('bakedGameCopy', 'Game Copy from HD', '', '', 'game-copy-dialog');
+    const summary = el('p', 'gc-model-name');
+    ui.element.querySelector('.studio-dialog-head h2').after(summary);
+    const profile = select([['object', 'Object'], ['humanoid', 'Humanoid']], 'object');
+    const profileHelp = el('p', 'hint gc-profile-help');
+    profileHelp.id = 'bakedGameProfileHelp';
+    profile.setAttribute('aria-describedby', profileHelp.id);
     const triangles = input('number', 28000, {min: 5000, max: 150000, step: 1, required: ''}); triangles.id = 'bakedGameTriangles';
     const texture = select([[1024, '1K'], [2048, '2K'], [4096, '4K']], 2048); texture.id = 'bakedGameTexture';
     const normals = input('checkbox', ''); normals.checked = true; normals.id = 'bakedGameNormals';
-    const normalLabel = el('label', 'check'); normalLabel.append(normals, el('span', '', 'Transfer surface detail to a normal map'));
+    const normalLabel = el('label', 'check'); normalLabel.append(normals, el('span', '', 'Bake surface detail to a normal map'));
     const normalHint = el('p', 'hint');
     const form = el('form'); form.id = 'bakedGameForm';
-    form.append(summary, field('Profile', profile), field('Target triangle count', triangles), field('Texture resolution', texture), normalLabel, normalHint, el('p', 'hint', 'Color and material maps are transferred from the HD model. Compare fine parts, faces and hands with the original after processing.'));
+    const options = el('fieldset', 'gc-options');
+    const pair = el('div', 'gc-field-pair');
+    pair.append(field('Target triangles', triangles), field('Texture resolution', texture));
+    const regions = createGameCopyRegions(disposeModel);
+    options.append(el('legend', '', 'Reduction settings'), field('Profile', profile), profileHelp, pair, normalLabel, normalHint);
+    const aside = el('div', 'gc-sidebar');
+    aside.append(options, regions.section);
+    form.append(regions.surface, aside);
     const submit = button('Create game copy', 'cube', 'primary'); submit.type = 'submit'; submit.setAttribute('form', form.id); submit.id = 'confirmBakedGameCopy';
-    ui.body.append(form); ui.foot.append(button('Cancel', 'close', 'secondary', () => ui.close()), submit);
+    const footnote = el('small', 'gc-footnote', 'Creates a new model with UVs and textures baked from the HD source.');
+    ui.body.append(form); ui.foot.append(footnote, button('Cancel', 'close', 'secondary', () => ui.close()), submit);
     let base = null, supported = false, opening = 0, pending = false;
+    function updateProfileHelp() {
+        profileHelp.textContent = profile.value === 'humanoid'
+            ? 'Prioritizes the face and hands of an upright, front-facing T-pose. Add zones for extra detail.'
+            : '';
+    }
     profile.onchange = () => {
         triangles.value = profile.value === 'humanoid' ? 14000 : 28000;
         triangles.setCustomValidity('');
+        updateProfileHelp();
     };
-    ui.element.addEventListener('close', () => { if (ui.element.open) return; opening++; base = null; supported = false; pending = false; });
+    ui.element.addEventListener('close', () => {
+        if (ui.element.open) return;
+        opening++;
+        base = null;
+        supported = false;
+        pending = false;
+        regions.reset();
+    });
     form.onsubmit = async event => {
         event.preventDefault(); if (!base || !supported || pending || !form.reportValidity()) return;
         const id = base.id, version = opening; pending = true; submit.disabled = true; ui.notice.textContent = 'Queueing game copy…';
+        const recipe = {
+            triangles: Number(triangles.value), texture_size: Number(texture.value),
+            profile: profile.value, bake_normals: normals.checked,
+        };
+        if (regions.values().length) recipe.protected_regions = regions.values();
         try {
-            const result = await api(`/api/v1/models/${id}/baked-game-copy`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({triangles: Number(triangles.value), texture_size: Number(texture.value), profile: profile.value, bake_normals: normals.checked})});
+            const result = await api(`/api/v1/models/${id}/baked-game-copy`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(recipe)});
             if (version === opening) ui.close(); await startJob(result.id);
         } catch (error) { if (version === opening && ui.element.open) ui.notice.textContent = error.message; }
         finally { if (version === opening) { pending = false; submit.disabled = !supported; } }
@@ -1861,17 +1892,26 @@ export function createBakedGameCopy({api, startJob}) {
         if (!job || job.state !== 'done') return;
         if (ui.element.open) return;
         base = job; supported = false; pending = false; const version = ++opening;
+        regions.reset();
+        options.disabled = true;
+        profileHelp.textContent = '';
         normals.checked = true; normals.disabled = false; normalHint.textContent = '';
         triangles.setCustomValidity('');
         summary.textContent = nameOf(job); submit.disabled = true; ui.show(); ui.notice.textContent = 'Checking this model…';
+        const current = () => version === opening && ui.element.open;
         try {
             const response = await api(`/api/v1/models/${job.id}/baked-game-copy`);
-            if (version !== opening || !ui.element.open) return;
+            if (!current()) return;
             supported = response.supported === true && response.ready !== false;
             const available = response.profiles || ['object'];
-            profile.replaceChildren(...available.filter(value => ['object', 'humanoid'].includes(value)).map(value => { const option = el('option', '', value === 'humanoid' ? 'Humanoid · 14K triangles' : 'Object · 28K triangles'); option.value = value; return option; }));
+            profile.replaceChildren(...available.filter(value => ['object', 'humanoid'].includes(value)).map(value => {
+                const option = el('option', '', value === 'humanoid' ? 'Humanoid' : 'Object');
+                option.value = value;
+                return option;
+            }));
             profile.value = response.humanoid && available.includes('humanoid') ? 'humanoid' : 'object';
             if (!profile.value) profile.selectedIndex = 0;
+            updateProfileHelp();
             triangles.value = response.default_triangles || (profile.value === 'humanoid' ? 14000 : 28000);
             texture.replaceChildren(...(response.texture_sizes || [1024, 2048, 4096]).map(size => { const option = el('option', '', `${size / 1024}K`); option.value = size; return option; })); texture.value = 2048;
             if (!texture.value) texture.selectedIndex = 0;
@@ -1879,6 +1919,11 @@ export function createBakedGameCopy({api, startJob}) {
             normals.disabled = response.has_normal_map === true;
             normalHint.textContent = normals.disabled ? 'Normal-map transfer is required to preserve the source model’s existing surface detail.' : '';
             ui.notice.textContent = supported ? '' : response.reason || response.dependencies?.reason || (response.ready === false ? 'Game-copy tools are not ready. Install the required components and restart Studio.' : 'Game Copy from HD is not available for this model.'); submit.disabled = !supported;
+            options.disabled = !supported;
+            if (supported) {
+                const url = `/api/jobs/${job.id}/files/model.glb?v=${encodeURIComponent(job.result?.revision || job.id)}`;
+                await regions.start(url, response.protected_region_limit, current);
+            }
         } catch (error) { if (version === opening && ui.element.open) ui.notice.textContent = error.message; }
     }};
 }
