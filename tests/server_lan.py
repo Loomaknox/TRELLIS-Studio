@@ -170,10 +170,27 @@ def run():
             try:
                 call(base, 'PATCH', '/server/api/admin/queue', client=admin, json={'paused': False})
                 eventually(lambda: store.jobs(alice_id)[0]['state'] == 'running')
-                write(alice_path / identifier / 'status.json', {'state': 'done', 'stage': 'Fixture complete', 'progress': 100})
+                output = alice_path / identifier
+                payload = json.dumps({'asset': {'version': '2.0'}, 'meshes': [{'primitives': []}]}).encode()
+                payload += b' ' * (-len(payload) % 4)
+                (output / 'model.glb').write_bytes(struct.pack('<4sIIII', b'glTF', 2, 20 + len(payload),
+                                                               len(payload), 0x4e4f534a) + payload)
+                write(output / 'status.json', {'state': 'done', 'stage': 'Fixture complete', 'progress': 100})
+                for status_url in ('/api/jobs/' + identifier, '/api/v1/jobs/' + identifier):
+                    record = call(base, 'GET', status_url, client=alice).json()
+                    assert record['state'] == 'running' and record['stage'] == 'Finalizing model'
+                    assert record['progress'] == 99 and not record['media']['available']
+                records = call(base, 'GET', '/api/jobs', client=alice).json()
+                assert records[0]['state'] == 'running' and not records[0]['media']['available']
+                call(base, 'GET', '/api/jobs/' + identifier + '/files/model.glb', 409, alice)
             finally:
                 process.completed = True
             eventually(lambda: store.jobs(alice_id)[0]['state'] == 'done')
+            record = call(base, 'GET', '/api/jobs/' + identifier, client=alice).json()
+            assert record['state'] == 'done' and record['media']['available']
+            download = call(base, 'GET', '/api/jobs/' + identifier + '/files/model.glb', client=alice)
+            assert download.content == (output / 'model.glb').read_bytes()
+            (output / 'model.glb').unlink()
             assert store.get_user(alice_id)['credits'] == 0
             assert len([row for row in store.user_ledger(alice_id) if row['delta'] == -1]) == 1
 

@@ -349,17 +349,15 @@ create a linked model copy and return a job ID with `status_url`. Poll
 that URL and inspect the completed GLB and its result report.
 
 - `GET /api/v1/models/{id}/texture-projection` checks compatibility and lists
-  the available saved reference images.
+  saved reference images, `views` and `camera_projections`.
 - `POST /api/v1/models/{id}/texture-projection` accepts either `reference`
   from that list or an `upload_id` from `POST /api/v1/uploads`. It also accepts
-  an orthographic `camera` with a `view` and `frame` specified as
-  `[left, bottom, right, top]` in the view plane, and two rectangles
-  `source_rect` and `target_rect` as `[x0, y0, x1, y1]`. Image coordinates
-  are normalized with the origin at the top left. Front looks along −Z with
-  +X to the right and +Y up. Add four `source_points` and four corresponding
-  `target_points` for affine alignment. `mask_shape`, `opacity` and `feather`
-  control the blend. Projection changes base-color RGB only. Visibility checks
-  protect occluded surfaces.
+  a `camera` and two rectangles, `source_rect` and `target_rect`, as
+  `[x0, y0, x1, y1]`. Image coordinates are normalized with the origin at the
+  top left. Add four `source_points` and four corresponding `target_points`
+  for affine alignment. `mask_shape`, `opacity` and `feather` control the blend.
+  Projection changes base-color RGB only. Visibility checks protect occluded
+  surfaces.
 - `GET /api/v1/models/{id}/baked-game-copy` checks compatibility and the
   recommended budget for the selected model.
 - `POST /api/v1/models/{id}/baked-game-copy` accepts `triangles` (5,000 to
@@ -368,6 +366,21 @@ that URL and inspect the completed GLB and its result report.
   upright, frontal T-poses. The CPU worker makes new UVs and bakes the selected
   donor's color, roughness, metallic and optional tangent normals. The result
   reports the actual count. The worker requires Blender and PyMeshLab.
+
+A projection camera uses one of six preset views or `view: "custom"`. Front
+looks along −Z with +X to the right and +Y up. A custom view supplies `basis`
+as three right-handed orthonormal vectors in world coordinates, ordered right,
+up, then toward the camera. In both modes `frame` is
+`[left, bottom, right, top]`.
+
+- **Orthographic** is the default. Frame coordinates are world positions
+  projected onto the right and up vectors. Existing recipes with only
+  `view` and `frame` still work.
+- **Perspective** uses `projection: "perspective"` and `origin: [x, y, z]`
+  in world coordinates. Compute camera coordinates by subtracting the origin
+  and projecting onto each basis vector. A model point at camera coordinates
+  `(x, y, z)` maps to `(x / -z, y / -z)` in the frame at one unit of forward
+  distance. Keep the model in front of the camera.
 
 Set `linked_selection: true` to keep the selected reference region attached to
 its placement. The same target-to-source affine transform determines both the

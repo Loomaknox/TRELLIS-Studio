@@ -184,7 +184,7 @@ async def get_texture_projection_options(model_id: Identifier) -> dict[str, Any]
 
 @tool()
 async def queue_texture_projection(model_id: Identifier, recipe: TextureProjection) -> dict[str, Any]:
-    """Project an image region into the base color of a linked copy. Supply the camera and normalized rectangles. Use linked_selection to align the source mask with four matching points per image, and source_polygon for a freeform outline. Poll get_model."""
+    """Project an image region into the base color of a linked copy. Supply an orthographic or perspective camera (preset view or custom basis) and normalized rectangles. Use linked_selection to align the source mask with four matching points per image, and source_polygon for a freeform outline. Poll get_model."""
     return await api('POST', f'/models/{model_id}/texture-projection',
                      recipe.model_dump(mode='json', exclude_none=True))
 

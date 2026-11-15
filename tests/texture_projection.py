@@ -182,6 +182,65 @@ class TextureProjectionTests(unittest.TestCase):
         self.assertEqual(int(new[64, 64, 0]), 0)
         self.assertEqual(report['options']['camera']['view'], 'back')
 
+    def test_oblique_perspective_samples_world_points_and_respects_occlusion(self):
+        angle = np.deg2rad(35)
+        right = np.array([np.cos(angle), 0, -np.sin(angle)])
+        outward = np.array([np.sin(angle), 0, np.cos(angle)])
+        origin = outward * 2
+        camera = dict(view='custom', projection='perspective', frame=[-.26, -.26, .26, .26],
+                      basis=[right.tolist(), [0, 1, 0], outward.tolist()], origin=origin.tolist())
+        rows, columns = np.mgrid[:128, :128]
+        Image.fromarray(np.stack((2 * columns, 2 * rows, np.full_like(rows, 200)), axis=-1).astype(np.uint8)).save(self.reference)
+        recipe = options(camera=camera, opacity=1, linked_selection=True)
+        public = TextureProjection.model_validate(dict(recipe, reference='conditioning'))
+        payload = public.model_dump(mode='json', exclude={'reference', 'upload_id'}, exclude_none=True)
+        original = self.source.read_bytes()
+        report = projection.project_texture(self.source, self.reference, self.output, options=payload)
+        new = color(self.output)
+        np.testing.assert_array_equal(new[..., 3], color(self.source)[..., 3])
+        self.assertEqual(self.source.read_bytes(), original)
+        doc, binary = read(self.source)
+        result, result_binary = read(self.output)
+        self.assertEqual(result['accessors'], doc['accessors'])
+        self.assertEqual(result_binary[:len(binary)], binary)
+        self.assertEqual(report['options']['camera'], camera)
+        self.assertGreater(report['occluded_samples'], 0)
+        self.assertFalse(np.any(new[15:110, 145:235, :3]))
+        self.assertFalse(np.any(new[74, 46, :3]))  # Visible from front, occluded at this camera angle.
+        for row, column in [(74, 27), (38, 64), (74, 93)]:
+            u, v = (np.array([column, row]) + .5) / 256
+            world = np.array([2 * (u - .05) - .4, 2 * (.45 - v) - .4, 0.])
+            ray = world - origin
+            distance = -ray @ outward
+            x = .5 + ray @ right / (distance * .52)
+            y = .5 - ray[1] / (distance * .52)
+            np.testing.assert_allclose(new[row, column, :3], [256 * x - 1, 256 * y - 1, 200], atol=1)
+        preview = self.root / 'oblique.png'
+        info = projection.render_projection_preview(self.output, preview, camera=camera, size=128)
+        self.assertEqual(info['camera'], camera)
+        with Image.open(preview) as image:
+            pixels = np.asarray(image)
+            np.testing.assert_allclose(pixels[42, 80], [160, 84, 200, 255], atol=3)
+
+    def test_custom_camera_validation_and_camera_plane_rejection(self):
+        basis = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        camera = dict(view='custom', frame=[-.5, -.5, .5, .5], basis=basis)
+        self.assertEqual(projection.normalize_projection_options(options(camera=camera))['camera']['projection'], 'orthographic')
+        invalid = [dict(camera, basis=None), dict(camera, basis=[[1, 0, 0], [0, 1, 0], [0, 0, -1]]),
+                   dict(camera, basis=[[1, 0, 0], [1, 0, 0], [0, 0, 1]]), dict(camera, view='front'),
+                   dict(camera, origin=[0, 0, 2]), dict(camera, projection='perspective'),
+                   dict(camera, projection='perspective', origin=[0, 0, float('inf')])]
+        for invalid_camera in invalid:
+            with self.subTest(camera=invalid_camera), self.assertRaises(projection.TextureProjectionError):
+                projection.normalize_projection_options(options(camera=invalid_camera))
+        camera = dict(view='front', projection='perspective', frame=[-.5, -.5, .5, .5])
+        with self.assertRaisesRegex(ValueError, 'camera origin'):
+            TextureProjection.model_validate(dict(options(camera=camera), reference='prepared'))
+        with self.assertRaisesRegex(projection.TextureProjectionError, 'entire model'):
+            projection.project_texture(self.source, self.reference, self.output,
+                                       options=options(camera=dict(camera, origin=[0, 0, .1])))
+        self.assertFalse(self.output.exists())
+
     def test_normalized_options_landmarks_and_bad_values(self):
         good = options(source_points=[[.2, .2], [.8, .2], [.5, .5], [.5, .8]],
                        target_points=[[.2, .2], [.8, .2], [.5, .5], [.5, .8]])

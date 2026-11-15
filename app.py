@@ -150,11 +150,17 @@ def prepared_output_ready(settings, status):
 
 def job_record(folder):
     try:
+        publication_pending = WORKSPACE_CONFIG.get('publication_pending')
+        pending = publication_pending is not None and publication_pending(folder.name)
         settings = json.loads((folder / 'settings.json').read_text(encoding='utf-8'))
         status_path = folder / 'status.json'
         data = json.loads(status_path.read_text(encoding='utf-8')) if status_path.exists() else {'state':'queued','stage':'Starting','progress':0}
+        finalizing = pending and data['state'] == 'done'
+        if finalizing:
+            # Server publication follows worker exit and quota reconciliation.
+            data.update(state='running', stage='Finalizing model', progress=99)
         data.update(id=folder.name, settings=settings)
-        data['media'] = (model_media(folder/'model.glb') if prepared_output_ready(settings, data)
+        data['media'] = (model_media(folder/'model.glb') if not finalizing and prepared_output_ready(settings, data)
                          else dict(available=False, animated=False, clips=0, bones=0))
         data['can_refinish'] = data['state'] == 'done' and bool(finishing_source(folder, settings))
         if settings.get('asset_type') not in ('terrain_unity','imported','rigged','print'):
@@ -167,7 +173,7 @@ def job_record(folder):
         data['lods']=json.loads((folder/'lod-manifest.json').read_text(encoding='utf-8')) if (folder/'lod-manifest.json').is_file() else None
         data['physics']=json.loads((folder/'physics.json').read_text(encoding='utf-8')) if (folder/'physics.json').is_file() else None
         data['presentation']=json.loads((folder/'Presentation/presentation.json').read_text(encoding='utf-8')) if (folder/'Presentation/presentation.json').is_file() else {}
-        if data['state'] in ('running','queued') and not (data['state']=='queued' and data.get('operation')!='animation' and 'STUDIO' in globals() and STUDIO.queued(folder.name)):
+        if not finalizing and data['state'] in ('running','queued') and not (data['state']=='queued' and data.get('operation')!='animation' and 'STUDIO' in globals() and STUDIO.queued(folder.name)):
             if folder.name != TERRAIN_ACTIVE and (folder.name != ACTIVE or PROCESS is None or PROCESS.poll() is not None):
                 if data.get('operation')=='animation':
                     recover_animation(folder)

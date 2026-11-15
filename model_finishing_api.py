@@ -92,7 +92,8 @@ def install(router, app, upload):
         folder, _, source = model(identifier)
         support = await asyncio.to_thread(inspect_texture_projection, source)
         return {**support, 'references': references(folder),
-                'views': ['front', 'back', 'left', 'right', 'top', 'bottom'],
+                'views': ['front', 'back', 'left', 'right', 'top', 'bottom', 'custom'],
+                'camera_projections': ['orthographic', 'perspective'],
                 'linked_selection': True, 'mask_shapes': ['ellipse', 'rectangle', 'polygon']}
 
     @router.post('/models/{identifier}/texture-projection', tags=['Models'], status_code=202,

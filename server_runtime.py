@@ -101,7 +101,8 @@ class PrivateStudio:
         spec = spec_from_file_location(self.module_name, ROOT / 'app.py')
         self.studio = module_from_spec(spec)
         self.studio.WORKSPACE_CONFIG = dict(outputs=self.outputs, exports=self.exports, state=self.state,
-                                           trash=self.trash, profiles=self.state / 'profiles.json')
+                                           trash=self.trash, profiles=self.state / 'profiles.json',
+                                           publication_pending=lambda identifier: self.active == identifier)
         sys.modules[self.module_name] = self.studio
         try:
             spec.loader.exec_module(self.studio)

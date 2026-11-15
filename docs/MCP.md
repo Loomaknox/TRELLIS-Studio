@@ -219,10 +219,11 @@ checking the library first, as the request may already have been accepted.
 
 ## Other tools and resources
 
-`get_texture_projection_options` lists compatible references and
-`queue_texture_projection` applies a masked image region using an
-orthographic frame and optional matching landmarks. Use `upload_source` for
-a new reference. Set `linked_selection: true` to evaluate a rectangle or ellipse
+`get_texture_projection_options` lists compatible references and camera
+modes. `queue_texture_projection` applies a masked image region from a preset
+or custom orthographic or perspective camera. Perspective cameras include a
+world-space origin. Custom cameras include a right, up and outward basis.
+Use `upload_source` for a new reference. Set `linked_selection: true` to evaluate a rectangle or ellipse
 on the reference image through the same affine mapping as the projected color.
 For a lasso or polygon outline, use `mask_shape: "polygon"` with
 `source_polygon` containing 3 to 128 normalized `[x, y]` points; polygon masks

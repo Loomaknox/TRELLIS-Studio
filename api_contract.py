@@ -305,9 +305,24 @@ class FinishingBatchAccepted(Contract):
     paused: bool
 
 class ProjectionCamera(Contract):
-    view: Literal['front', 'back', 'left', 'right', 'top', 'bottom'] = 'front'
+    view: Literal['front', 'back', 'left', 'right', 'top', 'bottom', 'custom'] = 'front'
     frame: tuple[float, float, float, float] = Field(
-        description='Left, bottom, right and top of the orthographic frame in the selected model plane.')
+        description='Left, bottom, right and top in world-plane coordinates for orthographic projection, '
+                    'or on the plane one unit in front of a perspective camera.')
+    projection: Literal['orthographic', 'perspective'] = 'orthographic'
+    basis: tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]] | None = Field(
+        default=None, description='Required for a custom view. Rows are right, up and toward the camera, '
+                                  'forming a right-handed orthonormal basis.')
+    origin: tuple[float, float, float] | None = Field(
+        default=None, description='Camera position in model world coordinates, required for perspective projection.')
+
+    @model_validator(mode='after')
+    def validate_pose(self):
+        if (self.view == 'custom') != (self.basis is not None):
+            raise ValueError('Supply a camera basis only for a custom view.')
+        if (self.projection == 'perspective') != (self.origin is not None):
+            raise ValueError('Supply a camera origin only for perspective projection.')
+        return self
 
 
 class TextureProjection(Contract):

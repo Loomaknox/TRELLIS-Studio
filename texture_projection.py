@@ -1,8 +1,8 @@
-"""Explicit CPU reference-to-base-color projection for canonical static GLBs.
+"""Explicit CPU reference-to-base-color projection for static GLBs.
 
 Coordinates supplied by callers are normalized image coordinates (top-left origin).
-Camera frames use signed model-plane coordinates, with front looking from +Z.
-This module does not detect faces, download models, or change model geometry.
+An orthographic frame uses signed model-plane coordinates. A perspective frame
+uses the plane one unit forward from the camera. The front view looks from +Z.
 """
 from copy import deepcopy
 import hashlib
@@ -66,12 +66,41 @@ def _rect(value, label, normalized=True):
 
 
 def _camera(value):
-    if not isinstance(value, dict) or set(value) - {'view', 'frame'}:
-        raise TextureProjectionError('Camera must specify a view and an orthographic frame.')
+    if not isinstance(value, dict) or set(value) - {'view', 'frame', 'projection', 'basis', 'origin'}:
+        raise TextureProjectionError('Camera must specify a supported view and frame.')
     view = value.get('view', 'front')
-    if not isinstance(view, str) or view not in VIEWS:
-        raise TextureProjectionError('Choose front, back, left, right, top, or bottom.')
-    return {'view': view, 'frame': _rect(value.get('frame'), 'Camera frame', False)}
+    if not isinstance(view, str) or (view not in VIEWS and view != 'custom'):
+        raise TextureProjectionError('Choose a preset or custom view.')
+    projection = value.get('projection', 'orthographic')
+    if projection not in ('orthographic', 'perspective'):
+        raise TextureProjectionError('Choose orthographic or perspective projection.')
+    result = {'view': view, 'frame': _rect(value.get('frame'), 'Camera frame', False)}
+    if view == 'custom':
+        basis = value.get('basis')
+        if not isinstance(basis, (list, tuple)) or len(basis) != 3:
+            raise TextureProjectionError('A custom camera needs three basis vectors.')
+        basis = np.asarray([_camera_vector(axis, 'Camera basis', limit=1.000001) for axis in basis])
+        if not np.allclose(basis @ basis.T, np.eye(3), rtol=0, atol=1e-6) or np.linalg.det(basis) <= 0:
+            raise TextureProjectionError('The camera basis must be right-handed and orthonormal.')
+        result['basis'] = basis.tolist()
+        result['projection'] = projection
+    elif 'basis' in value:
+        raise TextureProjectionError('Supply a camera basis only for a custom view.')
+    if projection == 'perspective':
+        result['projection'] = projection
+        result['origin'] = _camera_vector(value.get('origin'), 'Camera origin', limit=1e12)
+    elif 'origin' in value:
+        raise TextureProjectionError('Supply a camera origin only for perspective projection.')
+    return result
+
+
+def _camera_vector(value, label, *, limit):
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise TextureProjectionError(f'{label} must contain three coordinates.')
+    result = [_number(v, label) for v in value]
+    if max(abs(v) for v in result) > limit:
+        raise TextureProjectionError(f'{label} exceeds the supported coordinate range.')
+    return result
 
 
 def _points(value, rect, label):
@@ -279,6 +308,27 @@ def _default_camera(vertices, view):
     return {'view': view, 'frame': [*(center - extent / 2), *(center + extent / 2)]}
 
 
+def _camera_plane(vertices, camera):
+    basis = np.asarray(camera['basis'] if camera['view'] == 'custom' else VIEWS[camera['view']], dtype=float)
+    perspective = camera.get('projection') == 'perspective'
+    if perspective:
+        plane = (vertices - np.asarray(camera['origin'])) @ basis.T
+        minimum_distance = max(1e-9, float(np.ptp(vertices, axis=0).max()) * 1e-6)
+        if np.any(-plane[:, 2] <= minimum_distance):
+            raise TextureProjectionError('Move the perspective camera back so the entire model is in front of it.')
+    else:
+        plane = vertices @ basis.T
+    return plane, basis, perspective
+
+
+def _project_camera_plane(plane, perspective):
+    if not perspective:
+        return plane
+    inverse_distance = -1 / plane[..., 2:3]
+    # Reciprocal distance increases toward the camera and is affine in screen space.
+    return np.concatenate((plane[..., :2] * inverse_distance, inverse_distance), axis=-1)
+
+
 def inspect_texture_projection(model_path):
     """Return capability metadata without rasterization or publication."""
     try:
@@ -297,8 +347,8 @@ def _raster(points, width, height):
     det = a[0] * b[1] - a[1] * b[0]
     if abs(det) < 1e-12:
         return
-    lower = np.maximum(np.ceil(points.min(axis=0) - 1e-7).astype(np.int64), 0)
-    upper = np.minimum(np.floor(points.max(axis=0) + 1e-7).astype(np.int64) + 1, (width, height))
+    lower = np.clip(np.ceil(points.min(axis=0) - 1e-7), 0, (width, height)).astype(np.int64)
+    upper = np.clip(np.floor(points.max(axis=0) + 1e-7) + 1, 0, (width, height)).astype(np.int64)
     x0, y0 = lower
     x1, y1 = upper
     if x1 <= x0 or y1 <= y0:
@@ -398,43 +448,62 @@ def _progress(callback, stage, fraction):
         callback(stage, float(fraction))
 
 
-def _screen(plane, bounds, width, height):
+def _image_coordinates(plane, bounds):
     low = np.asarray(bounds[:2])
     high = np.asarray(bounds[2:])
-    return np.stack(((plane[..., 0] - low[0]) / (high[0] - low[0]) * width - .5,
-                     (high[1] - plane[..., 1]) / (high[1] - low[1]) * height - .5), axis=-1)
+    return np.stack(((plane[..., 0] - low[0]) / (high[0] - low[0]),
+                     (high[1] - plane[..., 1]) / (high[1] - low[1])), axis=-1)
 
 
-def _depth(plane, indices, bounds, size, cancelled=None, with_uv=None):
+def _screen(plane, bounds, width, height):
+    return _image_coordinates(plane, bounds) * [width, height] - .5
+
+
+def _depth(plane, indices, bounds, size, cancelled=None, with_uv=None, *, perspective=False):
     spans = np.asarray(bounds[2:]) - bounds[:2]
     width, height = np.maximum(16, np.rint(size * spans / spans.max()).astype(int))
     screen = _screen(plane, bounds, width, height)
     projected = screen[indices]
     eligible = (projected.max(axis=1) >= 0).all(axis=1) & (projected.min(axis=1) < (width, height)).all(axis=1)
-    depth = np.full((height, width), -np.inf, dtype=np.float32)
+    depth = np.full((height, width), -np.inf, dtype=np.float64 if perspective else np.float32)
     texcoords = np.zeros((height, width, 2), dtype=np.float32) if with_uv is not None else None
     for count, index in enumerate(np.flatnonzero(eligible)):
         if count % 128 == 0:
             _check(cancelled)
         triangle = indices[index]
+        values = plane[triangle, 2:3]
+        coordinates = with_uv[triangle] if with_uv is not None else None
+        if coordinates is not None and perspective:
+            coordinates = coordinates * values
         for region, u, v, mask in _raster(screen[triangle], width, height):
-            z = _interp(plane[triangle, 2:3], u, v)[..., 0]
+            z = _interp(values, u, v)[..., 0]
             good = mask & (z > depth[region])
             depth[region][good] = z[good]
             if texcoords is not None and good.any():
-                texcoords[region][good] = _interp(with_uv[triangle], u, v)[good]
+                interpolated = _interp(coordinates, u[good], v[good])
+                if perspective:
+                    interpolated /= z[good, None]
+                texcoords[region][good] = interpolated
     return depth, texcoords
 
 
-def render_projection_preview(model_path, output_png, *, view='front', frame=None, size=1024):
-    """Write an unlit orthographic preview with explicit reusable camera coordinates."""
-    if type(size) is not int or not 64 <= size <= 1024 or not isinstance(view, str) or view not in VIEWS:
-        raise TextureProjectionError('Preview size must be 64 to 1024 and the view must be canonical.')
+def render_projection_preview(model_path, output_png, *, view='front', frame=None, camera=None, size=1024):
+    """Write an unlit preview with explicit reusable camera coordinates."""
+    if type(size) is not int or not 64 <= size <= 1024:
+        raise TextureProjectionError('Preview size must be 64 to 1024.')
+    if camera is not None:
+        if view != 'front' or frame is not None:
+            raise TextureProjectionError('Choose a camera or a preset view and frame.')
+        camera = _camera(camera)
+    elif not isinstance(view, str) or view not in VIEWS:
+        raise TextureProjectionError('Choose a preset camera view or supply a camera.')
     mesh = _load_mesh(Path(model_path))
     doc, blob, primitive, material, atlas, vertices, normals, uv, indices = mesh
-    camera = _camera({'view': view, 'frame': frame}) if frame is not None else _default_camera(vertices, view)
-    plane = vertices @ np.asarray(VIEWS[view], dtype=float).T
-    depth, coordinates = _depth(plane, indices, camera['frame'], size, with_uv=uv)
+    if camera is None:
+        camera = _camera({'view': view, 'frame': frame}) if frame is not None else _default_camera(vertices, view)
+    plane, _, perspective = _camera_plane(vertices, camera)
+    projected = _project_camera_plane(plane, perspective)
+    depth, coordinates = _depth(projected, indices, camera['frame'], size, with_uv=uv, perspective=perspective)
     picture = cv2.remap(atlas, coordinates[..., 0] * atlas.shape[1] - .5,
                         coordinates[..., 1] * atlas.shape[0] - .5, cv2.INTER_LINEAR,
                         borderMode=cv2.BORDER_REPLICATE)
@@ -526,25 +595,33 @@ def project_texture(model_path, reference_path, output_path, *, options, progres
     if min(ref.shape[:2]) < 2:
         raise TextureProjectionError('The reference image is too small.')
     transform, residual = _alignment(options)
-    basis = np.asarray(VIEWS[options['camera']['view']], dtype=float)
-    plane, normal_plane = vertices @ basis.T, normals @ basis.T
+    camera = options['camera']
+    plane, basis, perspective = _camera_plane(vertices, camera)
+    normal_plane = normals @ basis.T
     normal_plane /= np.maximum(np.linalg.norm(normal_plane, axis=1, keepdims=True), 1e-12)
-    frame = np.asarray(options['camera']['frame'])
+    projected = _project_camera_plane(plane, perspective)
+    frame = np.asarray(camera['frame'])
     extent = frame[2:] - frame[:2]
-    normalized = np.column_stack(((plane[:, 0] - frame[0]) / extent[0],
-                                   (frame[3] - plane[:, 1]) / extent[1]))
+    normalized = _image_coordinates(projected, frame)
     target = _processing_rect(options, transform)
     source_rect = np.asarray(options['source_rect'])
     local_low = frame[:2] + np.array([target[0], 1 - target[3]]) * extent
     local_high = frame[:2] + np.array([target[2], 1 - target[1]]) * extent
     margin = max(local_high - local_low) * .02
+    if np.any(local_low - margin >= local_high + margin):
+        raise TextureProjectionError('The selected region is too small for this camera frame.')
     depth_frame = [*(local_low - margin), *(local_high + margin)]
     _progress(progress, 'Checking visible surfaces', .05)
-    depth, _ = _depth(plane, indices, depth_frame, 1024, cancelled)
+    depth, _ = _depth(projected, indices, depth_frame, 1024, cancelled)
     if not np.isfinite(depth).any():
         raise TextureProjectionError('The model rectangle does not contain a visible surface. Adjust the view or rectangle.')
-    safe_depth = np.where(np.isfinite(depth), depth, -np.inf)
     depth_tolerance = max(1e-7, float(np.ptp(vertices, axis=0).max()) * .00085)
+    # Apply the same world-space visibility tolerance to both depth encodings.
+    if perspective:
+        valid = np.isfinite(depth)
+        depth[valid] /= 1 + depth[valid] * depth_tolerance
+    else:
+        depth -= depth_tolerance
     height, width = atlas.shape[:2]
     uv_pixels = np.clip(uv, 0, 1) * [width, height] - .5
     owner = np.full((height, width), -1, dtype=np.int32)
@@ -600,7 +677,8 @@ def project_texture(model_path, reference_path, output_path, *, options, progres
         triangle = indices[index]
         for region, u, v, inside in _raster(uv_pixels[triangle], width, height):
             point = _interp(plane[triangle], u, v)
-            xy = _interp(normalized[triangle], u, v)
+            projected_point = _project_camera_plane(point, perspective)
+            xy = _image_coordinates(projected_point, frame) if perspective else _interp(normalized[triangle], u, v)
             sample = np.concatenate((xy, np.ones((*xy.shape[:-1], 1))), axis=-1) @ transform
             if _linked(options):
                 alpha = _source_alpha(sample, options, [ref.shape[1], ref.shape[0]])
@@ -616,17 +694,21 @@ def project_texture(model_path, reference_path, output_path, *, options, progres
                 mask &= ((sample >= source_rect[:2]) & (sample <= source_rect[2:])).all(axis=-1)
             normal = _interp(normal_plane[triangle], u, v)
             normal /= np.maximum(np.linalg.norm(normal, axis=-1, keepdims=True), 1e-12)
-            alpha *= _smooth(.15, .65, normal[..., 2]) * options['opacity']
+            facing = normal[..., 2]
+            if perspective:
+                # Rays diverge in perspective, so facing depends on the sampled point.
+                facing = -np.einsum('...i,...i->...', normal, point) / np.linalg.norm(point, axis=-1)
+            alpha *= _smooth(.15, .65, facing) * options['opacity']
             sx, sy = sample[..., 0] * ref.shape[1] - .5, sample[..., 1] * ref.shape[0] - .5
             alpha *= map_coordinates(ref_alpha, [sy, sx], order=1, mode='nearest')
             eligible = inside & mask & (alpha > 1 / 255)
             overlap += int((eligible & ambiguous[region]).sum())
             eligible &= (owner[region] == index) & ~ambiguous[region]
-            screen = _screen(point, depth_frame, depth.shape[1], depth.shape[0])
-            rows = np.clip(np.rint(screen[..., 1]).astype(int), 0, depth.shape[0] - 1)
-            columns = np.clip(np.rint(screen[..., 0]).astype(int), 0, depth.shape[1] - 1)
-            visible_depth = safe_depth[rows, columns]
-            visible = np.isfinite(visible_depth) & (point[..., 2] >= visible_depth - depth_tolerance)
+            screen = _screen(projected_point, depth_frame, depth.shape[1], depth.shape[0])
+            rows = np.clip(np.rint(screen[..., 1]), 0, depth.shape[0] - 1).astype(int)
+            columns = np.clip(np.rint(screen[..., 0]), 0, depth.shape[1] - 1).astype(int)
+            visible_depth = depth[rows, columns]
+            visible = np.isfinite(visible_depth) & (projected_point[..., 2] >= visible_depth)
             occluded += int((eligible & ~visible).sum())
             eligible &= visible
             if not eligible.any():
