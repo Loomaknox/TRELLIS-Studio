@@ -1,5 +1,5 @@
 import { button, el, field, input } from './workbench-ui.js?v=3.4.0';
-import { openReductionRegionPreview } from './reduction-region-preview.js';
+import { openReductionRegionPreview } from './reduction-region-preview.js?v=3.8.0';
 
 const radiusPercent = new Intl.NumberFormat('en', { maximumFractionDigits: 2 });
 
