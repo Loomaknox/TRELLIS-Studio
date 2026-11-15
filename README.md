@@ -27,9 +27,11 @@ One local generation produced two finishes from the same saved source. The high-
 
 Read the [Windows Setup guide](docs/WINDOWS_SETUP.md) for component installation, repair and uninstall. Downloads are resumable and verified with SHA-256. The uninstaller can stop its own idle local services and keeps the library.
 
-**New in 3.7.0** — Use **Auto Align** to match the camera to a cutout reference,
-or add a second reference and blend both angles into one texture copy.
-See the [release notes](docs/RELEASE_3.7.0.md).
+**New in 3.8.0** — Try **HD Reconstruction (768)** on a Dense Master or a
+compatible saved generation. Mark areas such as handles or grilles for
+extra detail during **Game Copy from HD**, with automatic face and hand
+priority for front-facing T-pose humanoids.
+See the [release notes](docs/RELEASE_3.8.0.md).
 
 ### Install from source
 
