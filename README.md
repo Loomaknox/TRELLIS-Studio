@@ -27,10 +27,9 @@ One local generation produced two finishes from the same saved source. The high-
 
 Read the [Windows Setup guide](docs/WINDOWS_SETUP.md) for component installation, repair and uninstall. Downloads are resumable and verified with SHA-256. The uninstaller can stop its own idle local services and keeps the library.
 
-**New in 3.6.0:** align texture projection with front, rear or angled references
-using an adjustable camera and a compact toolbar. Server Studio keeps the
-generation preview visible until the GLB is ready to load.
-See the [release notes](docs/RELEASE_3.6.0.md).
+**New in 3.7.0** — Use **Auto Align** to match the camera to a cutout reference,
+or add a second reference and blend both angles into one texture copy.
+See the [release notes](docs/RELEASE_3.7.0.md).
 
 ### Install from source
 
