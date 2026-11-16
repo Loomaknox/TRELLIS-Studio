@@ -73,6 +73,13 @@ def reserve_bytes(settings, script, folder):
     if script=='generated_animation_worker.py' and settings.get('generated_animation_action')=='apply':
         return 32*MIB+3*(folder/'source.glb').stat().st_size+tree_bytes(folder/'LODs')
     if script == 'worker.py' and settings.get('source_kind') == 'refinish':
+        if settings.get('wtivo_reconstruction'):
+            # External reconstruction stages a geometry-only NPY input and output.
+            from wtivo_runtime import WTIVO_OUTPUT_BYTES
+            identifier = finishing_source(folder, settings)
+            if identifier:
+                cache_size = (folder.parent / identifier / 'raw_state.pt').stat().st_size
+                return 32 * MIB + 2 * cache_size + WTIVO_OUTPUT_BYTES
         return 32 * MIB
     if script in ('worker.py', 'pixal3d_worker.py'):
         return (256 if settings.get('keep_finishing_source') else 64) * MIB

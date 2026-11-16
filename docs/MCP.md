@@ -222,6 +222,12 @@ checking the library first, as the request may already have been accepted.
 
 ## Other tools and resources
 
+`get_finishing_options` reports `wtivo_reconstruction` and `wtivo_reason`.
+When available, `queue_refinish` accepts `{"wtivo_reconstruction":true}` along
+with optional `triangles`, `texture_size` and normal bake options for the
+external WTiVo 1024 method. `hd_reconstruction` continues to select Studio 768.
+Read the [external runtime setup](WTIVO.md) before using WTiVo.
+
 `get_texture_projection_options` lists compatible references, camera modes and
 the manual view limit. If `generation_views.supported` is true, pass
 `{"method":"generation_views"}` to `queue_texture_projection` for Pixel Match

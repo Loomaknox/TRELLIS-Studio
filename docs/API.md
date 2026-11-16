@@ -304,6 +304,12 @@ preview setting. Previewing uses zero generation credits.
   `hd_reconstruction` on the top-level `/generations/multiview` recipe. This
   option and `repair_surface` are mutually exclusive. Reconstruction improves
   surface continuity on cracked meshes and can soften fine geometry.
+- `{"wtivo_reconstruction":true}` uses the optional [external WTiVo runtime](WTIVO.md)
+  to reconstruct a cached 1024-or-higher source. Availability and the reason for
+  an unavailable option are in `wtivo_reconstruction` and `wtivo_reason` from
+  the board. WTiVo uses grid 1024 and a fixed triangle ceiling (default 1.2M).
+  It can be compared with Studio 768 in the same board batch. Each recipe
+  chooses one method and WTiVo supports manual triangle budgets and normal baking.
 - `POST /models/{id}/finishing-board` accepts `{"variants":[...]}` with one
   to three distinct recipes. Poll `GET /jobs/{id}` for each returned ID. Save a
   completed variant as the board's choice with

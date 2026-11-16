@@ -129,6 +129,18 @@ def finish_mesh(torch, source):
     validate_hd_reconstruction(hd_reconstruction, preset=settings.get('preset'), resolution=int(source['resolution']),
                                repair_surface=settings.get('repair_surface', False),
                                refinish=settings.get('source_kind') == 'refinish')
+    from wtivo_runtime import reconstruct, validate_wtivo_recipe
+    wtivo = settings.get('wtivo_reconstruction', False)
+    validate_wtivo_recipe(wtivo, int(source['resolution']), refinish=settings.get('source_kind') == 'refinish',
+                          hd_reconstruction=hd_reconstruction, repair_surface=settings.get('repair_surface', False),
+                          adaptive=settings.get('adaptive_finishing', False), budget_preset=settings.get('budget_preset'))
+    wtivo_report = None
+    if wtivo:
+        status('running', 'Reconstructing the cached mesh with WTiVo 1024', 82)
+        torch.cuda.empty_cache()
+        rebuilt_vertices, rebuilt_faces, wtivo_report = reconstruct(
+            ROOT, JOB, source['vertices'].cpu().numpy(), source['faces'].cpu().numpy())
+        status('running', 'Reducing and baking the WTiVo mesh', 84)
     import cumesh
     import o_voxel
     configure_simplifier(cumesh, options)
@@ -141,6 +153,9 @@ def finish_mesh(torch, source):
     spec.loader.exec_module(module)
     export = module.to_glb
     export_kwargs = export_options(options)
+    if wtivo:
+        export_kwargs.update(remesh=False, repair_holes=False,
+                             reconstructed_mesh=(torch.from_numpy(rebuilt_vertices), torch.from_numpy(rebuilt_faces)))
     adaptive = settings.get('adaptive_finishing') is True and not hd_reconstruction
     adaptive_master = adaptive and settings.get('source_kind') != 'refinish'
     repair_surface = settings.get('repair_surface') is True
@@ -158,7 +173,7 @@ def finish_mesh(torch, source):
         export_kwargs['repair_surface'] = True
         status('running', 'Reconstructing the surface to close holes', 84)
     vertices, faces = source['vertices'].cuda(), source['faces'].cuda()
-    if (not adaptive or adaptive_master) and options['pre_simplify'] and len(faces) > 2000000:
+    if not wtivo and (not adaptive or adaptive_master) and options['pre_simplify'] and len(faces) > 2000000:
         mesh = cumesh.CuMesh()
         mesh.init(vertices, faces)
         mesh.simplify(2000000)
@@ -178,6 +193,8 @@ def finish_mesh(torch, source):
     )
     if hd_reconstruction:
         result.metadata['finishing']['hd_reconstruction'] = True
+    if wtivo_report is not None:
+        result.metadata['finishing']['wtivo_reconstruction'] = wtivo_report
     if source.get('coordinate_system') == 'y_up':
         # Pixal3D is already Y-up. Undo O-Voxel's Z-up to Y-up export conversion.
         result.apply_transform([[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]])

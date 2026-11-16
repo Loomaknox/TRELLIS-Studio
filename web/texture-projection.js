@@ -17,6 +17,9 @@ const cameraViews = {
     front: [0, 0], back: [180, 0], left: [-90, 0], right: [90, 0],
     top: [0, 90], bottom: [0, -90],
 };
+const generationViewFiles = {
+    front: 'prepared.png', left: 'prepared-left.png', back: 'prepared-back.png', right: 'prepared-right.png',
+};
 const defaultCamera = () => ({ view: 'front', projection: 'orthographic', yaw: 0, pitch: 0, roll: 0, fov: 35 });
 const titleCase = (value) => value[0].toUpperCase() + value.slice(1);
 const wrapAngle = (value) => ((value + 180) % 360 + 360) % 360 - 180;
@@ -215,28 +218,49 @@ export function createTextureProjection({ api, startJob }) {
     methodChoices.hidden = true;
     methodChoices.setAttribute('role', 'group');
     methodChoices.setAttribute('aria-label', 'Projection method');
-    const manualMethod = el('button', 'secondary tp-method-choice', 'Align references');
-    const generationMethod = el('button', 'secondary tp-method-choice', 'Use generation views');
+    const manualMethod = button('', 'image', 'secondary tp-method-choice');
+    const generationMethod = button('', 'camera', 'secondary tp-method-choice');
     manualMethod.id = 'projectionManualMethod';
     generationMethod.id = 'projectionGenerationMethod';
-    for (const control of [manualMethod, generationMethod]) control.type = 'button';
+    for (const [control, label, caption] of [
+        [manualMethod, 'Align references', 'Auto Align or manual controls'],
+        [generationMethod, 'Use generation views', 'Pixel Match · Saved cameras'],
+    ]) {
+        const copy = el('span', 'tp-method-copy');
+        const detail = el('small', '', caption);
+        detail.id = control.id + 'Detail';
+        copy.append(el('strong', '', label), detail);
+        control.lastChild.replaceWith(copy);
+        control.setAttribute('aria-label', label);
+        control.setAttribute('aria-describedby', detail.id);
+    }
     manualMethod.setAttribute('aria-controls', 'projectionManualEditor');
     generationMethod.setAttribute('aria-controls', 'projectionGenerationViews');
     manualMethod.onclick = () => selectMethod('manual');
     generationMethod.onclick = () => selectMethod('generation_views');
     methodChoices.append(manualMethod, generationMethod);
+    const generationUnavailable = el('p', 'tp-method-unavailable');
+    generationUnavailable.id = 'projectionGenerationUnavailable';
+    generationUnavailable.hidden = true;
     const generationPanel = el('section', 'tp-generation-views');
     generationPanel.id = 'projectionGenerationViews';
     generationPanel.hidden = true;
     generationPanel.setAttribute('aria-labelledby', 'projectionGenerationViewsTitle');
     const generationTitle = el('h3', '', 'Pixel Match');
     generationTitle.id = 'projectionGenerationViewsTitle';
+    const generationInputs = el('div', 'tp-generation-inputs');
+    const generationCurrent = el('figure', 'tp-generation-current');
+    const sourceSnapshot = el('canvas', 'tp-generation-image');
+    sourceSnapshot.width = sourceSnapshot.height = 256;
+    sourceSnapshot.setAttribute('aria-hidden', 'true');
+    generationCurrent.append(sourceSnapshot, el('figcaption', '', 'Current model'));
     const savedRoles = el('ul', 'tp-generation-roles');
     savedRoles.setAttribute('aria-label', 'Saved views');
+    generationInputs.append(generationCurrent, savedRoles);
     generationPanel.append(
         generationTitle,
         el('p', '', 'Project the saved cutouts using their generation cameras.'),
-        savedRoles,
+        generationInputs,
         el('p', '', 'Creates a linked copy. Pixel Match blends visible details and matches color around seams.'),
     );
     const manualEditor = el('div', 'tp-manual-editor');
@@ -658,7 +682,7 @@ export function createTextureProjection({ api, startJob }) {
         guidePanel,
         alignmentStatus,
     );
-    ui.body.append(methodChoices, generationPanel, manualEditor);
+    ui.body.append(methodChoices, generationUnavailable, generationPanel, manualEditor);
     const submit = button('Create texture copy', 'image', 'primary');
     submit.id = 'confirmTextureProjection';
     const submitLabel = submit.lastChild;
@@ -709,6 +733,13 @@ export function createTextureProjection({ api, startJob }) {
         if (method === 'generation_views') {
             manualViewports = Object.values(sides).map(({ viewport }) => [viewport.scrollLeft, viewport.scrollTop]);
             manualNotice = ui.notice.textContent;
+            const current = sides.target.image;
+            generationCurrent.hidden = !current;
+            if (current) {
+                const snapshot = sourceSnapshot.getContext('2d');
+                snapshot.clearRect(0, 0, sourceSnapshot.width, sourceSnapshot.height);
+                snapshot.drawImage(current, 0, 0, sourceSnapshot.width, sourceSnapshot.height);
+            }
         }
         projectionMethod = method;
         ui.notice.textContent = method === 'manual' ? manualNotice : '';
@@ -1230,12 +1261,19 @@ export function createTextureProjection({ api, startJob }) {
     function changed() {
         const generationAvailable = board?.generation_views?.supported === true;
         const useGeneration = generationAvailable && projectionMethod === 'generation_views';
-        methodChoices.hidden = !generationAvailable;
+        const showMethods = board?.supported && board?.generation_views != null;
+        const showUnavailable = showMethods && !generationAvailable;
+        ui.element.classList.toggle('tp-saved-view-mode', useGeneration);
+        methodChoices.hidden = !showMethods;
+        generationUnavailable.hidden = !showUnavailable;
+        generationMethod.setAttribute('aria-describedby', 'projectionGenerationMethodDetail'
+            + (showUnavailable ? ' projectionGenerationUnavailable' : ''));
         manualEditor.hidden = useGeneration;
         generationPanel.hidden = !useGeneration;
         manualMethod.setAttribute('aria-pressed', String(!useGeneration));
         generationMethod.setAttribute('aria-pressed', String(useGeneration));
-        manualMethod.disabled = generationMethod.disabled = !methodSwitchAvailable();
+        manualMethod.disabled = !methodSwitchAvailable();
+        generationMethod.disabled = manualMethod.disabled || !generationAvailable;
         if (useGeneration) {
             submit.disabled = pending;
             submitLabel.nodeValue = 'Create texture copy';
@@ -1860,7 +1898,24 @@ export function createTextureProjection({ api, startJob }) {
                 if (version !== opening || !ui.element.open) return;
                 board = response;
                 const roles = board.generation_views?.views ?? [];
-                savedRoles.replaceChildren(...roles.map((role) => el('li', '', titleCase(role))));
+                savedRoles.replaceChildren(...roles.map((role) => {
+                    const item = el('li');
+                    const file = generationViewFiles[role];
+                    if (file) {
+                        const image = el('img', 'tp-generation-image');
+                        image.alt = '';
+                        image.loading = 'lazy';
+                        image.decoding = 'async';
+                        image.addEventListener('error', () => image.remove(), {once: true});
+                        image.src = `/api/jobs/${job.id}/files/${file}`;
+                        item.append(image);
+                    }
+                    item.append(el('span', '', titleCase(role)));
+                    return item;
+                }));
+                generationUnavailable.textContent = job.operation === 'texture_projection' || job.settings?.source_kind === 'texture_projection'
+                    ? 'This texture copy has no saved generation cameras. Open the original Pixal3D model in the Library.'
+                    : board.generation_views?.reason || 'Saved generation cameras are unavailable for this model.';
                 reference.replaceChildren(el('option', '', 'Choose a reference'));
                 reference.firstChild.value = '';
                 for (const item of board.references || []) {

@@ -54,6 +54,7 @@ def to_glb(
     repair_surface: bool = False,
     remesh_resolution: int = 512,
     texture_sampling: str = 'trilinear',
+    reconstructed_mesh: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
 ):
     """
     Convert an extracted mesh to a GLB file.
@@ -77,6 +78,7 @@ def to_glb(
         remesh_project: projection factor for remeshing
         remesh_resolution: explicit DC grid ceiling (512, 768 or 1024), not the generation grid
         texture_sampling: interpolation in the material voxel volume, after nearest-surface projection
+        reconstructed_mesh: optional replacement geometry in decoded coordinates; source vertices still donate the material
         mesh_cluster_threshold_cone_half_angle_rad: threshold for cone-based clustering in uv unwrapping
         mesh_cluster_refine_iterations: number of iterations for refining clusters in uv unwrapping
         mesh_cluster_global_iterations: number of global iterations for clustering in uv unwrapping
@@ -86,6 +88,8 @@ def to_glb(
     """
     if repair_surface and not remesh:
         raise ValueError('Surface repair requires reconstruction.')
+    if reconstructed_mesh is not None and (remesh or repair_holes or adaptive_mesh is not None):
+        raise ValueError('External reconstruction requires its own finishing recipe.')
     if type(remesh_resolution) is not int or remesh_resolution not in (512, 768, 1024):
         raise ValueError('Reconstruction grid ceiling must be 512, 768 or 1024.')
     if texture_sampling not in ('trilinear', 'nearest'):
@@ -199,7 +203,7 @@ def to_glb(
             vertices, faces, bvh, decimation_target, float(voxel_size.min()), verbose,
         )
         adaptive_report['reference'] = 'input surface after initial cleanup'
-    elif not remesh:
+    elif not remesh and reconstructed_mesh is None:
         # Step 1: Aggressive simplification (3x target)
         mesh.simplify(decimation_target * 3, verbose=verbose)
         if verbose:
@@ -229,34 +233,28 @@ def to_glb(
     
     # --- Branch 2: Remeshing Pipeline ---
     else:
-        center = aabb.mean(dim=0)
-        scale = (aabb[1] - aabb[0]).max().item()
-        resolution = grid_size.max().item()
-
-        # Keep the historical 512 cap unless the caller explicitly chooses a
-        # denser reconstruction. This changes the reconstructed geometry, not the
-        # attribute volume resolution. Never silently lower it after an OOM.
-        dc_resolution = min(int(resolution), remesh_resolution)
-        if verbose:
-            print(f'Reconstruction grid: {dc_resolution} (requested ceiling {remesh_resolution}, '
-                  f'generated grid {int(resolution)})', flush=True)
-        
         # Free CuMesh internal buffers before the heavy remesh allocation —
         # vertices/faces are still held separately for BVH texture baking later
         del mesh
         torch.cuda.empty_cache()
-        
-        # Perform Dual Contouring remeshing (rebuilds topology)
-        remesh_verts, remesh_faces = cumesh.remeshing.remesh_narrow_band_dc(
-            vertices, faces,
-            center = center,
-            scale = (dc_resolution + 3 * remesh_band) / dc_resolution * scale,
-            resolution = dc_resolution,
-            band = remesh_band,
-            project_back = remesh_project, # Snaps vertices back to original surface
-            verbose = verbose,
-            bvh = bvh,
-        )
+        if reconstructed_mesh is None:
+            center = aabb.mean(dim=0)
+            scale = (aabb[1] - aabb[0]).max().item()
+            resolution = grid_size.max().item()
+
+            # This changes the geometry grid independently of the material volume.
+            dc_resolution = min(int(resolution), remesh_resolution)
+            if verbose:
+                print(f'Reconstruction grid: {dc_resolution} (requested ceiling {remesh_resolution}, '
+                      f'generated grid {int(resolution)})', flush=True)
+            remesh_verts, remesh_faces = cumesh.remeshing.remesh_narrow_band_dc(
+                vertices, faces, center=center,
+                scale=(dc_resolution + 3 * remesh_band) / dc_resolution * scale,
+                resolution=dc_resolution, band=remesh_band, project_back=remesh_project,
+                verbose=verbose, bvh=bvh,
+            )
+        else:
+            remesh_verts, remesh_faces = (array.cuda() for array in reconstructed_mesh)
         # Offload original mesh to CPU and free BVH — not needed until texture baking.
         vertices_cpu = vertices.cpu()
         faces_cpu = faces.cpu()
@@ -477,7 +475,7 @@ def to_glb(
         metallicFactor=1.0,
         roughnessFactor=1.0,
         alphaMode=alpha_mode,
-        doubleSided=True if not remesh else False,
+        doubleSided=not remesh and reconstructed_mesh is None,
     )
     
     # --- Coordinate System Conversion & Final Object ---
@@ -499,7 +497,8 @@ def to_glb(
         visual=trimesh.visual.TextureVisuals(uv=uvs_np, material=material)
     )
     textured_mesh.metadata['finishing'] = dict(
-        method='remesh' if remesh else 'direct', input_triangles=input_triangles,
+        method='wtivo' if reconstructed_mesh is not None else 'remesh' if remesh else 'direct',
+        input_triangles=input_triangles,
         cleaned_source_triangles=cleaned_source_triangles,
         generated_grid_resolution=int(grid_size.max()),
         remesh_resolution_requested=remesh_resolution if remesh else None,

@@ -155,6 +155,34 @@ def run():
                 assert info['normal_sources'] == ['decoded']
                 assert not info['parent_normal_source']['available']
                 assert 'normalization' in info['parent_normal_source']['unavailable_reason']
+                assert not send('GET', legacy_route)['wtivo_reconstruction']
+                for invalid in ({'wtivo_reconstruction': 'true'},
+                                {'wtivo_reconstruction': True, 'hd_reconstruction': True},
+                                {'wtivo_reconstruction': True, 'repair_surface': True},
+                                {'wtivo_reconstruction': True, 'adaptive_finishing': True},
+                                {'wtivo_reconstruction': True, 'budget_preset': 'high'},
+                                {'wtivo_reconstruction': True, 'remesh_resolution': 768}):
+                    send('POST', refinish_route, 400, json=invalid)
+                with patch('studio_api.wtivo_capability', return_value=(False, 'Configure WTiVo first.')):
+                    info = send('GET', f'/api/v1/models/{SOURCE}/finishing-board')
+                    assert not info['wtivo_reconstruction'] and info['wtivo_reason'] == 'Configure WTiVo first.'
+                    send('POST', refinish_route, 503, json={'wtivo_reconstruction': True})
+                with patch('studio_api.wtivo_capability', return_value=(True, '')):
+                    info = send('GET', f'/api/v1/models/{SOURCE}/finishing-board')
+                    assert info['wtivo_reconstruction'] and info['wtivo_reason'] == ''
+                    send('POST', f'/api/jobs/{OTHER}/refinish', 400, json={'wtivo_reconstruction': True})
+                    comparison = send('POST', f'/api/v1/models/{SOURCE}/finishing-board', 202,
+                                      json={'variants': [{'hd_reconstruction': True}, {'wtivo_reconstruction': True}]})
+                    first, second = (wait_for(identifier, 'queued')['settings'] for identifier in comparison['ids'])
+                    assert first['hd_reconstruction'] and 'wtivo_reconstruction' not in first
+                    assert second['wtivo_reconstruction'] and 'hd_reconstruction' not in second
+                    assert first['finish_source_id'] == second['finish_source_id'] == SOURCE
+                    assert first['triangles'] == second['triangles'] == 1_200_000
+                    send('POST', f'/api/jobs/{comparison["ids"][1]}/cancel')
+                    retry = send('POST', f'/api/v1/queue/{comparison["ids"][1]}/retry', 202,
+                                 json={'wtivo_reconstruction': False, 'hd_reconstruction': True})
+                    retry_settings = wait_for(retry['id'], 'queued')['settings']
+                    assert retry_settings['hd_reconstruction'] and 'wtivo_reconstruction' not in retry_settings
                 for invalid in ({'remesh_resolution': 640}, {'remesh_resolution': '768'},
                                 {'remesh_resolution': True}, {'texture_sampling': 'bicubic'},
                                 {'hd_reconstruction': 'true'},

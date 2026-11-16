@@ -119,6 +119,7 @@ button.has-icon{gap:7px}button>.ui-icon{flex-shrink:0;vertical-align:middle}#sav
 .refinish-segments small { font-size: 10px; font-variant-numeric: tabular-nums; color: #acb9a6; }
 .refinish-presets label input:checked + span small { color: #c7e7a6; }
 .refinish-manual, .refinish-repair { display: block; cursor: pointer; }
+.refinish-repair:not([hidden]) + .refinish-repair:not([hidden]) { margin-top: 6px; }
 .refinish-manual { margin-top: 6px; }
 .refinish-manual-card, .refinish-repair-card {
   display: flex;

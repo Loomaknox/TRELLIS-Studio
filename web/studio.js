@@ -1,4 +1,4 @@
-import {createStudioWorkbench} from './studio-workbench.js?v=3.8.0-generation-views';
+import {createStudioWorkbench} from './studio-workbench.js?v=3.8.0-wtivo';
 import {createViewerLighting} from './viewer-lighting.js?v=3.4.0';
 import {createHologramViewer} from './hologram-viewer.js?v=3.4.0-quality2';
 import {createGenerationWait} from './generation-wait.js?v=3.4.0';
@@ -416,16 +416,18 @@ function positionRefinish() {
 
 function syncRefinishMode() {
   const hd = !refinishFields.hd_reconstruction.disabled && refinishFields.hd_reconstruction.checked;
-  if (hd) {
+  const wtivo = !refinishFields.wtivo_reconstruction.disabled && refinishFields.wtivo_reconstruction.checked;
+  const reconstruction = hd || wtivo;
+  if (reconstruction) {
     refinishFields.budget_mode.value = 'fixed';
     refinishFields.budget_preset.value = 'manual';
     refinishFields.repair_surface.checked = false;
   }
   for (const fieldset of refinishForm.querySelectorAll('[data-refinish-budgets]')) {
-    fieldset.disabled = hd;
-    fieldset.hidden = hd;
+    fieldset.disabled = reconstruction;
+    fieldset.hidden = reconstruction;
   }
-  $('refinishRepair').hidden = hd;
+  $('refinishRepair').hidden = reconstruction;
   const adaptive = refinishFields.budget_mode.value === 'adaptive';
   const preset = refinishFields.budget_preset.value;
   const manual = preset === 'manual';
@@ -433,8 +435,9 @@ function syncRefinishMode() {
   $('refinishBudgetField').hidden = !manual;
   refinishFields.triangles.disabled = !manual;
   $('refinishBudgetLabel').textContent = hd || adaptive ? 'Maximum triangles' : 'Target triangles';
-  $('refinishManualOptions').hidden = !manual || adaptive || repair || hd;
-  $('startRefinishLabel').textContent = hd ? 'Reconstruct HD variant' : repair ? 'Create repaired variant' : 'Create variant';
+  $('refinishManualOptions').hidden = !manual || adaptive || repair || reconstruction;
+  $('startRefinishLabel').textContent = wtivo ? 'Create WTiVo variant'
+    : hd ? 'Reconstruct HD variant' : repair ? 'Create repaired variant' : 'Create variant';
   const budgetHint = adaptive ? 'Tests lighter meshes up to the chosen ceiling.' : 'The final count can be lower.';
   const presetHint = {
     medium: 'Budget for a game model.',
@@ -479,6 +482,9 @@ async function openRefinish(job) {
     refinishFields.hd_reconstruction.checked = false;
     refinishFields.hd_reconstruction.disabled = config.hd_reconstruction !== true;
     $('refinishHdReconstruction').hidden = refinishFields.hd_reconstruction.disabled;
+    refinishFields.wtivo_reconstruction.checked = false;
+    refinishFields.wtivo_reconstruction.disabled = config.wtivo_reconstruction !== true;
+    $('refinishWtivoReconstruction').hidden = refinishFields.wtivo_reconstruction.disabled;
     $('refinishRepairHint').textContent = refinishFields.repair_surface.disabled ?
       'Restart Studio to enable hole repair.' : 'Closes gaps using the cached source. Fine edges may soften.';
     refinishFields.triangles.min = limits.min;
@@ -528,13 +534,17 @@ window.addEventListener('scroll', positionRefinish, {capture: true, passive: tru
 refinishForm.addEventListener('change', event => {
   const {name} = event.target;
   if (name === 'hd_reconstruction' && refinishFields.hd_reconstruction.checked) {
+    refinishFields.wtivo_reconstruction.checked = false;
     refinishFields.triangles.value = 1200000;
     refinishFields.bake_normals.checked = false;
+  }
+  if (name === 'wtivo_reconstruction' && refinishFields.wtivo_reconstruction.checked) {
+    refinishFields.hd_reconstruction.checked = false;
   }
   if (name === 'budget_preset') {
     refinishFields.bake_normals.checked = !refinishFields.bake_normals.disabled && refinishFields.budget_preset.value === 'medium';
   }
-  if (['budget_mode', 'budget_preset', 'repair_surface', 'hd_reconstruction'].includes(name)) syncRefinishMode();
+  if (['budget_mode', 'budget_preset', 'repair_surface', 'hd_reconstruction', 'wtivo_reconstruction'].includes(name)) syncRefinishMode();
 });
 
 refinishForm.onsubmit = async event => {
@@ -542,21 +552,24 @@ refinishForm.onsubmit = async event => {
   const source = refinishPanel.dataset.source;
   if (!source || submittingRefinish || $('startRefinish').disabled) return;
   const preset = refinishFields.budget_preset.value;
-  const data = {
-    texture_size: Number(refinishFields.texture_size.value),
-    adaptive_finishing: refinishFields.budget_mode.value === 'adaptive',
-  };
-  if (!refinishFields.repair_surface.disabled && refinishFields.repair_surface.checked) data.repair_surface = true;
-  if (!refinishFields.hd_reconstruction.disabled && refinishFields.hd_reconstruction.checked) data.hd_reconstruction = true;
+  const data = {texture_size: Number(refinishFields.texture_size.value)};
   if (!refinishFields.bake_normals.disabled) data.bake_normals = refinishFields.bake_normals.checked;
-  if (preset === 'manual') {
+  if (!refinishFields.wtivo_reconstruction.disabled && refinishFields.wtivo_reconstruction.checked) {
+    data.wtivo_reconstruction = true;
     data.triangles = refinishFields.triangles.valueAsNumber;
-    if (!data.adaptive_finishing && !data.repair_surface && !data.hd_reconstruction) {
-      data.mesh_mode = refinishFields.mesh_mode.value;
-      data.repair_holes = refinishFields.repair_holes.checked;
-      data.pre_simplify = refinishFields.pre_simplify.checked;
-    }
-  } else data.budget_preset = preset;
+  } else {
+    data.adaptive_finishing = refinishFields.budget_mode.value === 'adaptive';
+    if (!refinishFields.repair_surface.disabled && refinishFields.repair_surface.checked) data.repair_surface = true;
+    if (!refinishFields.hd_reconstruction.disabled && refinishFields.hd_reconstruction.checked) data.hd_reconstruction = true;
+    if (preset === 'manual') {
+      data.triangles = refinishFields.triangles.valueAsNumber;
+      if (!data.adaptive_finishing && !data.repair_surface && !data.hd_reconstruction) {
+        data.mesh_mode = refinishFields.mesh_mode.value;
+        data.repair_holes = refinishFields.repair_holes.checked;
+        data.pre_simplify = refinishFields.pre_simplify.checked;
+      }
+    } else data.budget_preset = preset;
+  }
 
   submittingRefinish = true;
   $('startRefinish').disabled = true;

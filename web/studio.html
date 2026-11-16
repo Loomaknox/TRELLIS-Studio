@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="/web/generation-wait.css?v=3.4.0">
 <link rel="stylesheet" href="/web/workspace.css?v=3.4.0"><link rel="stylesheet" href="/web/polish.css?v=3.4.0">
 <script type="importmap">{"imports":{"three":"/vendor/build/three.module.js","three/addons/":"/vendor/examples/jsm/"}}</script>
-<link rel="stylesheet" href="/web/animation-studio.css?v=3.4.0"><link rel="stylesheet" href="/web/details.css?v=3.4.0"><link rel="stylesheet" href="/web/studio-tools.css?v=3.8.0"><link rel="stylesheet" href="/web/lighting.css?v=3.4.0"><link rel="stylesheet" href="/web/workbench.css?v=3.4.0"><link rel="stylesheet" href="/web/personal-animation.css?v=3.4.0"><link rel="stylesheet" href="/web/texture-projection.css?v=3.8.0-generation-views"></head><body>
+<link rel="stylesheet" href="/web/animation-studio.css?v=3.4.0"><link rel="stylesheet" href="/web/details.css?v=3.4.0"><link rel="stylesheet" href="/web/studio-tools.css?v=3.8.0-wtivo"><link rel="stylesheet" href="/web/lighting.css?v=3.4.0"><link rel="stylesheet" href="/web/workbench.css?v=3.4.0"><link rel="stylesheet" href="/web/personal-animation.css?v=3.4.0"><link rel="stylesheet" href="/web/texture-projection.css?v=3.8.0-wtivo"></head><body>
 <header class="topbar"><a class="brand" href="/"><img class="brand-logo" src="/web/trellis-mark.svg" alt=""><strong>TRELLIS <em>Studio</em></strong><span class="version">LOCAL / 03.8</span></a><span class="top-context">IMAGE → MATERIAL → VOLUME</span><div class="top-status"><span class="online-dot"></span><span id="runtime">Connecting to the engine…</span><a class="developer-link" href="/developers" title="API & MCP documentation" aria-label="API and MCP documentation"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#details"/></svg></a><button id="shutdown" class="quiet" type="button" title="Stop the local server">Stop</button></div></header>
 <div id="versionNotice" class="version-notice" role="status" hidden><span id="versionNoticeText"></span> <a id="reloadStudio" href="/" hidden>Reload Studio</a></div>
 <div class="app-shell">
@@ -55,7 +55,7 @@
 </fieldset>
 <fieldset id="pixalViewAngles" class="mode-fields" hidden disabled>
   <label class="field">Side view angle<select id="sideAngle"><option value="40">Three-quarter · ±40°</option><option value="90">Profile · ±90°</option></select></label>
-  <p class="hint">Left and right refer to the character’s own sides. Back is 180°. Show the full character at a similar scale and in the same pose.</p>
+  <p class="hint">Use matching views of the same subject, pose and scale. Left and right are the subject’s sides. Back is 180°. For one angled image, use TRELLIS.2.</p>
   <p class="hint" id="viewRequirements" aria-live="polite"></p>
   <label class="check"><input id="reprojectFace" type="checkbox" autocomplete="off" aria-describedby="reprojectFaceHelp" disabled><span>Reproject the original face photo</span></label>
   <p class="hint" id="reprojectFaceHelp">Checking face reprojection availability&#8230;</p>
@@ -187,7 +187,7 @@
 <dialog id="animationRemoveDialog" aria-labelledby="animationRemoveTitle" aria-describedby="animationRemoveDescription"><form method="dialog"><h2 id="animationRemoveTitle">Remove animation?</h2><p id="animationRemoveDescription">Remove <strong id="animationRemoveName"></strong> from this model?</p><div class="dialog-actions"><button value="cancel" class="secondary" autofocus>Keep clip</button><button value="remove" class="danger has-icon"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#trash"/></svg>Remove clip</button></div></form></dialog>
 <dialog id="imageDialog"><button class="dialog-close" id="closeImage">Close ×</button><img id="largeImage" alt="Full-size texture or UV layout"></dialog>
 <footer><span>TRELLIS STUDIO</span><span>Reference → generation → review → Blender</span><span>UV & PBR · local compute</span></footer>
-<script type="module" src="/web/studio.js?v=3.8.0-generation-views"></script><script type="module" src="/web/validation-en.js?v=3.4.0"></script>
+<script type="module" src="/web/studio.js?v=3.8.0-wtivo"></script><script type="module" src="/web/validation-en.js?v=3.4.0"></script>
 <div id="refinishDialog" class="refinish-popover" popover="auto" role="dialog" aria-labelledby="refinishTitle">
 <form id="refinishForm">
   <header class="refinish-head">
@@ -209,6 +209,14 @@
       <span class="refinish-repair-card">
         <span class="refinish-repair-icon" aria-hidden="true"><svg class="ui-icon"><use href="/web/icons.svg#layers"/></svg></span>
         <span class="refinish-repair-copy"><strong id="refinishHdTitle">HD Reconstruction (768)</strong><small id="refinishHdHint">Rebuilds the cached surface. Default triangle ceiling: 1.2 million.</small></span>
+        <span class="refinish-switch" aria-hidden="true"></span>
+      </span>
+    </label>
+    <label class="refinish-repair" id="refinishWtivoReconstruction" hidden>
+      <input class="sr-only" type="checkbox" name="wtivo_reconstruction" aria-labelledby="refinishWtivoTitle" aria-describedby="refinishWtivoHint" disabled>
+      <span class="refinish-repair-card">
+        <span class="refinish-repair-icon" aria-hidden="true"><svg class="ui-icon"><use href="/web/icons.svg#layers"/></svg></span>
+        <span class="refinish-repair-copy"><strong id="refinishWtivoTitle">WTiVo Reconstruction (1024)</strong><small id="refinishWtivoHint">Rebuilds the cached surface using WTiVo.</small></span>
         <span class="refinish-switch" aria-hidden="true"></span>
       </span>
     </label>

@@ -248,6 +248,7 @@ class JobRetry(Contract):
     bake_normals: bool | None = None
     repair_surface: bool | None = None
     hd_reconstruction: bool | None = Field(default=None, strict=True)
+    wtivo_reconstruction: bool | None = Field(default=None, strict=True)
 
 
 class Refinish(Contract):
@@ -261,6 +262,8 @@ class Refinish(Contract):
     bake_normals: bool | None = None
     repair_surface: bool | None = None
     hd_reconstruction: bool | None = Field(default=None, strict=True, description='Reconstruct a cached HD source at grid 768.')
+    wtivo_reconstruction: bool | None = Field(default=None, strict=True,
+        description='Reconstruct a cached 1024-or-higher source using the optional external WTiVo 1024 runtime.')
     remesh_resolution: Literal[512, 768, 1024] | None = None
     texture_sampling: Literal['trilinear', 'nearest'] | None = None
     normal_source: Literal['decoded', 'parent'] | None = None
@@ -295,6 +298,8 @@ class FinishingOptions(Contract):
     normal_bake: bool
     repair_surface: bool
     hd_reconstruction: bool = False
+    wtivo_reconstruction: bool = False
+    wtivo_reason: str = ''
     remesh_resolutions: list[int]
     texture_sampling_modes: list[str]
     normal_sources: list[str]
