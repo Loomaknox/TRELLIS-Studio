@@ -211,6 +211,36 @@ export function createTextureProjection({ api, startJob }) {
     );
     const summary = el('p', 'tp-model-name');
     ui.element.querySelector('header > div').append(summary);
+    const methodChoices = el('div', 'tp-method-choices');
+    methodChoices.hidden = true;
+    methodChoices.setAttribute('role', 'group');
+    methodChoices.setAttribute('aria-label', 'Projection method');
+    const manualMethod = el('button', 'secondary tp-method-choice', 'Align references');
+    const generationMethod = el('button', 'secondary tp-method-choice', 'Use generation views');
+    manualMethod.id = 'projectionManualMethod';
+    generationMethod.id = 'projectionGenerationMethod';
+    for (const control of [manualMethod, generationMethod]) control.type = 'button';
+    manualMethod.setAttribute('aria-controls', 'projectionManualEditor');
+    generationMethod.setAttribute('aria-controls', 'projectionGenerationViews');
+    manualMethod.onclick = () => selectMethod('manual');
+    generationMethod.onclick = () => selectMethod('generation_views');
+    methodChoices.append(manualMethod, generationMethod);
+    const generationPanel = el('section', 'tp-generation-views');
+    generationPanel.id = 'projectionGenerationViews';
+    generationPanel.hidden = true;
+    generationPanel.setAttribute('aria-labelledby', 'projectionGenerationViewsTitle');
+    const generationTitle = el('h3', '', 'Pixel Match');
+    generationTitle.id = 'projectionGenerationViewsTitle';
+    const savedRoles = el('ul', 'tp-generation-roles');
+    savedRoles.setAttribute('aria-label', 'Saved views');
+    generationPanel.append(
+        generationTitle,
+        el('p', '', 'Project the saved cutouts using their generation cameras.'),
+        savedRoles,
+        el('p', '', 'Creates a linked copy. Pixel Match blends visible details and matches color around seams.'),
+    );
+    const manualEditor = el('div', 'tp-manual-editor');
+    manualEditor.id = 'projectionManualEditor';
     const viewStrip = el('div', 'tp-view-strip');
     viewStrip.hidden = true;
     const viewChoices = el('div', 'tp-view-choices');
@@ -616,7 +646,7 @@ export function createTextureProjection({ api, startJob }) {
     adjustments.append(cropDetails);
     const alignmentStatus = el('p', 'tp-alignment-status');
     alignmentStatus.setAttribute('role', 'status');
-    ui.body.append(
+    manualEditor.append(
         viewStrip,
         referenceFields,
         controlStrip,
@@ -628,6 +658,7 @@ export function createTextureProjection({ api, startJob }) {
         guidePanel,
         alignmentStatus,
     );
+    ui.body.append(methodChoices, generationPanel, manualEditor);
     const submit = button('Create texture copy', 'image', 'primary');
     submit.id = 'confirmTextureProjection';
     const submitLabel = submit.lastChild;
@@ -664,6 +695,33 @@ export function createTextureProjection({ api, startJob }) {
         scaleStart = null;
     let inactiveView = null;
     let activeViewIndex = 0;
+    let projectionMethod = 'manual';
+    let manualViewports = [];
+    let manualNotice = '';
+
+    function methodSwitchAvailable() {
+        return !pending && !uploading && !autoAlignRun && !gesture && !cameraRequest
+            && !Object.values(sides).some((side) => side.loading);
+    }
+    function selectMethod(method) {
+        if (method === projectionMethod || !board?.generation_views?.supported || !methodSwitchAvailable()) return;
+        closeToolbarPanel();
+        if (method === 'generation_views') {
+            manualViewports = Object.values(sides).map(({ viewport }) => [viewport.scrollLeft, viewport.scrollTop]);
+            manualNotice = ui.notice.textContent;
+        }
+        projectionMethod = method;
+        ui.notice.textContent = method === 'manual' ? manualNotice : '';
+        changed();
+        if (method === 'manual') {
+            Object.keys(sides).forEach((key, index) => {
+                applyZoom(key);
+                const [left, top] = manualViewports[index];
+                sides[key].viewport.scrollLeft = left;
+                sides[key].viewport.scrollTop = top;
+            });
+        }
+    }
     function setupToolbarPanel(panel, opener) {
         panel.hidden = true;
         panel.setAttribute('role', 'dialog');
@@ -1170,6 +1228,21 @@ export function createTextureProjection({ api, startJob }) {
         return !selectedReference ? 'Needs image' : issue ? 'Needs alignment' : 'Ready';
     }
     function changed() {
+        const generationAvailable = board?.generation_views?.supported === true;
+        const useGeneration = generationAvailable && projectionMethod === 'generation_views';
+        methodChoices.hidden = !generationAvailable;
+        manualEditor.hidden = useGeneration;
+        generationPanel.hidden = !useGeneration;
+        manualMethod.setAttribute('aria-pressed', String(!useGeneration));
+        generationMethod.setAttribute('aria-pressed', String(useGeneration));
+        manualMethod.disabled = generationMethod.disabled = !methodSwitchAvailable();
+        if (useGeneration) {
+            submit.disabled = pending;
+            submitLabel.nodeValue = 'Create texture copy';
+            const count = savedRoles.childElementCount;
+            viewStatus.textContent = count + (count === 1 ? ' saved view' : ' saved views');
+            return;
+        }
         const { ready, issue } = inspectView();
         const multiple = inactiveView !== null;
         submit.disabled = pending || uploading || !!autoAlignRun || !board?.supported || gesture?.kind === 'orbit'
@@ -1660,19 +1733,22 @@ export function createTextureProjection({ api, startJob }) {
     }
     submit.onclick = async () => {
         if (submit.disabled || !base) return;
-        const { bounds, issue } = inspectView();
-        if (issue || (inactiveView && !inactiveView.recipe)) return;
-        const id = base.id,
-            version = opening,
-            current = projectionRecipe(bounds);
-        let value = current;
-        if (inactiveView) {
-            const other = inactiveView.recipe;
-            value = { views: activeViewIndex === 0 ? [current, other] : [other, current] };
+        let value;
+        const useGeneration = projectionMethod === 'generation_views';
+        if (useGeneration) {
+            if (!board?.generation_views?.supported) return;
+            value = { method: 'generation_views' };
+        } else {
+            const { bounds, issue } = inspectView();
+            if (issue || (inactiveView && !inactiveView.recipe)) return;
+            const current = projectionRecipe(bounds);
+            const other = inactiveView?.recipe;
+            value = other ? { views: activeViewIndex === 0 ? [current, other] : [other, current] } : current;
         }
+        const id = base.id, version = opening;
         pending = true;
         changed();
-        ui.notice.textContent = 'Queueing texture projection…';
+        ui.notice.textContent = useGeneration ? 'Queueing Pixel Match…' : 'Queueing texture projection…';
         try {
             const result = await api(`/api/v1/models/${id}/texture-projection`, {
                 method: 'POST',
@@ -1720,7 +1796,7 @@ export function createTextureProjection({ api, startJob }) {
         uploadName.textContent = '';
     });
     const resizeObserver = new ResizeObserver(() => {
-        if (ui.element.open) {
+        if (ui.element.open && projectionMethod === 'manual') {
             for (const key of ['source', 'target']) applyZoom(key);
         }
     });
@@ -1766,6 +1842,9 @@ export function createTextureProjection({ api, startJob }) {
             base = job;
             board = null;
             pending = uploading = false;
+            projectionMethod = 'manual';
+            manualViewports = [];
+            manualNotice = '';
             inactiveView = null;
             activeViewIndex = 0;
             resetView('front');
@@ -1780,6 +1859,8 @@ export function createTextureProjection({ api, startJob }) {
                 const response = await api(`/api/v1/models/${job.id}/texture-projection`);
                 if (version !== opening || !ui.element.open) return;
                 board = response;
+                const roles = board.generation_views?.views ?? [];
+                savedRoles.replaceChildren(...roles.map((role) => el('li', '', titleCase(role))));
                 reference.replaceChildren(el('option', '', 'Choose a reference'));
                 reference.firstChild.value = '';
                 for (const item of board.references || []) {

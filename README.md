@@ -150,6 +150,12 @@ another side of the model, and align and mask it independently. Studio blends
 overlapping contributions according to their visibility and viewing angle.
 The linked copy keeps the source geometry, UVs and other maps.
 
+For a compatible Pixal3D generation with saved camera data, choose
+**Use generation views** to project the original prepared views with
+Pixel Match. It uses visibility, edge blending and local color matching,
+and creates a linked texture copy. Choose the manual editor to place a
+custom reference or use Auto Align.
+
 **Game Copy from HD** reduces the selected static HD model, unwraps new UVs,
 and bakes base color, roughness, metallic and optional tangent-space normals
 from that master. Start with 28,000 triangles for an object or 14,000 for a

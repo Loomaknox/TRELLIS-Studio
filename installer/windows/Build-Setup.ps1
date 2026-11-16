@@ -29,7 +29,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not read the TRELLIS Studio public sourc
 $taskFiles=@($taskFiles | Sort-Object -Unique | Where-Object {
     $parts=$_ -split '/'
     ($parts.Count -eq 1 -and ($_ -match '\.(py|cmd|ps1)$' -or $taskRootFiles -contains $_ -or $_ -match '^requirements-(windows|mcp-lock|mcp)\.txt$')) -or
-    ($parts.Count -gt 1 -and ($taskRoots -ccontains $parts[0] -or $_ -in $taskDocFiles))
+    ($parts.Count -gt 1 -and ($taskRoots -ccontains $parts[0] -or $_ -in $taskDocFiles -or
+        $_ -cmatch '^third_party/assetfurnace/image_to_3dlab/(__init__|photo_paint|view_align)\.py$'))
 })
 $taskRequired=@('app.py','package.json','installer/setup.py','installer/windows/check-idle.ps1','installer/windows/Launch.cmd','installer/windows/Launch-Installed.ps1','installer/windows/Manage-Shortcuts.ps1','installer/windows/trellis-studio.ico','Start-Studio.ps1','web/studio.html','animations/library.json','unity/TrellisPackageImporter.cs')
 $taskRequired+=@('server_app.py','server_runtime.py','server_store.py','server_setup.py','Start-Server.ps1','Stop-Server.ps1','Open TRELLIS Server.cmd',
@@ -46,6 +47,10 @@ $taskRequired+=@('texture_projection.py','baked_game_copy.py','game_bake_blender
     'model_finishing_worker.py','web/texture-projection.js','web/texture-projection-geometry.js',
     'web/texture-projection-auto-align.js','web/texture-projection.css',('docs/RELEASE_'+$taskPackage.version+'.md'))
 $taskRequired+=@('web/game-copy-regions.js','web/reduction-region-preview.js')
+$taskRequired+=@('generation_view_projection.py','licenses/AssetFurnace-Apache-2.0.txt',
+    'third_party/assetfurnace/image_to_3dlab/__init__.py',
+    'third_party/assetfurnace/image_to_3dlab/photo_paint.py',
+    'third_party/assetfurnace/image_to_3dlab/view_align.py')
 foreach($taskItem in $taskRequired) {
     if ($taskItem -cnotin $taskFiles) { throw "Required public payload is missing: $taskItem" }
 }

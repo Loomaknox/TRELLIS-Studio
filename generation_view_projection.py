@@ -1,0 +1,151 @@
+"""Verified Pixal3D camera provenance and projection of the prepared generation views."""
+from dataclasses import asdict
+import hashlib
+from io import BytesIO
+import json
+from pathlib import Path
+import re
+from time import perf_counter
+
+import numpy as np
+from PIL import Image
+
+from normal_bake import checked_normalization
+from pixal3d_runtime import CAMERA_FOV, camera_matrix, validate_views
+from reference_preparation import PREPARED_VIEWS
+from studio_workspace import write
+
+
+PROVENANCE_FILE = '.generation-views.json'
+UPSTREAM_REVISION = '66fd0d9d14ce004770322949a77493b33b136d08'
+# Studio GLB Y-up to the Z-up conditioning frame.
+STUDIO_PIXAL_FRAME = ((0, 2, 1), (1, -1, 1))
+SHA256 = re.compile(r'[a-f0-9]{64}')
+
+
+def digest(path):
+    with path.open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def generation_reference_name(role, *, staged=False):
+    original = PREPARED_VIEWS[role]
+    return f'projection-generation-{role}.png' if staged else original
+
+
+def generation_reference(folder, role, *, staged=False):
+    path = folder / generation_reference_name(role, staged=staged)
+    if not path.is_file() or path.is_symlink() or path.resolve().parent != folder.resolve():
+        raise ValueError('A saved generation reference is missing. Use Auto Align or Manual projection.')
+    return path
+
+
+def checked_generation_views(provenance):
+    """Accept only camera conventions produced by the calibrated Pixal3D worker."""
+    if (not isinstance(provenance, dict) or type(provenance.get('schema')) is not int
+            or provenance['schema'] != 1 or not isinstance(provenance.get('model_sha256'), str)
+            or not SHA256.fullmatch(provenance['model_sha256'])):
+        raise ValueError('Invalid generation view provenance.')
+    normalization = checked_normalization(provenance.get('normalization'))
+    views = provenance.get('views')
+    if not isinstance(views, list) or any(not isinstance(view, dict) for view in views):
+        raise ValueError('Invalid saved generation views.')
+    canonical = validate_views([{'role': view.get('role'), 'azimuth': view.get('azimuth')} for view in views])
+    if [view['role'] for view in canonical] != [view['role'] for view in views]:
+        raise ValueError('Saved generation views are out of order.')
+    checked = []
+    for view in views:
+        role = view['role']
+        fov = view.get('camera_angle_x')
+        pose = np.asarray(view.get('transform_matrix'), dtype=np.float64)
+        if (not isinstance(view.get('sha256'), str) or not SHA256.fullmatch(view['sha256'])
+                or type(fov) not in (float, int) or not np.isclose(fov, CAMERA_FOV, atol=1e-6, rtol=0)
+                or pose.shape != (4, 4) or not np.allclose(pose, camera_matrix(view['azimuth']), atol=1e-6, rtol=0)):
+            raise ValueError('Invalid calibrated generation camera or reference fingerprint.')
+        checked.append(dict(role=role, azimuth=view['azimuth'], sha256=view['sha256'],
+                            camera_angle_x=float(fov), transform_matrix=pose.tolist()))
+    return dict(schema=1, model_sha256=provenance['model_sha256'], normalization=normalization, views=checked)
+
+
+def save_generation_views(folder, normalization, views):
+    """Bind exact conditioning references and cameras to the finished, published GLB."""
+    folder = Path(folder)
+    provenance = checked_generation_views(dict(schema=1, model_sha256=digest(folder / 'model.glb'),
+                                               normalization=normalization, views=views))
+    write(folder / PROVENANCE_FILE, provenance)
+
+
+def verify_generation_view_inputs(folder, source, provenance, *, staged=False):
+    if digest(source) != provenance['model_sha256']:
+        raise ValueError('The model differs from its calibrated export. Use Auto Align or Manual projection.')
+    images = []
+    for view in provenance['views']:
+        path = generation_reference(folder, view['role'], staged=staged)
+        with path.open('rb') as stream:
+            payload = stream.read(16 * 1024**2 + 1)
+        if len(payload) > 16 * 1024**2 or hashlib.sha256(payload).hexdigest() != view['sha256']:
+            raise ValueError('A saved generation reference has changed. Use Auto Align or Manual projection.')
+        try:
+            with Image.open(BytesIO(payload)) as opened:
+                if opened.format != 'PNG' or opened.size != (1024, 1024) or opened.mode != 'RGBA':
+                    raise ValueError('The prepared view must be a 1024 by 1024 RGBA PNG.')
+                pixels = np.asarray(opened)
+                if pixels[..., 3].max() < 128:
+                    raise ValueError('The prepared view has an empty silhouette.')
+                images.append(pixels)
+        except (OSError, ValueError, Image.DecompressionBombError) as error:
+            raise ValueError('A saved generation reference could not be read. Use Auto Align or Manual projection.') from error
+    return images
+
+
+def inspect_generation_views(folder, source, settings, supported, support_reason):
+    """Return capability and verified provenance for a completed model in its workspace."""
+    if not supported:
+        return dict(supported=False, reason=support_reason, views=[]), None
+    path = folder / PROVENANCE_FILE
+    if settings.get('engine') != 'pixal3d' or not path.is_file():
+        return dict(supported=False, reason='This model has no saved generation cameras. Use Auto Align or Manual projection.',
+                    views=[]), None
+    try:
+        if path.is_symlink() or path.resolve().parent != folder.resolve() or path.stat().st_size > 32 * 1024:
+            raise ValueError('Invalid generation view provenance.')
+        provenance = checked_generation_views(json.loads(path.read_text(encoding='utf-8')))
+        verify_generation_view_inputs(folder, source, provenance)
+    except (OSError, ValueError, OverflowError, TypeError):
+        return dict(supported=False, reason='Saved generation views could not be verified. Use Auto Align or Manual projection.',
+                    views=[]), None
+    return dict(supported=True, reason='', views=[view['role'] for view in provenance['views']]), provenance
+
+
+def project_generation_texture(folder, source, destination, provenance, *, progress):
+    """Paint the staged calibrated inputs using the AssetFurnace Pixel Match defaults."""
+    from texture_projection import _load_mesh, _publish
+    from third_party.assetfurnace.image_to_3dlab import photo_paint
+
+    started = perf_counter()
+    provenance = checked_generation_views(provenance)
+    images = verify_generation_view_inputs(folder, source, provenance, staged=True)
+    model, binary, _, material, base, positions, _, uv, faces = _load_mesh(source)
+    normalization = provenance['normalization']
+    positions = (positions.astype(np.float64) - normalization['translation']) / normalization['scale']
+    views = [photo_paint.View(pixels, np.asarray(view['transform_matrix']), view['camera_angle_x'], view['role'])
+             for pixels, view in zip(images, provenance['views'], strict=True)]
+    alignment = []
+    progress('Projecting the saved generation views', .18)
+    painted, confidence = photo_paint.paint_texture(base, positions, uv.astype(np.float64), faces, views,
+                                                    frame=STUDIO_PIXAL_FRAME, align_reports=alignment)
+    if not np.any(confidence > 0):
+        raise ValueError('The saved generation views do not cover a visible surface. Try Manual projection.')
+    if not np.array_equal(base[..., 3], painted[..., 3]):
+        raise ValueError('The projection could not preserve the original texture alpha.')
+    progress('Writing the texture copy', .9)
+    if digest(source) != provenance['model_sha256']:
+        raise ValueError('The staged model changed during texture projection.')
+    _publish(destination, model, binary, material, painted, None)
+    return dict(method='generation_views', algorithm='AssetFurnace Pixel Match', upstream_revision=UPSTREAM_REVISION,
+                view_count=len(views), views=[dict(role=view.name, alignment=asdict(report))
+                                            for view, report in zip(views, alignment, strict=True)],
+                atlas=[base.shape[1], base.shape[0]], projected_texels=int((confidence > 0).sum()),
+                atlas_confidence_fraction=float((confidence > 0).mean()), geometry_binary_unchanged=True,
+                alpha_unchanged=True, source_sha256=provenance['model_sha256'],
+                model_sha256=digest(destination), seconds=round(perf_counter() - started, 3))

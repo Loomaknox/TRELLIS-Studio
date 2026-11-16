@@ -374,6 +374,15 @@ that URL and inspect the completed GLB and its result report.
   original color. The result reports `view_count`, `overlap_texels`, and
   per-view projection statistics in `views`. The overlap count can be zero
   when the cameras face different sides of the model.
+- For **Use generation views**, read `generation_views` from
+  `GET /api/v1/models/{id}/texture-projection`. When `supported` is true, send
+  `{"method":"generation_views"}` as the entire projection recipe. Studio uses
+  the verified prepared references and cameras saved by that Pixal3D
+  generation, including its export coordinates. No upload is required.
+  Pixel Match updates the base color of a linked copy with visibility masks,
+  edge blending and local color matching. Inspect the result against the
+  original under the same lighting. Earlier exports without saved camera
+  provenance can use the existing one- and two-view recipes.
 - `GET /api/v1/models/{id}/baked-game-copy` checks compatibility and the
   recommended budget for the selected model and returns `protected_region_limit`.
 - `POST /api/v1/models/{id}/baked-game-copy` accepts `triangles` (5,000 to

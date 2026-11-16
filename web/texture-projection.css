@@ -73,6 +73,58 @@
 .texture-projection-dialog input[type=range]:disabled { opacity: .45; cursor: default; }
 .texture-projection-dialog .check { margin: 0; }
 
+.tp-method-choices {
+    display: flex;
+    flex-wrap: wrap;
+    width: max-content;
+    max-width: 100%;
+    gap: 3px;
+    padding: 3px;
+    margin-bottom: 12px;
+    border: 1px solid var(--tp-border);
+    border-radius: 10px;
+    background: #151c17;
+}
+.texture-projection-dialog .tp-method-choice {
+    min-height: 36px;
+    padding: 6px 11px;
+    border-color: transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: #c8d3c3;
+    font-size: 12px;
+}
+.texture-projection-dialog .tp-method-choice:not(:disabled):hover { background: #253022; }
+.texture-projection-dialog .tp-method-choice[aria-pressed=true] {
+    border-color: #536647;
+    background: #303d29;
+    color: #edfae5;
+}
+.tp-generation-views {
+    max-width: 570px;
+    padding: 16px;
+    border: 1px solid var(--tp-border);
+    border-radius: 11px;
+    background: #1b241d;
+}
+.tp-generation-views h3 { margin: 0 0 5px; font-size: 16px; }
+.tp-generation-views p { margin: 0; color: var(--tp-muted); font-size: 13px; line-height: 1.5; }
+.tp-generation-roles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 11px 0;
+    padding: 0;
+    list-style: none;
+}
+.tp-generation-roles li {
+    padding: 3px 8px;
+    border: 1px solid #52614b;
+    border-radius: 6px;
+    color: #d6e5ce;
+    font-size: 12px;
+}
+
 .tp-view-strip {
     display: flex;
     align-items: center;
@@ -372,6 +424,9 @@
     .texture-projection-dialog .studio-dialog-actions { column-gap: 6px; }
     .texture-projection-dialog .studio-dialog-actions button { padding-inline: 8px; }
     .texture-projection-dialog button.tp-tool { font-size: 11px; padding-inline: 6px; gap: 4px; }
+    .tp-method-choices { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); }
+    .texture-projection-dialog .tp-method-choice { min-height: 44px; padding-inline: 5px; }
+    .tp-generation-views { padding: 12px; }
     .tp-view-strip { gap: 5px 6px; }
     .texture-projection-dialog .tp-view-option,
     .texture-projection-dialog .tp-view-action { font-size: 11px; padding-inline: 6px; gap: 4px; }

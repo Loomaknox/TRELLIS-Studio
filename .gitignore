@@ -58,6 +58,16 @@
 !/pixal3d_worker.py
 !/face_projection.py
 !/texture_projection.py
+!/generation_view_projection.py
+!/third_party/
+/third_party/*
+!/third_party/assetfurnace/
+/third_party/assetfurnace/*
+!/third_party/assetfurnace/image_to_3dlab/
+/third_party/assetfurnace/image_to_3dlab/*
+!/third_party/assetfurnace/image_to_3dlab/__init__.py
+!/third_party/assetfurnace/image_to_3dlab/photo_paint.py
+!/third_party/assetfurnace/image_to_3dlab/view_align.py
 !/baked_game_copy.py
 !/game_bake_blender.py
 !/model_finishing_api.py
@@ -224,6 +234,7 @@
 !/runtime/engine-overrides/o_voxel/postprocess.py
 !/runtime/engine-overrides/o_voxel/uvraster.py
 /licenses/*
+!/licenses/AssetFurnace-Apache-2.0.txt
 !/licenses/DINOv3-LICENSE.md
 !/licenses/Quaternius-UAL1-CC0.txt
 !/licenses/Quaternius-UAL2-CC0.txt

@@ -364,7 +364,12 @@ class MultiViewTextureProjection(Contract):
         description='Two independently aligned reference images to blend into one texture copy.')
 
 
-TextureProjectionRequest = TextureProjection | MultiViewTextureProjection
+class GenerationViewTextureProjection(Contract):
+    method: Literal['generation_views'] = Field(
+        description='Project the prepared views and calibrated cameras saved by the selected Pixal3D generation.')
+
+
+TextureProjectionRequest = TextureProjection | MultiViewTextureProjection | GenerationViewTextureProjection
 
 
 PROTECTED_REGION_LIMIT = 24

@@ -16,6 +16,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from glb_data import read, accessor, image
 import texture_projection as projection
 from api_contract import TextureProjection
+from generation_view_projection import (digest, generation_reference_name, project_generation_texture,
+                                        PROVENANCE_FILE, save_generation_views)
+from pixal3d_runtime import CAMERA_FOV, camera_matrix
+from studio_workspace import read as read_record
 
 
 def write_glb(path, doc, binary):
@@ -141,6 +145,39 @@ class TextureProjectionTests(unittest.TestCase):
         self.assertEqual(int(new[64, 64, 0]), 0)  # The raised strip hides this panel location.
         self.assertFalse(np.any(new[15:110, 145:235, :3]))  # Separate back-face UV island.
         self.assertEqual(int(new[192, 192, 0]), 188)  # Visible strip itself receives the reference.
+
+    def test_saved_generation_projection_preserves_non_base_data_and_verifies_the_staged_references(self):
+        model = self.root / 'model.glb'
+        model.write_bytes(self.source.read_bytes())
+        views = []
+        for role, azimuth, shade in (('front', 0, 'red'), ('back', 180, 'blue')):
+            reference = self.root / generation_reference_name(role, staged=True)
+            Image.new('RGBA', (1024, 1024), shade).save(reference)
+            views.append(dict(role=role, azimuth=azimuth, sha256=digest(reference), camera_angle_x=CAMERA_FOV,
+                              transform_matrix=camera_matrix(azimuth)))
+        save_generation_views(self.root, dict(scale=1, translation=[0, 0, 0], coordinate_system='y_up'), views)
+        provenance = read_record(self.root / PROVENANCE_FILE)
+        original = digest(self.source)
+        before, binary = read(self.source)
+        report = project_generation_texture(self.root, self.source, self.output, provenance, progress=lambda *_: None)
+        after, output_binary = read(self.output)
+        self.assertEqual(original, digest(self.source))
+        self.assertEqual(binary, output_binary[:len(binary)])
+        for key in ('bufferViews', 'images', 'textures'):
+            after[key].pop()
+        after['buffers'] = before['buffers']
+        after['materials'][0]['pbrMetallicRoughness']['baseColorTexture'] = before['materials'][0]['pbrMetallicRoughness']['baseColorTexture']
+        self.assertEqual(before, after)
+        self.assertTrue(np.array_equal(color(self.source)[..., 3], color(self.output)[..., 3]))
+        self.assertGreater(report['projected_texels'], 0)
+        self.assertEqual(report['method'], 'generation_views')
+        self.assertEqual([view['role'] for view in report['views']], ['front', 'back'])
+
+        Image.new('RGBA', (1024, 1024), 'white').save(reference)
+        rejected = self.root / 'rejected.glb'
+        with self.assertRaisesRegex(ValueError, 'generation reference has changed'):
+            project_generation_texture(self.root, self.source, rejected, provenance, progress=lambda *_: None)
+        self.assertFalse(rejected.exists())
 
     def test_two_views_preserve_geometry_and_paint_separate_front_and_rear_islands(self):
         rear = self.root / 'rear.png'

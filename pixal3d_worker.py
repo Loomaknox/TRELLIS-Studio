@@ -1,5 +1,7 @@
 """Studio worker for the optional calibrated Pixal3D character pipeline."""
 import gc
+import hashlib
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -41,30 +43,29 @@ def prepared_views(job, views, reviewed=False):
     from PIL import Image, ImageOps
     from reference_preparation import PREPARED_VIEWS, frame_pixal, pixal_silhouette, premultiplied_rgb
 
-    if reviewed:
+    if not reviewed:
+        cutouts = {}
+        session = None
         for view in views:
-            with Image.open(job / PREPARED_VIEWS[view['role']]) as frame:
-                yield premultiplied_rgb(frame.convert('RGBA'))
-        return
+            with Image.open(job / view['file']) as original:
+                image = ImageOps.exif_transpose(original).convert('RGBA')
+            alpha = image.getchannel('A')
+            if alpha.getextrema()[0] >= 128:
+                if not (ROOT / 'models' / 'rembg' / 'u2net.onnx').is_file():
+                    raise RuntimeError('Background removal needs the Studio U2Net model. Use transparent images or reinstall Studio.')
+                from rembg import new_session, remove
+                if session is None:
+                    session = new_session('u2net', providers=['CPUExecutionProvider'])
+                image = remove(image, session=session).convert('RGBA')
+            cutouts[view['role']] = pixal_silhouette(image, view['role'])
+        del session
+        for role, frame in frame_pixal(cutouts).items():
+            frame.save(job / PREPARED_VIEWS[role])
 
-    cutouts = {}
-    session = None
     for view in views:
-        with Image.open(job / view['file']) as original:
-            image = ImageOps.exif_transpose(original).convert('RGBA')
-        alpha = image.getchannel('A')
-        if alpha.getextrema()[0] >= 128:
-            if not (ROOT / 'models' / 'rembg' / 'u2net.onnx').is_file():
-                raise RuntimeError('Background removal needs the Studio U2Net model. Use transparent images or reinstall Studio.')
-            from rembg import new_session, remove
-            if session is None:
-                session = new_session('u2net', providers=['CPUExecutionProvider'])
-            image = remove(image, session=session).convert('RGBA')
-        cutouts[view['role']] = pixal_silhouette(image, view['role'])
-    del session
-    for role, frame in frame_pixal(cutouts).items():
-        frame.save(job / PREPARED_VIEWS[role])
-        yield premultiplied_rgb(frame)
+        payload = (job / PREPARED_VIEWS[view['role']]).read_bytes()
+        with Image.open(BytesIO(payload)) as frame:
+            yield premultiplied_rgb(frame.convert('RGBA')), hashlib.sha256(payload).hexdigest()
 
 
 def sampling_options(options, seed, settings_version=2):
@@ -112,10 +113,15 @@ def generate_source(torch, job, views, options, sampling, status, reviewed=False
                                'euler', scheduler, positive, negative, latent)[0]
 
     status('running', 'Preparing Pixal3D reference views', 4)
-    images = torch.from_numpy(np.stack(list(prepared_views(job, views, reviewed))))
+    prepared = list(prepared_views(job, views, reviewed))
+    images = torch.from_numpy(np.stack([pixels for pixels, _ in prepared]))
     matrices = torch.tensor([camera_matrix(view['azimuth']) for view in views], dtype=torch.float32)
     fov = torch.full((len(views),), CAMERA_FOV)
     scale = torch.tensor([1.], dtype=torch.float32)
+    calibration = [dict(role=view['role'], azimuth=view['azimuth'], sha256=hash_value,
+                        camera_angle_x=angle, transform_matrix=matrix)
+                   for view, (_, hash_value), angle, matrix in zip(views, prepared, fov.tolist(), matrices.tolist(), strict=True)]
+    del prepared
     status('running', 'Encoding Pixal3D reference views', 12)
     vision = comfy.clip_vision.load(model_file('clip_vision/dino_v3_L_naf_fp32.safetensors'))
     positive, negative = _build_pixal3d_conditioning(
@@ -171,7 +177,7 @@ def generate_source(torch, job, views, options, sampling, status, reviewed=False
         'coords': color.data[:, -3:].int().cpu().contiguous(), 'attr_layout': ATTR_LAYOUT,
         'voxel_size': 1. / color.resolution, 'resolution': int(color.resolution),
         'coordinate_system': 'y_up',
-    }
+    }, calibration
 
 
 def check_runtime():
@@ -213,8 +219,8 @@ def run_job():
         settings_version = settings.get('settings_version', 2)
         sampling = sampling_options(options, settings['seed'], settings_version)
         with torch.inference_mode():
-            source = generate_source(torch, JOB, views, options, sampling, status,
-                                     reviewed='reference_edits' in settings)
+            source, calibration = generate_source(torch, JOB, views, options, sampling, status,
+                                                  reviewed='reference_edits' in settings)
         mm.unload_all_models()
         mm.soft_empty_cache()
         gc.collect()
@@ -223,6 +229,11 @@ def run_job():
             save_finishing_source(torch, source)
         result = finish_mesh(torch, source)
         face_report = project_requested_face()
+        from generation_view_projection import save_generation_views
+        try:
+            save_generation_views(JOB, result.metadata['finishing']['normalization'], calibration)
+        except (OSError, ValueError) as error:
+            print(f'Could not save the optional generation camera provenance ({type(error).__name__}).', flush=True)
         stats = dict(
             name=settings['name'], height_m=settings['height_m'], seed=settings['seed'],
             triangles=len(result.faces), vertices=len(result.vertices), engine='Pixal3D',

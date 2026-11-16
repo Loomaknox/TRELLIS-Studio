@@ -1,4 +1,4 @@
-import {createStudioWorkbench} from './studio-workbench.js?v=3.8.0';
+import {createStudioWorkbench} from './studio-workbench.js?v=3.8.0-generation-views';
 import {createViewerLighting} from './viewer-lighting.js?v=3.4.0';
 import {createHologramViewer} from './hologram-viewer.js?v=3.4.0-quality2';
 import {createGenerationWait} from './generation-wait.js?v=3.4.0';
