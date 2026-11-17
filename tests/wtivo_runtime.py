@@ -18,7 +18,7 @@ class WTiVoTests(unittest.TestCase):
     def setUp(self):
         temp = TemporaryDirectory(prefix='trellis-wtivo-contract-')
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()
         self.source = self.root / 'external' / 'source'
         (self.source / 'build').mkdir(parents=True)
         self.native = self.source / 'build' / 'example.pyd'

@@ -46,19 +46,41 @@ and does not run sudo, change drivers, or install a system toolkit itself.
 | torch-scatter / torch-cluster | 2.1.2+pt28cu128 / 1.6.3+pt28cu128, official PyG index |
 | cumm | Source tag v0.8.2 at `4c77b38d1ab57d5d1c157adddf67dad93f3a446b` |
 | spconv | Source tag v2.3.8 at `263d6b47425ef843c82f997b12d8b714013d216c` |
-| FlashAttention | Source tag v2.8.3 at `060c9188beec3a8b62b33a3bfa6d5d2d44975fab` |
+| FlashAttention | Official v2.8.3 CPython 3.11 / torch 2.8 CXX11-ABI Linux wheel; SHA-256 `3d41b2fc55753faa7f45d6568ea73a96b96afb48b82994ab9b49bcbcb6c87588` |
 
-CUDA extensions build against the installed Torch ABI, with native sm_120 code
-and four compiler jobs by default (`MAX_JOBS` can reduce that). This avoids
+cumm/spconv build against the installed Torch ABI, with native sm_120 code
+and one compiler job/thread by default. `MAX_JOBS` and `NVCC_THREADS` can
+increase parallelism when sufficient RAM is available. FlashAttention can
+consume several GiB per compiler process, so a four-job build is unsafe on
+a typical 16 GiB WSL VM. This avoids
 mixing the old Torch 2.5 extension wheels with Torch 2.8. The old NVIDIA, sympy
 and Triton pins are omitted for this profile so Torch supplies its matching
 runtime dependencies. Other application pins remain unchanged.
+
+FlashAttention uses the checksum-verified artifact from the official v2.8.3
+release. Binary inspection confirmed native sm_120 kernels; real varlen attention
+and full neural skin inference were tested. The helper refuses a different
+Python/Torch/CXX11 ABI or a corrupted cache. Set `TRELLIS_UNIRIG_FLASH_SOURCE=1`
+to compile the same pinned source revision instead. That opt-in build retains
+its own cache and can be much slower and more memory intensive.
+
+The upstream bpy 4.2.0 CPython 3.11 Linux wheel incorrectly labels its internal
+WHEEL metadata as cp39, despite declaring `Requires-Python: ==3.11.*`. The helper
+corrects only the exact known WHEEL content and its corresponding RECORD hash;
+unknown metadata is preserved and rejected. No native code is changed. Full
+`uv pip check` remains mandatory, alongside actual bpy and CUDA execution. The
+legacy application pin is retained.
 
 The spconv source metadata caps cumm below 0.8 although cumm 0.8.2 adds native
 sm_120 build flags. The helper explicitly changes that bound to `>=0.8.2,<0.9.0`
 in its private build checkout. **This override is not an upstream compatibility
 guarantee.** The operator tests and a real inference job must validate it.
 Unknown metadata and unrelated source checkouts are preserved and rejected.
+
+Torch 2.8's protected checkpoint loader also rejects the `box.box.Box` metadata
+in the pinned skin checkpoint. A small inference entry point allows only that
+known type within a `torch.serialization.safe_globals` context. It keeps
+weights-only loading and leaves upstream source unchanged.
 
 The default Blackwell environment is a sibling of the legacy environment, with
 the suffix `-blackwell`. The old venv is retained. A small `blackwell-ready`
@@ -110,7 +132,7 @@ the real compiler-wrapper argument test and Bash syntax checks in the
 `Installation compatibility` GitHub Actions workflow. These checks do not build
 the GPU stack or download model weights.
 
-Target-machine acceptance still requires all of:
+For each target machine, the acceptance checklist is:
 
 1. Build the private Blackwell environment under WSL and pass its CUDA operators.
 2. Run a complete skeleton and skin-weight job with the pinned UniRig checkpoints.
@@ -119,6 +141,35 @@ Target-machine acceptance still requires all of:
 5. Test TRELLIS and Pixal3D generation and MCP separately.
 
 Successful unit checks alone do not establish full studio functionality.
+
+## Windows xformers attention
+
+The pinned xformers dispatcher can select its Hopper FlashAttention 3 kernel on
+Blackwell. A real generation on sm_120 aborted with an invalid CUDA argument in
+that kernel even though a matrix calculation succeeded. Both image and Pixal3D
+workers now disable FA3 on compute capability >= 10, retaining the normal
+xformers operator selection for the remaining kernels. Ada and Hopper retain
+their default dispatch. This uses the private switch in the pinned xformers
+version; review it when updating that dependency.
+
+Target-machine tests on RTX 5070 Ti / Windows / CUDA 12.8 completed a textured
+image-to-3D job (9,589 triangles, 53.7 s) and a three-view Pixal3D job (9,736
+triangles, 59.9 s). Synthetic character images were used. Kimodo CPU inference
+also generated a valid 60-frame animation, and Blender/UniRig landmark and skin
+transfer adapters passed with non-unit nested transforms. The full neural skeleton/skin job also completed on the generated model,
+producing a 28-bone skinned GLB opened in Blender. Its geometry did not pass the
+conservative humanoid mapping, so no humanoid motions were attached. A separate
+Unity 6000.6.6f1 project passed the repository's import/update/rollback regression
+(`TRELLIS REIMPORT PASS`). These are functional tests, not an artistic quality
+guarantee for arbitrary characters.
+
+A separate CC0 reference mannequin was stripped of its original rig and passed
+full neural inference: 52 predicted bones, normalized skin weights, and automatic
+humanoid mapping. The authored Idle/Walk clips and a real 60-frame Kimodo motion
+were transferred and exported together as an animated Unity FBX. Original GLB
+geometry, materials and pre-existing clips passed preservation checks. The
+validated runtime was activated in the installed Studio after explicit kernel
+checks; the previous environment and changed Windows scripts were backed up.
 
 ## Primary references
 

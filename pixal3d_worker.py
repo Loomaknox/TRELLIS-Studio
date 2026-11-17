@@ -210,6 +210,8 @@ def run_job():
         configure_runtime()
         import comfy.model_management as mm
         import torch
+        from gpu_compat import configure_xformers
+        configure_xformers(torch)
         from api_spz.core.state_manage import _apply_patches
 
         torch.set_num_threads(6)

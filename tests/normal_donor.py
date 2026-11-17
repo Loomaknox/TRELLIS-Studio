@@ -26,7 +26,7 @@ def refuses(function, *args, contains=None, **kwargs):
 
 
 with TemporaryDirectory(prefix='trellis-normal-donor-') as temporary:
-    root=Path(temporary)
+    root=Path(temporary).resolve()
     identifier='a'*32
     source_id='b'*32
     folder=root/identifier;folder.mkdir()

@@ -108,7 +108,7 @@ def color(path):
 class TextureProjectionTests(unittest.TestCase):
     def setUp(self):
         self.temp = TemporaryDirectory(prefix='trellis-projection-')
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.source = self.root / 'source.glb'
         self.reference = self.root / 'reference.png'
         self.output = self.root / 'projected.glb'

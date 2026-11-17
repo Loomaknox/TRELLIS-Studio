@@ -47,7 +47,7 @@ $taskRequired+=@('texture_projection.py','baked_game_copy.py','game_bake_blender
     'model_finishing_worker.py','web/texture-projection.js','web/texture-projection-geometry.js',
     'web/texture-projection-auto-align.js','web/texture-projection.css',('docs/RELEASE_'+$taskPackage.version+'.md'))
 $taskRequired+=@('web/game-copy-regions.js','web/reduction-region-preview.js')
-$taskRequired+=@('UniRig/gpu_probe.py','installer/unirig_blackwell.py','docs/BLACKWELL_SETUP.md')
+$taskRequired+=@('gpu_compat.py','UniRig/inference_entry.py','UniRig/gpu_probe.py','installer/unirig_blackwell.py','docs/BLACKWELL_SETUP.md')
 $taskRequired+=@('wtivo_runtime.py','docs/WTIVO.md','master_mesh.py','master_mesh_blender.py','web/hd-master-finishing.js')
 $taskRequired+=@('studio_release.py','web/release-notification.css','web/release-notification.js')
 $taskRequired+=@('generation_view_projection.py','licenses/AssetFurnace-Apache-2.0.txt',

@@ -1,6 +1,10 @@
 """Regression checks for installation failures seen on Windows/Blackwell."""
 from pathlib import Path
 import importlib.util
+import base64
+import csv
+import hashlib
+from types import SimpleNamespace
 import json
 import os
 import runpy
@@ -73,7 +77,7 @@ class UniRigChecks(unittest.TestCase):
             command.assert_not_called()
 
     def test_blackwell_build_uses_installed_torch_abi_and_checks_dependencies(self):
-        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=False), \
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, TRELLIS_UNIRIG_FLASH_SOURCE='1'), \
              patch.object(unirig_blackwell, 'prerequisites'), \
              patch.object(unirig_blackwell, 'checkout', side_effect=lambda base, name: base / name), \
              patch.object(unirig_blackwell, 'patch_spconv_metadata') as metadata, \
@@ -89,6 +93,71 @@ class UniRigChecks(unittest.TestCase):
             self.assertEqual(os.environ['FLASH_ATTN_CUDA_ARCHS'], '120')
             self.assertEqual(os.environ['CUMM_CUDA_ARCH_LIST'], '12.0')
             metadata.assert_called_once()
+
+    def test_default_install_uses_verified_wheel_without_building_flash(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, TRELLIS_UNIRIG_FLASH_SOURCE=''), \
+             patch.object(unirig_blackwell, 'prerequisites'), \
+             patch.object(unirig_blackwell, 'checkout', side_effect=lambda base, name: base / name), \
+             patch.object(unirig_blackwell, 'patch_spconv_metadata'), \
+             patch.object(unirig_blackwell, 'flash_wheel', return_value=Path(directory)/'verified.whl') as wheel, \
+             patch('shutil.which', return_value='/cuda/bin/nvcc'), patch('subprocess.run') as command:
+            root = Path(directory)
+            unirig_blackwell.install(root/'uv',root)
+            calls = [list(map(str, call.args[0])) for call in command.call_args_list]
+            self.assertEqual([Path(call[-1]).name for call in calls if '--no-build-isolation' in call], ['cumm','spconv'])
+            self.assertIn(str(root/'verified.whl'),calls[-3])
+            wheel.assert_called_once_with(root,root/'venv/bin/python')
+
+    def test_tampered_flash_cache_is_preserved_and_rejected_without_network(self):
+        abi = json.dumps([[3,11],'Linux','x86_64','2.8.0+cu128',True])
+        with tempfile.TemporaryDirectory() as directory, patch('subprocess.check_output',return_value=abi), \
+             patch('urllib.request.urlopen') as network:
+            root = Path(directory)
+            cache = root/'cache/downloads';cache.mkdir(parents=True)
+            wheel = cache/unirig_blackwell.FLASH_WHEEL['filename']
+            wheel.write_bytes(b'tampered or incomplete wheel')
+            with self.assertRaisesRegex(RuntimeError,'SHA-256 mismatch'):
+                unirig_blackwell.flash_wheel(root,Path('/python'))
+            self.assertEqual(wheel.read_bytes(),b'tampered or incomplete wheel')
+            network.assert_not_called()
+
+    def test_flash_wheel_rejects_wrong_abi_before_network(self):
+        with patch('subprocess.check_output',return_value=json.dumps([[3,12],'Linux','x86_64','2.8.0+cu128',True])), \
+             patch('urllib.request.urlopen') as network:
+            with self.assertRaisesRegex(RuntimeError,'requires Linux x86_64'):
+                unirig_blackwell.flash_wheel(Path('/unused'),Path('/python'))
+            network.assert_not_called()
+
+    def test_bpy_tag_repair_keeps_record_hash_correct_and_resumes(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(sys,'platform','linux'), \
+             patch.object(sys,'version_info',(3,11,0)), patch('importlib.metadata.distribution') as installed:
+            root = Path(directory);info = root/'bpy-4.2.0.dist-info';info.mkdir()
+            wheel = info/'WHEEL';record = info/'RECORD'
+            original = b'Wheel-Version: 1.0\nGenerator: bdist_wheel (0.38.4)\nRoot-Is-Purelib: false\nTag: cp39-cp39-manylinux_2_28_x86_64\n\n'
+            wheel.write_bytes(original)
+            record.write_text('bpy-4.2.0.dist-info/WHEEL,old,1\nbpy/__init__.so,keep,123\n')
+            installed.return_value = SimpleNamespace(version='4.2.0',metadata={'Requires-Python':'==3.11.*'},locate_file=lambda name:root/name)
+            unirig_blackwell.repair_bpy_metadata()
+            content = wheel.read_bytes()
+            self.assertIn(b'cp311-cp311',content)
+            expected_hash = 'sha256='+base64.urlsafe_b64encode(hashlib.sha256(content).digest()).rstrip(b'=').decode()
+            rows = list(csv.reader(record.read_text().splitlines()))
+            self.assertEqual(rows[0][1:],[expected_hash,str(len(content))])
+            self.assertEqual(rows[1],['bpy/__init__.so','keep','123'])
+            # Resume a process interrupted after WHEEL replacement but before RECORD.
+            record.write_text('bpy-4.2.0.dist-info/WHEEL,old,1\nbpy/__init__.so,keep,123\n')
+            unirig_blackwell.repair_bpy_metadata()
+            self.assertEqual(list(csv.reader(record.read_text().splitlines()))[0][1],expected_hash)
+
+    def test_unknown_bpy_metadata_is_preserved(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(sys,'platform','linux'), \
+             patch.object(sys,'version_info',(3,11,0)), patch('importlib.metadata.distribution') as installed:
+            root = Path(directory);info = root/'bpy-4.2.0.dist-info';info.mkdir()
+            wheel = info/'WHEEL';wheel.write_bytes(b'unrecognized metadata')
+            installed.return_value = SimpleNamespace(version='4.2.0',metadata={'Requires-Python':'==3.11.*'},locate_file=lambda name:root/name)
+            with self.assertRaisesRegex(RuntimeError,'Unknown bpy WHEEL'):
+                unirig_blackwell.repair_bpy_metadata()
+            self.assertEqual(wheel.read_bytes(),b'unrecognized metadata')
 
     def test_failed_runtime_replaces_stale_ready_and_preserves_other_components(self):
         with tempfile.TemporaryDirectory() as directory:

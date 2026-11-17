@@ -34,6 +34,8 @@ def status(state, stage, progress, **extra):
     print(f'STAGE {progress}% {stage}', flush=True)
 
 def generate_source(torch):
+    from gpu_compat import configure_xformers
+    configure_xformers(torch)
     status('running', 'Preparing image', 3)
     from PIL import Image, ImageOps
     reviewed = 'reference_edits' in settings

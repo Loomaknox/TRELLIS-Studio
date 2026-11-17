@@ -344,3 +344,10 @@
 !/tests/kimodo_windows.ps1
 !/tests/installation_compatibility.py
 !/tests/kimodo_probe.ps1
+!/tests/_support.py
+
+!/gpu_compat.py
+
+!/tests/gpu_compatibility.py
+
+!UniRig/inference_entry.py

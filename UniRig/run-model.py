@@ -25,7 +25,7 @@ def extract(source,suffix):
 source=work/'input.glb' if (work/'input.glb').exists() else job/'source.glb'
 stage('Analysing character',8);extract(source,'glb')
 stage('UniRig · predicting skeleton',22)
-run('run.py','--task='+str(work/'skeleton.yaml'),'--seed=12345','--input='+str(source),'--output='+str(work/'skeleton.fbx'),'--npz_dir='+str(work/'intermediate'))
+run(root/'inference_entry.py','--task='+str(work/'skeleton.yaml'),'--seed=12345','--input='+str(source),'--output='+str(work/'skeleton.fbx'),'--npz_dir='+str(work/'intermediate'))
 skeleton=work/'skeleton.fbx'
 settings=json.loads((job/'settings.json').read_text(encoding='utf-8'))
 if settings.get('rig_options',{}).get('landmarks'):
@@ -35,7 +35,7 @@ if settings.get('rig_options',{}).get('landmarks'):
 run(root/'skeleton-preview.py',job,skeleton)
 stage('Preparing joints',45);extract(skeleton,'fbx')
 stage('UniRig · calculating skin weights',58)
-run('run.py','--task='+str(work/'skin.yaml'),'--seed=12345','--input='+str(skeleton),'--output='+str(work/'skin.fbx'),'--npz_dir='+str(work/'intermediate'),'--data_name=raw_data.npz')
+run(root/'inference_entry.py','--task='+str(work/'skin.yaml'),'--seed=12345','--input='+str(skeleton),'--output='+str(work/'skin.fbx'),'--npz_dir='+str(work/'intermediate'),'--data_name=raw_data.npz')
 skin=work/'skin.fbx'
 if settings.get('rig_options',{}).get('landmarks'):
     run(root/'restore-skin-frame.py',job)
