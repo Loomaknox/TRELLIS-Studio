@@ -12,17 +12,25 @@ $icon=Join-Path $installRoot 'installer\windows\trellis-studio.ico'
 $programs=[Environment]::GetFolderPath('Programs')
 $desktop=[Environment]::GetFolderPath('DesktopDirectory')
 if (-not $programs) { throw 'Windows did not resolve the Start menu folder.' }
-$menu=Join-Path $programs 'TRELLIS Studio'
-$desktopName='TRELLIS Studio.lnk'
-$desktopDescription='TRELLIS Studio (Windows Setup)'
+$preview=Test-Path -LiteralPath (Join-Path $installRoot '.trellis-setup-test') -PathType Leaf
+$guided=$preview -or (Test-Path -LiteralPath (Join-Path $installRoot '.trellis-guided-setup') -PathType Leaf)
+$studioName=if ($preview) {'TRELLIS Studio Setup Test'} else {'TRELLIS Studio'}
+$serverName=if ($preview) {'TRELLIS Server Setup Test'} else {'TRELLIS Server'}
+$menu=Join-Path $programs $studioName
+$desktopName=$studioName+'.lnk'
+$serverDesktopName=$serverName+'.lnk'
+$desktopDescription=$studioName+' (Windows Setup)'
+$previousRigLabel='Install generation and UniRig.lnk'
+$rigLabel=if ($guided) {'Install UniRig.lnk'} else {$previousRigLabel}
 $links=@(
     @{ Name='TRELLIS Studio.lnk'; Arguments='--mode desktop --start'; Target=$tray; Legacy='' }
     @{ Name='Install TRELLIS generation.lnk'; Arguments='Generation' }
-    @{ Name='Install generation and UniRig.lnk'; Arguments='Rig' }
+    @{ Name=$rigLabel; Arguments='Rig' }
     @{ Name='Install Pixal3D.lnk'; Arguments='Pixal3D' }
     @{ Name='Install Kimodo motion generation.lnk'; Arguments='Kimodo' }
     @{ Name='Stop TRELLIS Studio.lnk'; Arguments='Stop' }
 )
+if ($guided) { $links+=@(@{ Name='Repair or resume components.lnk'; Arguments='Retry' }) }
 if ($ServerMode -or $Action -eq 'Uninstall') {
     $links+=@(
         @{ Name='TRELLIS Server.lnk'; Arguments='--mode server --start'; Target=$tray; Legacy='Server' }
@@ -32,9 +40,10 @@ if ($ServerMode -or $Action -eq 'Uninstall') {
 }
 $shell=New-Object -ComObject WScript.Shell
 
-function Update-StudioShortcut([string]$Path,[string]$Arguments,[string]$Target=$launcher,[string]$Legacy=$Arguments,[switch]$OnDesktop) {
+function Update-StudioShortcut([string]$Path,[string]$Arguments,[string]$Target=$launcher,[string]$Legacy=$Arguments,[switch]$OnDesktop,[switch]$Remove) {
     $exists=Test-Path -LiteralPath $Path
-    if (-not $exists -and ($Action -eq 'Uninstall' -or ($OnDesktop -and $DesktopShortcut -eq 0))) { return }
+    $removeShortcut=$Remove -or $Action -eq 'Uninstall'
+    if (-not $exists -and ($removeShortcut -or ($OnDesktop -and $DesktopShortcut -eq 0))) { return }
     $shortcut=$null
     try {
         try { $shortcut=$shell.CreateShortcut($Path) }
@@ -49,7 +58,7 @@ function Update-StudioShortcut([string]$Path,[string]$Arguments,[string]$Target=
             Write-Output "Kept an existing shortcut at $Path."
             return
         }
-        if ($Action -eq 'Uninstall') {
+        if ($removeShortcut) {
             Remove-Item -LiteralPath $Path
             return
         }
@@ -67,7 +76,7 @@ function Update-StudioShortcut([string]$Path,[string]$Arguments,[string]$Target=
 function Update-ServerStartup([bool]$Enabled) {
     $startup=[Environment]::GetFolderPath('Startup')
     if (-not $startup) { if ($Enabled) { throw 'Windows did not resolve the Startup folder.' }; return }
-    $path=Join-Path $startup 'TRELLIS Server.lnk'
+    $path=Join-Path $startup $serverDesktopName
     $target=$tray
     $arguments='--mode server --start --no-browser'
     $legacyTarget=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -108,12 +117,13 @@ try {
         if($link.Target){Update-StudioShortcut (Join-Path $menu $link.Name) $link.Arguments -Target $link.Target -Legacy $link.Legacy}
         else{Update-StudioShortcut (Join-Path $menu $link.Name) $link.Arguments}
     }
+    if ($guided) { Update-StudioShortcut (Join-Path $menu $previousRigLabel) 'Rig' -Remove }
     if ($desktop) {
         if (-not $ServerMode -or $Action -eq 'Uninstall') {
             Update-StudioShortcut (Join-Path $desktop $desktopName) '--mode desktop --start' -Target $tray -Legacy '' -OnDesktop
         }
         if ($ServerMode -or $Action -eq 'Uninstall') {
-            Update-StudioShortcut (Join-Path $desktop 'TRELLIS Server.lnk') '--mode server --start' -Target $tray -Legacy 'Server' -OnDesktop
+            Update-StudioShortcut (Join-Path $desktop $serverDesktopName) '--mode server --start' -Target $tray -Legacy 'Server' -OnDesktop
         }
     } elseif ($Action -eq 'Install' -and $DesktopShortcut -eq 1) {
         throw 'Windows did not resolve the Desktop folder.'

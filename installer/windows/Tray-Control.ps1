@@ -4,6 +4,10 @@ param(
 )
 $ErrorActionPreference='Stop'
 $taskRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+if (Test-Path -LiteralPath (Join-Path $taskRoot '.trellis-setup-test')) {
+    $env:TRELLIS_PORT='7890'
+    $env:TRELLIS_MCP_PORT='7891'
+}
 $installed=Test-Path -LiteralPath (Join-Path $taskRoot 'bundled-web.json')
 if (-not $env:TRELLIS_PORT) { $env:TRELLIS_PORT=$(if ($installed) { '7870' } else { '7860' }) }
 if (-not $env:TRELLIS_MCP_PORT) { $env:TRELLIS_MCP_PORT=$(if ($installed) { '7871' } else { '7861' }) }

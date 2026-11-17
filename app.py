@@ -19,6 +19,7 @@ from generation_options import (normalize_options, options_for_job, schema as ge
                                 master_finishing_options, validate_create_master_finishing)
 from asset_taxonomy import ASSET_TYPES, SYSTEM_TYPES, schema as taxonomy_schema
 from generation_profiles import DENSE_MASTER_DESCRIPTION, ProfileStore, builtin_profiles
+from gpu_runtime import guided_install
 from studio_import import FORMATS, MAX_BYTES, find_blender, validate_glb, copy_version
 from animation_edits import recover as recover_animation
 from glb_data import media as model_media
@@ -58,9 +59,10 @@ def gpu_description():
 GPU_DESCRIPTION=gpu_description()
 # Server workspaces each use their own application state and paths.
 WORKSPACE_CONFIG = globals().get('WORKSPACE_CONFIG', {})
-PROFILES = ProfileStore(WORKSPACE_CONFIG.get('profiles', os.environ.get('TRELLIS_PROFILES_FILE', str(ROOT / 'config' / 'generation-profiles.json'))))
-OUTPUT = Path(WORKSPACE_CONFIG.get('outputs', os.environ.get('TRELLIS_OUTPUT_DIR', str(ROOT / 'outputs')))).resolve()
-TRASH = Path(WORKSPACE_CONFIG.get('trash', os.environ.get('TRELLIS_TRASH_DIR', str(ROOT / 'trash')))).resolve()
+workspace_environment = {} if (ROOT / '.trellis-setup-test').is_file() else os.environ
+PROFILES = ProfileStore(WORKSPACE_CONFIG.get('profiles', workspace_environment.get('TRELLIS_PROFILES_FILE', str(ROOT / 'config' / 'generation-profiles.json'))))
+OUTPUT = Path(WORKSPACE_CONFIG.get('outputs', workspace_environment.get('TRELLIS_OUTPUT_DIR', str(ROOT / 'outputs')))).resolve()
+TRASH = Path(WORKSPACE_CONFIG.get('trash', workspace_environment.get('TRELLIS_TRASH_DIR', str(ROOT / 'trash')))).resolve()
 OUTPUT.mkdir(parents=True, exist_ok=True)
 PROCESS = None
 ACTIVE = None
@@ -75,8 +77,8 @@ EXPORTING = set()
 EXPORT_PROCESS = None
 EXPORT_TASK = None
 EXPORT_LOG = None
-EXPORT_ROOT = Path(WORKSPACE_CONFIG.get('exports', os.environ.get('TRELLIS_EXPORT_DIR',str(ROOT/'exports')))).resolve()
-RIG_PILOT = Path(os.environ.get('TRELLIS_RIG_PILOT_DIR', str(ROOT / 'UniRig' / 'tests' / 'tira' / 'delivery'))).resolve()
+EXPORT_ROOT = Path(WORKSPACE_CONFIG.get('exports', workspace_environment.get('TRELLIS_EXPORT_DIR',str(ROOT/'exports')))).resolve()
+RIG_PILOT = Path(workspace_environment.get('TRELLIS_RIG_PILOT_DIR', str(ROOT / 'UniRig' / 'tests' / 'tira' / 'delivery'))).resolve()
 
 def stop_worker():
     if PROCESS is None or PROCESS.poll() is not None: return
@@ -205,8 +207,26 @@ def generation_capabilities():
         except (ValueError,OSError,AttributeError):pass
     return resolutions,textures
 
+def guided_install_failure(component):
+    if not guided_install(ROOT):
+        return ''
+    try:
+        content = (ROOT / 'config' / 'component-install.json').read_text(encoding='utf-8-sig')
+        record = json.loads(content).get('components', {}).get(component, {})
+        if record.get('status') == 'ready':
+            return ''
+        if record.get('message'):
+            return record['message']
+    except (OSError, ValueError, AttributeError):
+        pass
+    return 'Use Repair or resume components to install and verify this component.'
+
+
 def pixal3d_capabilities():
-    return {**pixal3d_runtime_status(ROOT), 'profile': PIXAL_CHARACTER_PROFILE,
+    runtime = pixal3d_runtime_status(ROOT)
+    if message := guided_install_failure('pixal3d'):
+        runtime.update(ready=False, message=message, single_image=dict(ready=False, message=message))
+    return {**runtime, 'profile': PIXAL_CHARACTER_PROFILE,
             'default_profile': PIXAL_CHARACTER_PROFILE['id'], 'profiles': list(PIXAL_PROFILES),
             'texture_sizes': PIXAL_TEXTURE_SIZES}
 
@@ -242,10 +262,12 @@ def assign_create_master_finishing(settings, method):
 def status():
     import psutil
     ready = (ROOT / 'models' / 'trellis2' / 'pipeline.json').exists() and (ROOT / 'engine' / 'MODELS' / 'dinov3' / 'model.safetensors').exists()
+    preview_error=guided_install_failure('trellis')
+    ready=ready and not preview_error
     resolutions,textures=generation_capabilities()
     pixal3d=pixal3d_capabilities()
     generation_methods = {
-        'trellis2': dict(ready=ready, message='' if ready else 'Install the TRELLIS.2 model weights.'),
+        'trellis2': dict(ready=ready, message='' if ready else preview_error or 'Install the TRELLIS.2 model weights.'),
         'pixal3d_single': pixal3d.get('single_image', dict(ready=False, message='Install Pixal3D Single Image.')),
         'pixal3d': {key: pixal3d[key] for key in ('ready', 'message')},
     }
@@ -262,8 +284,11 @@ def components():
     try: runtime=json.loads((ROOT/'logs'/'components.json').read_text(encoding='utf-8-sig'))
     except (OSError,ValueError): runtime={}
     blender=bool(find_blender())
+    unirig=runtime.get('unirig',{'ready':False,'message':'Run Open TRELLIS.cmd to check UniRig.'})
+    if message := guided_install_failure('unirig'):
+        unirig=dict(ready=False,message=message)
     return dict(blender=blender, import_formats=list(FORMATS) if blender and not WORKSPACE_CONFIG else ['.glb'], max_import_bytes=MAX_BYTES,
-                unirig=runtime.get('unirig',{'ready':False,'message':'Run Open TRELLIS.cmd to check UniRig.'}),
+                unirig=unirig,
                 rig_pilot=(RIG_PILOT/'tira_animated.glb').is_file())
 
 def launch_worker(folder, script, source_id=None):

@@ -35,7 +35,8 @@ if settings.get('rig_options',{}).get('landmarks'):
 run(root/'skeleton-preview.py',job,skeleton)
 stage('Preparing joints',45);extract(skeleton,'fbx')
 stage('UniRig · calculating skin weights',58)
-run('run.py','--task='+str(work/'skin.yaml'),'--seed=12345','--input='+str(skeleton),'--output='+str(work/'skin.fbx'),'--npz_dir='+str(work/'intermediate'),'--data_name=raw_data.npz')
+skin_entrypoint=root/'run-skin-inference.py' if os.environ.get('UNIRIG_COMPUTE_CAP')=='12.0' else 'run.py'
+run(skin_entrypoint,'--task='+str(work/'skin.yaml'),'--seed=12345','--input='+str(skeleton),'--output='+str(work/'skin.fbx'),'--npz_dir='+str(work/'intermediate'),'--data_name=raw_data.npz')
 skin=work/'skin.fbx'
 if settings.get('rig_options',{}).get('landmarks'):
     run(root/'restore-skin-frame.py',job)

@@ -5,6 +5,7 @@ import argparse,hashlib,json,os,platform,shutil,subprocess,sys,tempfile,time,url
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 MANIFEST=ROOT/'installer/manifest.json'
+from gpu_runtime import detect_windows_package_plan, guided_install
 
 def digest(path):
     h=hashlib.sha256()
@@ -24,6 +25,10 @@ def fetch(entry,target):
         print('Verified:',target.relative_to(ROOT),flush=True);return
     if target.exists():raise RuntimeError('Existing file differs from the pinned download; preserved: '+str(target))
     part=target.with_name(target.name+'.part')
+    if part.is_file() and (not entry.get('bytes') or part.stat().st_size==entry['bytes']) and digest(part)==entry['sha256']:
+        part.replace(target)
+        print('Verified completed download:',target.relative_to(ROOT),flush=True)
+        return
     for attempt in range(4):
         try:
             offset=part.stat().st_size if part.exists() else 0
@@ -63,7 +68,12 @@ def extract(archive,target,strip_root=False):
                     for block in iter(lambda:source.read(8*1024**2),b''):h.update(block)
                 if digest(path)==h.hexdigest():continue
                 raise RuntimeError('Existing extracted file differs and was preserved: '+str(path))
-            with package.open(info) as source,path.open('wb') as out:shutil.copyfileobj(source,out)
+            pending=path.with_name(path.name+'.extracting')
+            if pending.is_symlink() or not pending.resolve().is_relative_to(base):
+                raise RuntimeError('Unsafe archive staging path.')
+            with package.open(info) as source,pending.open('wb') as out:
+                shutil.copyfileobj(source,out)
+            pending.replace(path)
 
 def source(name,entry):
     target=ROOT/entry['destination'];marker=target/'.studio-source.json'
@@ -82,22 +92,24 @@ def source(name,entry):
         raise RuntimeError('Existing unrecognised source directory was preserved: '+str(target))
     archive=ROOT/'.downloads'/(name+'-'+entry['commit']+'.zip');fetch(entry,archive)
     with tempfile.TemporaryDirectory(prefix='source-',dir=ROOT/'.downloads') as staging:
-        extract(archive,Path(staging)/'source',strip_root=True)
+        stage=Path(staging)/'source'
+        extract(archive,stage,strip_root=True)
+        if name=='engine':
+            for path in (ROOT/'runtime/engine-overrides/o_voxel').glob('*.py'):
+                shutil.copy2(path,stage/'o-voxel/o_voxel'/path.name)
+        (stage/marker.name).write_text(json.dumps(entry,indent=2))
         target.parent.mkdir(parents=True,exist_ok=True)
-        shutil.move(str(Path(staging)/'source'),str(target))
-    if name=='engine':
-        for path in (ROOT/'runtime/engine-overrides/o_voxel').glob('*.py'):
-            shutil.copy2(path,target/'o-voxel/o_voxel'/path.name)
-    marker.write_text(json.dumps(entry,indent=2))
+        shutil.move(str(stage),str(target))
 
-def download_assets(manifest,rig=True):
-    extracted=manifest.get('extracted_files',[])
+def download_assets(manifest,groups):
+    assets=[entry for entry in manifest['assets'] if entry['group'] in groups]
+    archives={entry['path'] for entry in assets}
+    extracted=[item for item in manifest.get('extracted_files',[]) if item['archive'] in archives]
     def ready(item):
         path=ROOT/item['path']
         return path.is_file() and path.stat().st_size==item['bytes'] and digest(path)==item['sha256']
     complete={name:all(ready(i) for i in extracted if i['archive']==name) for name in {i['archive'] for i in extracted}}
-    for entry in manifest['assets']:
-        if entry['group']=='rig' and not rig:continue
+    for entry in assets:
         if complete.get(entry['path']):
             print('Verified extracted assets:',entry['path'],flush=True);continue
         fetch(entry,ROOT/entry['path'])
@@ -108,7 +120,17 @@ def download_assets(manifest,rig=True):
     for item in extracted:
         if not ready(item):raise RuntimeError('Extracted asset verification failed: '+item['path'])
     pipeline=ROOT/'models/trellis2/pipeline.json'
-    if not pipeline.exists():shutil.copy2(ROOT/'installer/pipeline.json',pipeline)
+    if 'generation' in groups and not pipeline.exists():shutil.copy2(ROOT/'installer/pipeline.json',pipeline)
+
+def verify_animation_sources(manifest):
+    archive_paths={entry['path'] for entry in manifest['assets'] if entry['group']=='animations'}
+    for entry in manifest['extracted_files']:
+        if entry['archive'] in archive_paths:
+            asset=ROOT/entry['path']
+            if not asset.is_file() or asset.stat().st_size!=entry['bytes'] or digest(asset)!=entry['sha256']:
+                raise RuntimeError(f"Missing or changed standard animation file: {entry['path']}. Run component repair.")
+    print('Standard animation sources verified.',flush=True)
+
 
 def bundled_web():
     if not (ROOT/'bundled-web.json').is_file():return False
@@ -182,6 +204,52 @@ else:
 """
 
 
+def verify_rig(distribution):
+    python=ROOT/'.venv/Scripts/python.exe'
+    check=(
+        "from studio_import import find_blender; from retarget_catalogue import ANIMATIONS, ROOT; "
+        "assert find_blender(),'Configure Blender before installing UniRig'; "
+        "assert all((ROOT / a['source_model']).is_file() for a in ANIMATIONS),'Animation source missing'; "
+        "print(f'Blender and {len(ANIMATIONS)} animations ready')"
+    )
+    run(python,'-c',check)
+    run_wsl_script(distribution, 'UniRig/check-runtime.sh', timeout=120)
+
+
+def run_wsl_script(distribution, relative_path, *arguments, timeout=None):
+    command=['wsl.exe','-d',distribution,'--exec']
+    linux=subprocess.check_output(
+        [*command,'wslpath','-a','-u',str(ROOT/relative_path)], text=True, timeout=25,
+    ).strip()
+    if not linux.startswith('/'):
+        raise RuntimeError('WSL could not resolve the Studio installation path.')
+    run(*command,'bash',linux,*arguments,timeout=timeout)
+
+
+def runtime_distribution(default):
+    config=ROOT/'config/runtime.json'
+    if config.is_file():
+        return json.loads(config.read_text(encoding='utf-8-sig')).get('wsl_distribution') or default
+    return default
+
+
+def install_rig(manifest, distribution):
+    from studio_import import find_blender
+    if not find_blender():
+        raise RuntimeError('Configure Blender before installing UniRig.')
+    if guided_install(ROOT):
+        run_wsl_script(distribution,'installer/install_unirig.sh','--check-profile',timeout=35)
+    else:
+        run('wsl.exe','-d',distribution,'--exec','true',timeout=25)
+    if guided_install(ROOT):
+        run_wsl_script(distribution,'installer/install_unirig.sh','--packages-only',timeout=3600)
+    source('unirig',manifest['sources']['unirig'])
+    download_assets(manifest,{'rig','animations'})
+    if not guided_install(ROOT):
+        run_wsl_script(distribution,'installer/install_unirig.sh',timeout=3600)
+    verify_rig(distribution)
+
+
 def verify(rig=True,workshop_only=False):
     python=ROOT/'.venv/Scripts/python.exe'
     run(python,'-c',"import cv2,fastapi,uvicorn,numpy,psutil,scipy,trimesh; from PIL import Image; from studio_rest import install; from retarget_catalogue import ANIMATIONS, BY_ID; assert callable(cv2.QRCodeEncoder_create); assert len(ANIMATIONS)==len(BY_ID)==84; print('Workshop libraries, QR encoder and animation catalogue ready')")
@@ -189,24 +257,51 @@ def verify(rig=True,workshop_only=False):
     run(ROOT/'.mcp-venv/Scripts/python.exe','-c','from mcp.server import MCPServer;import httpx;print("MCP ready")')
     if not bundled_web():run('node','--check','web/studio.js')
     if workshop_only:return
-    run(python,'-c',"import torch,cumesh,flex_gemm,rembg; assert torch.cuda.is_available(),'CUDA is unavailable'; print('GPU:',torch.cuda.get_device_name());print('TORCH:',torch.__version__)")
-    check="from studio_import import find_blender; from retarget_catalogue import ANIMATIONS, ROOT; assert find_blender(),'Blender not found'; assert all((ROOT / a['source_model']).is_file() for a in ANIMATIONS),'Animation source missing'; print(f'Blender and {len(ANIMATIONS)} animations ready')"
-    run(python,'-c',check)
-    if rig:
-        settings=json.loads((ROOT/'config/runtime.json').read_text(encoding='utf-8-sig'))
-        linux=subprocess.check_output(['wsl.exe','-d',settings['wsl_distribution'],'--exec','wslpath','-a','-u',str(ROOT/'UniRig/check-runtime.sh')],text=True).strip()
-        run('wsl.exe','-d',settings['wsl_distribution'],'--exec','bash',linux)
+    if guided_install(ROOT):
+        for path in ('models/trellis2/pipeline.json','engine/MODELS/dinov3/model.safetensors'):
+            if not (ROOT/path).is_file():raise RuntimeError('Missing generation asset: '+path)
+    run(python,'-B',ROOT/'gpu_runtime.py',label='Executing native CUDA operations...',timeout=180)
+    if rig:verify_rig(runtime_distribution('Ubuntu-22.04'))
+
+
+def install_native_packages(uv, python, plan):
+    run(uv,'pip','install','--python',python,'--only-binary',':all:',
+        *plan['packages'],'--index-url',plan['index_url'])
+    run(uv,'pip','install','--python',python,'-r',ROOT/'requirements-windows.txt')
+    wheel_paths=[ROOT/'engine/whl'/filename for filename in plan['native_wheels']]
+    run(uv,'pip','install','--python',python,'--no-deps',*wheel_paths)
+
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--uv',type=Path);parser.add_argument('--skip-rig',action='store_true')
+    parser.add_argument('--rig-only',action='store_true',help='Install UniRig separately from Windows generation.')
+    parser.add_argument('--animations-only',action='store_true',help='Prepare standard animation source files without CUDA or UniRig.')
     parser.add_argument('--workshop-only',action='store_true',help='Install the local studio without GPU libraries, engine sources or model downloads.')
     parser.add_argument('--plan',action='store_true');parser.add_argument('--verify-only',action='store_true')
     parser.add_argument('--accept-dinov3-license',action='store_true');parser.add_argument('--wsl-distribution',default='Ubuntu-22.04')
     args=parser.parse_args();manifest=json.loads(MANIFEST.read_text())
+    if args.rig_only and (args.skip_rig or args.workshop_only):
+        parser.error('--rig-only cannot be combined with --skip-rig or --workshop-only')
+    if args.animations_only and (args.skip_rig or args.workshop_only or args.rig_only):
+        parser.error('--animations-only cannot be combined with --skip-rig, --workshop-only or --rig-only')
+    if args.animations_only and not args.plan:
+        if not args.verify_only:
+            download_assets(manifest,{'animations'})
+        verify_animation_sources(manifest)
+        return
+    distribution=runtime_distribution(args.wsl_distribution)
     if args.plan:
-        print(json.dumps(dict(sources=manifest['sources'],downloads=len(manifest['assets']),download_bytes=sum(a['bytes'] for a in manifest['assets'] if not(args.skip_rig and a['group']=='rig')),rig=not args.skip_rig,personal_data_included=False),indent=2));return
+        groups = {'rig','animations'} if args.rig_only else {'generation','animations'}
+        if args.animations_only:groups={'animations'}
+        elif not (args.skip_rig or args.workshop_only or args.rig_only):groups.add('rig')
+        assets=[entry for entry in manifest['assets'] if entry['group'] in groups] if not args.workshop_only else []
+        print(json.dumps(dict(sources=manifest['sources'],downloads=len(assets),download_bytes=sum(a['bytes'] for a in assets),rig='rig' in groups and not args.workshop_only,personal_data_included=False),indent=2));return
     if os.name!='nt' or platform.machine().lower() not in ('amd64','x86_64'):raise RuntimeError('This installer targets 64-bit Windows. See INSTALLATION.md.')
+    if args.rig_only:
+        if args.verify_only:verify_rig(distribution)
+        else:install_rig(manifest,distribution)
+        return
     if args.verify_only:verify(not args.skip_rig and not args.workshop_only,args.workshop_only);return
     if not args.uv or not args.uv.is_file():raise RuntimeError('Run Install TRELLIS Studio.cmd to provision uv/Python first.')
     if not bundled_web():
@@ -219,32 +314,27 @@ def main():
     if not args.accept_dinov3_license:raise RuntimeError('Read licenses/DINOv3-LICENSE.md and explicitly accept it in Install TRELLIS Studio.cmd.')
     minimum=40 if args.skip_rig else 60
     if shutil.disk_usage(ROOT).free<minimum*1024**3:raise RuntimeError(f'Keep at least {minimum} GiB free before installing. 80 GiB is recommended for a full setup.')
-    if not shutil.which('nvidia-smi'):raise RuntimeError('Missing prerequisite: nvidia-smi. See INSTALLATION.md.')
-    from studio_import import find_blender
-    if not find_blender():raise RuntimeError('Install Blender 5.2 LTS before continuing. See INSTALLATION.md.')
-    run('nvidia-smi','--query-gpu=name,memory.total','--format=csv,noheader')
-    if not args.skip_rig:run('wsl.exe','-d',args.wsl_distribution,'--exec','true')
+    if not args.skip_rig or not guided_install(ROOT):
+        from studio_import import find_blender
+        if not find_blender():raise RuntimeError('Install Blender 5.2 LTS before continuing. See INSTALLATION.md.')
+    if not args.skip_rig:run('wsl.exe','-d',distribution,'--exec','true',timeout=25)
+    gpu_profile, plan_id, plan=detect_windows_package_plan(ROOT)
+    print(f'Windows GPU packages: {gpu_profile} / {plan_id}',flush=True)
     source('engine',manifest['sources']['engine'])
-    if not args.skip_rig:source('unirig',manifest['sources']['unirig'])
     python=ensure_venvs(args.uv)
-    run(args.uv,'pip','install','--python',python,'torch==2.8.0','torchvision==0.23.0','xformers==0.0.32.post2','--index-url','https://download.pytorch.org/whl/cu128')
-    run(args.uv,'pip','install','--python',python,'-r',ROOT/'requirements-windows.txt')
-    wheels=ROOT/'engine/whl'
-    for filename in ('cumesh-0.0.1-cp311-cp311-win_amd64.whl','flex_gemm-0.0.1-cp311-cp311-win_amd64.whl','o_voxel-0.0.1-cp311-cp311-win_amd64.whl'):
-        run(args.uv,'pip','install','--python',python,'--no-deps',wheels/filename)
+    install_native_packages(args.uv,python,plan)
     run(args.uv,'pip','install','--python',ROOT/'.mcp-venv/Scripts/python.exe','-r',ROOT/'requirements-mcp-lock.txt')
     ensure_web()
-    download_assets(manifest,not args.skip_rig)
+    run(python,'-B',ROOT/'gpu_runtime.py',label='Checking the installed CUDA extensions before model downloads...',timeout=180)
+    download_assets(manifest,{'generation','animations'})
     config=ROOT/'config/runtime.json';config.parent.mkdir(exist_ok=True)
-    if not config.exists():config.write_text(json.dumps(dict(wsl_distribution=args.wsl_distribution),indent=2))
-    if not args.skip_rig:
-        linux=subprocess.check_output(['wsl.exe','-d',args.wsl_distribution,'--exec','wslpath','-a','-u',str(ROOT/'installer/install_unirig.sh')],text=True).strip()
-        run('wsl.exe','-d',args.wsl_distribution,'--exec','bash',linux)
-    verify(not args.skip_rig)
+    if not config.exists():config.write_text(json.dumps(dict(wsl_distribution=distribution),indent=2))
+    if not args.skip_rig:install_rig(manifest,distribution)
+    verify(rig=False)
     record_workshop()
     print('INSTALLATION COMPLETE. Open TRELLIS.cmd launches Studio and MCP.',flush=True)
 
 if __name__=='__main__':
     try:main()
-    except (RuntimeError,OSError,subprocess.CalledProcessError,ValueError) as error:
+    except (RuntimeError,OSError,subprocess.SubprocessError,ValueError) as error:
         print('INSTALLATION STOPPED:',error,file=sys.stderr);sys.exit(1)

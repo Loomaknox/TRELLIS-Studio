@@ -23,7 +23,10 @@ os.chdir(ROOT / 'engine')
 from generation_options import (options_for_job, sampler_options, export_options, configure_simplifier,
                                 DENSE_MASTER, MASTER_FINISHING_METHODS, MASTER_FINISHING_TRIANGLES,
                                 TRIANGLE_MIN, validate_hd_reconstruction)
+from gpu_runtime import configure_attention, select_gpu
 from studio_workspace import write
+
+select_gpu(ROOT)
 options = options_for_job(settings)
 started = time.time()
 
@@ -305,6 +308,7 @@ def main():
     torch.set_num_threads(6)
     if not torch.cuda.is_available():
         raise RuntimeError('CUDA is unavailable in this environment.')
+    configure_attention(torch)
     torch.cuda.reset_peak_memory_stats()
     source_id = settings.get('finish_source_id') if settings.get('source_kind') == 'refinish' else None
     if source_id:

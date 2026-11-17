@@ -21,16 +21,16 @@ One local generation produced two finishes from the same saved source. The high-
 ## Get started
 
 1. Download the x64 Setup from [GitHub Releases](https://github.com/yoslo59/TRELLIS-Studio/releases). This preview is unsigned; the release also includes its SHA-256 checksum.
-2. Choose **TRELLIS Desktop (single user)** or **TRELLIS Server (multi-user)**. Both editions offer **Workshop only** for the library, 3D viewer and GLB import/export, or **Full Studio** for TRELLIS.2 generation, UniRig and Pixal3D. Full Studio requires a compatible NVIDIA driver, Blender and Ubuntu 22.04 under WSL2. Allow around **29 GiB** of model downloads plus packages and **100 GiB** of free space.
-3. Optionally select **Kimodo text-to-motion** and accept its separate model licences. Setup downloads and configures the CPU engine; it needs an initialized WSL2 Linux x64 distribution, an AVX2/FMA/F16C CPU and at least **12 GiB free inside WSL**. Its approximately **9.3 GB** of weights are additional to Full Studio. No NVIDIA GPU is needed for this optional motion engine. [Details and limits](docs/MOTION_GENERATION.md)
+2. Choose **TRELLIS Desktop (single user)** or **TRELLIS Server (multi-user)**. Setup detects the GPU and VRAM, helps locate Blender, and offers optional generation and rigging components. The Workshop includes the library, 3D viewer and standard animation files. Allow about **29 GiB** of model downloads plus packages and **100 GiB** of free space for the main AI components.
+3. Optionally select **Kimodo text-to-motion** and accept its separate model licences. This CPU engine needs initialized WSL2 Linux x64, AVX2/FMA/F16C, and at least **12 GiB free inside WSL**. Its approximately **9.3 GB** of weights are additional. [Details and limits](docs/MOTION_GENERATION.md)
 4. Open **TRELLIS Studio** or **TRELLIS Server** from the Start menu. Setup can add a desktop shortcut. A new Server installation guides you through creating the first administrator. See the [Server setup guide](docs/SERVER.md) for network access, account approval, quotas and personal API keys.
 
 Read the [Windows Setup guide](docs/WINDOWS_SETUP.md) for component installation, repair and uninstall. Downloads are resumable and verified with SHA-256. The uninstaller can stop its own idle local services and keeps the library.
 
-**New in 3.9.0** — Rebuild a cached source with **HD Master Finishing**, then
-reproject compatible Pixal3D generation views or fit a saved TRELLIS.2 image
-to the model. The header shows the installed version and available stable
-updates. See the [release notes](docs/RELEASE_3.9.0.md).
+**New in 3.10.0** — One Windows Setup detects the GPU, selects pinned packages
+for each component, and can resume a partial installation. The **Create**
+workspace brings together Game Asset and HD Master. See the
+[release notes](docs/RELEASE_3.10.0.md).
 
 ### Install from source
 
@@ -109,7 +109,7 @@ Dimensions and seeds belong to individual models.
 
 ### Optional Pixal3D generation
 
-**Full Studio** includes Pixal3D multi-view. On a source installation, run
+Windows Setup offers Pixal3D multi-view. On a source installation, run
 **Install Pixal3D.cmd**. Add the optional single-image checkpoint and MoGe-2
 camera estimator by running `"Install Pixal3D.cmd" --single-image` in Command
 Prompt from the Studio folder. See [optional setup](INSTALLATION.md#optional-pixal3d-generation).

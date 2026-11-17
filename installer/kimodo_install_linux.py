@@ -113,6 +113,12 @@ def smoke(root, manifest, threads):
     return dict(frames=60, fps=30, steps=10, seed=1234, backend='CPU', purpose='installation validation only')
 
 
+def runtime_paths(request, identifier, version):
+    namespace = 'trellis-studio-setup-test' if request.get('test_install') is True else 'trellis-studio'
+    home = Path.home()
+    return child(home / '.local/share' / namespace / 'kimodo', identifier + '/' + version), child(home, '.cache/' + namespace + '/kimodo')
+
+
 def install(request):
     system = probe()
     if request.get('accept_model_licenses') is not True:
@@ -124,10 +130,8 @@ def install(request):
     manifest = json.loads(manifest_path.read_text())
     if not re.fullmatch('[a-z0-9-]{1,80}', manifest['id']):
         raise ValueError('Invalid runtime version identifier.')
-    base = Path.home() / '.local/share/trellis-studio/kimodo'
-    root = child(base, identifier + '/' + manifest['id'])
+    root, cache = runtime_paths(request, identifier, manifest['id'])
     root.mkdir(parents=True, exist_ok=True)
-    cache = child(Path.home(), '.cache/trellis-studio/kimodo')
     cache.mkdir(parents=True, exist_ok=True)
     reuse = Path(request['cache_dir']).resolve() if request.get('cache_dir') else None
     by_key = {entry['key']: entry for entry in manifest['artifacts']}
@@ -238,7 +242,7 @@ def main():
     version = json.loads(Path(request['manifest']).read_text()).get('id', '')
     if not re.fullmatch('[a-f0-9]{20}', identifier) or not re.fullmatch('[a-z0-9-]{1,80}', version):
         raise ValueError('Invalid installation identifier.')
-    root = child(Path.home() / '.local/share/trellis-studio/kimodo', identifier + '/' + version)
+    root, _ = runtime_paths(request, identifier, version)
     marker = child(root, '.installer-process.json')
     if args.cancel:
         if marker.is_file():

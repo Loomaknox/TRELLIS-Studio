@@ -24,7 +24,20 @@ def find_blender():
     if configured:
         path = Path(configured)
         return path if path.is_file() else None
-    candidates = sorted(Path(os.environ.get('PROGRAMFILES', 'C:/Program Files')).glob('Blender Foundation/Blender */blender.exe'), reverse=True)
+    runtime = Path(__file__).resolve().parent / 'config' / 'runtime.json'
+    try:
+        settings = json.loads(runtime.read_text(encoding='utf-8-sig'))
+    except (OSError, ValueError):
+        settings = {}
+    configured = settings.get('blender_path') if isinstance(settings, dict) else None
+    if isinstance(configured, str) and configured:
+        path = Path(configured)
+        return path if path.is_absolute() and path.is_file() else None
+    on_path = shutil.which('blender.exe')
+    if on_path:
+        return Path(on_path)
+    program_files = os.environ.get('ProgramW6432') or os.environ.get('PROGRAMFILES', 'C:/Program Files')
+    candidates = sorted(Path(program_files).glob('Blender Foundation/Blender */blender.exe'), reverse=True)
     return candidates[0] if candidates else None
 
 def validate_glb(path):
