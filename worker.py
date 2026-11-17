@@ -21,7 +21,7 @@ os.environ.update({
 sys.path[:0] = [str(ROOT), str(ROOT / 'engine'), str(ROOT / 'engine' / 'o-voxel')]
 os.chdir(ROOT / 'engine')
 from generation_options import (options_for_job, sampler_options, export_options, configure_simplifier,
-                                validate_hd_reconstruction)
+                                MASTER_FINISHING_METHODS, MASTER_FINISHING_TRIANGLES, validate_hd_reconstruction)
 from studio_workspace import write
 options = options_for_job(settings)
 started = time.time()
@@ -131,16 +131,29 @@ def finish_mesh(torch, source):
                                refinish=settings.get('source_kind') == 'refinish')
     from wtivo_runtime import reconstruct, validate_wtivo_recipe
     wtivo = settings.get('wtivo_reconstruction', False)
+    master_finishing = settings.get('master_finishing')
+    if master_finishing is not None and (
+            master_finishing not in MASTER_FINISHING_METHODS or settings.get('source_kind') != 'refinish'
+            or int(source['resolution']) < 1024 or settings['triangles'] != MASTER_FINISHING_TRIANGLES
+            or wtivo != (master_finishing == 'wtivo_1024') or hd_reconstruction != (master_finishing == 'studio_768')
+            or any(settings.get(key) for key in ('adaptive_finishing', 'repair_surface', 'bake_normals', 'reproject_face'))):
+        raise ValueError('Invalid HD Master Finishing recipe.')
     validate_wtivo_recipe(wtivo, int(source['resolution']), refinish=settings.get('source_kind') == 'refinish',
                           hd_reconstruction=hd_reconstruction, repair_surface=settings.get('repair_surface', False),
                           adaptive=settings.get('adaptive_finishing', False), budget_preset=settings.get('budget_preset'))
     wtivo_report = None
+    trim_report = None
     if wtivo:
         status('running', 'Reconstructing the cached mesh with WTiVo 1024', 82)
         torch.cuda.empty_cache()
         rebuilt_vertices, rebuilt_faces, wtivo_report = reconstruct(
             ROOT, JOB, source['vertices'].cpu().numpy(), source['faces'].cpu().numpy())
-        status('running', 'Reducing and baking the WTiVo mesh', 84)
+        if master_finishing:
+            from master_mesh import trim_wtivo_master
+            status('running', 'Trimming the dense WTiVo surface in Blender', 84)
+            rebuilt_vertices, rebuilt_faces, trim_report = trim_wtivo_master(
+                ROOT, JOB, rebuilt_vertices, rebuilt_faces, MASTER_FINISHING_TRIANGLES)
+        status('running', 'Finishing the WTiVo master' if master_finishing else 'Reducing and baking the WTiVo mesh', 84)
     import cumesh
     import o_voxel
     configure_simplifier(cumesh, options)
@@ -153,6 +166,8 @@ def finish_mesh(torch, source):
     spec.loader.exec_module(module)
     export = module.to_glb
     export_kwargs = export_options(options)
+    if master_finishing:
+        export_kwargs['master_finishing'] = True
     if wtivo:
         export_kwargs.update(remesh=False, repair_holes=False,
                              reconstructed_mesh=(torch.from_numpy(rebuilt_vertices), torch.from_numpy(rebuilt_faces)))
@@ -195,6 +210,10 @@ def finish_mesh(torch, source):
         result.metadata['finishing']['hd_reconstruction'] = True
     if wtivo_report is not None:
         result.metadata['finishing']['wtivo_reconstruction'] = wtivo_report
+    if master_finishing:
+        result.metadata['finishing']['master_finishing'] = dict(
+            method=master_finishing, triangle_ceiling=MASTER_FINISHING_TRIANGLES,
+            trim=trim_report or dict(method='CuMesh', output_triangles=len(result.faces)))
     if source.get('coordinate_system') == 'y_up':
         # Pixal3D is already Y-up. Undo O-Voxel's Z-up to Y-up export conversion.
         result.apply_transform([[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]])
@@ -259,6 +278,24 @@ def project_requested_face():
     return report
 
 
+def preserve_master_generation_views(source_id, result):
+    if settings.get('engine') != 'pixal3d':
+        return
+    from generation_view_projection import inspect_generation_views, save_generation_views, verify_generation_view_inputs
+    folder = JOB.parent / source_id
+    original = folder / 'model.glb'
+    capability, provenance = inspect_generation_views(folder, original, settings, True, '')
+    if provenance is None:
+        print(capability['reason'], flush=True)
+        return
+    try:
+        # Verify that the references copied into this variant still match the saved cameras.
+        verify_generation_view_inputs(JOB, original, provenance)
+        save_generation_views(JOB, result.metadata['finishing']['normalization'], provenance['views'])
+    except (OSError, ValueError) as error:
+        print(f'Unable to preserve calibrated generation views: {error}', flush=True)
+
+
 def main():
     import torch
     torch.set_num_threads(6)
@@ -279,6 +316,8 @@ def main():
     resolution = source['resolution']
     result = finish_mesh(torch, source)
     face_report = project_requested_face()
+    if source_id and settings.get('master_finishing'):
+        preserve_master_generation_views(source_id, result)
     with (JOB / 'model.glb').open('rb') as model_file:
         result.metadata['finishing']['model_sha256'] = hashlib.file_digest(model_file, 'sha256').hexdigest()
     stats = dict(name=settings['name'], height_m=settings['height_m'], seed=settings['seed'],
@@ -318,8 +357,11 @@ if __name__ == '__main__':
         message = str(error)
         finishing = settings.get('source_kind') == 'refinish'
         if 'out of memory' in message.lower():
-            message = ('Insufficient GPU memory. Reduce the triangle budget or texture size, then try again.'
-                       if finishing else 'Insufficient GPU memory. Reduce 3D resolution (1536 → 1024 → 512) or texture size (4K → 2K), then try again.')
+            if settings.get('master_finishing'):
+                message = 'Insufficient GPU memory for HD Master Finishing. Try a smaller texture size or Studio 768.'
+            else:
+                message = ('Insufficient GPU memory. Reduce the triangle budget or texture size, then try again.'
+                           if finishing else 'Insufficient GPU memory. Reduce 3D resolution (1536 → 1024 → 512) or texture size (4K → 2K), then try again.')
         stage = 'Finishing failed' if finishing else 'Generation failed'
         status('error', stage, 0, error=message[:1400])
         sys.exit(1)

@@ -10,7 +10,8 @@ from studio_workspace import Workspace,read,write,name,checkpoint,revisions,ID,S
 from library_actions import validate_ids
 from glb_data import read as read_glb,animation_info
 from generation_options import (DENSE_MASTER, DENSE_MASTER_TRIANGLES, GENERATION_PRESETS,
-                                HD_RECONSTRUCTION_FINISHING, TRIANGLE_MAX, TRIANGLE_MIN,
+                                HD_RECONSTRUCTION_FINISHING, MASTER_FINISHING_METHODS,
+                                MASTER_FINISHING_TEXTURE, MASTER_FINISHING_TRIANGLES, TRIANGLE_MAX, TRIANGLE_MIN,
                                 options_for_job, validate_hd_reconstruction)
 from pixal3d_runtime import validate_views
 from reference_preparation import PREPARED_VIEWS
@@ -87,6 +88,7 @@ class FinishingRecipe(NamedTuple):
     normal_source: str
     hd_reconstruction: bool
     wtivo_reconstruction: bool
+    master_finishing: str | None
 
 
 def cached_source_resolution(source):
@@ -97,6 +99,21 @@ def cached_source_resolution(source):
     if isinstance(settings, dict) and type(settings.get('resolution')) is int:
         return settings['resolution']
     return 512
+
+
+def master_finishing_capability(resolution, textures, wtivo, wtivo_reason, blender):
+    studio = resolution >= 1024
+    if wtivo and not blender:
+        wtivo = False
+        wtivo_reason = 'Install Blender for WTiVo HD Master Finishing or choose Studio 768.'
+    methods = {
+        'wtivo_1024': dict(available=wtivo, reason=wtivo_reason),
+        'studio_768': dict(available=studio, reason='' if studio else 'Use a saved 1024 or 1536 source.'),
+    }
+    return dict(source_resolution=resolution, methods=methods,
+                default_method=next((method for method in MASTER_FINISHING_METHODS if methods[method]['available']), None),
+                triangle_ceiling=MASTER_FINISHING_TRIANGLES,
+                default_texture_size=min(MASTER_FINISHING_TEXTURE, max(textures)))
 
 
 def triangle_presets(record):
@@ -212,6 +229,26 @@ class StudioServices:
         return folder, record, source_id
 
     def finishing_recipe(self, data, record, options, source_resolution):
+        if isinstance(data, dict) and 'master_finishing' in data:
+            method = data['master_finishing']
+            if method not in MASTER_FINISHING_METHODS or set(data) - {'master_finishing', 'texture_size'}:
+                raise ValueError('Choose an HD Master Finishing method and texture size.')
+            if source_resolution < 1024:
+                raise ValueError('HD Master Finishing requires a saved 1024 or 1536 source.')
+            textures = self.g['generation_capabilities']()[1]
+            texture_size = data.get('texture_size', min(MASTER_FINISHING_TEXTURE, max(textures)))
+            if type(texture_size) is not int or texture_size not in textures:
+                raise ValueError('Choose a supported texture size.')
+            if method == 'wtivo_1024':
+                ready, reason = wtivo_capability(self.root, source_resolution)
+                if not ready:
+                    raise HTTPException(503, reason)
+                if not self.g['find_blender']():
+                    raise HTTPException(503, 'Install Blender for WTiVo HD Master Finishing or choose Studio 768.')
+            return FinishingRecipe(MASTER_FINISHING_TRIANGLES, texture_size, 'remesh', method == 'studio_768',
+                                   False, False, None, False, False,
+                                   768 if method == 'studio_768' else 1024, 'trilinear', 'decoded',
+                                   method == 'studio_768', method == 'wtivo_1024', method)
         if not isinstance(data, dict) or set(data) - {'triangles', 'texture_size', 'mesh_mode', 'repair_holes',
                                                         'pre_simplify', 'adaptive_finishing',
                                                         'budget_preset', 'bake_normals', 'repair_surface',
@@ -282,11 +319,12 @@ class StudioServices:
             remesh_resolution = options['remesh_resolution']
         return FinishingRecipe(triangles, texture_size, mesh_mode, repair, pre_simplify, adaptive, preset,
                                bake_normals, repair_surface, remesh_resolution, texture_sampling, normal_source,
-                               hd_reconstruction, wtivo)
+                               hd_reconstruction, wtivo, None)
 
     def create_finishing_variant(self, variant, folder, record, source_id, options, recipe):
         (triangles, texture_size, mesh_mode, repair, pre_simplify, adaptive, preset, bake_normals,
-         repair_surface, remesh_resolution, texture_sampling, normal_source, hd_reconstruction, wtivo) = recipe
+         repair_surface, remesh_resolution, texture_sampling, normal_source, hd_reconstruction, wtivo,
+         master_finishing) = recipe
         variant.mkdir()
         settings = dict(record['settings'])
         settings.pop('keep_finishing_source', None)
@@ -296,6 +334,7 @@ class StudioServices:
         settings.pop('repair_surface', None)
         settings.pop('hd_reconstruction', None)
         settings.pop('wtivo_reconstruction', None)
+        settings.pop('master_finishing', None)
         for key in ('normal_source', 'normal_source_id', 'normal_source_model_sha256', 'normal_source_normalization'):
             settings.pop(key, None)
         if adaptive:
@@ -316,18 +355,25 @@ class StudioServices:
             settings['hd_reconstruction'] = True
         if wtivo:
             settings['wtivo_reconstruction'] = True
+        if master_finishing:
+            settings['master_finishing'] = master_finishing
+            settings.pop('reproject_face', None)
         if isinstance(settings.get('profile_snapshot'), dict):
             snapshot = settings['profile_snapshot'].copy()
             snapshot.pop('adaptive_finishing', None)
             snapshot.pop('repair_surface', None)
             snapshot.pop('hd_reconstruction', None)
             snapshot.pop('wtivo_reconstruction', None)
+            snapshot.pop('master_finishing', None)
             if repair_surface:
                 snapshot['repair_surface'] = True
             if hd_reconstruction:
                 snapshot['hd_reconstruction'] = True
             if wtivo:
                 snapshot['wtivo_reconstruction'] = True
+            if master_finishing:
+                snapshot['master_finishing'] = master_finishing
+                snapshot.pop('reproject_face', None)
             settings['profile_snapshot'] = snapshot
         settings.update(created=time.time(), parent_id=folder.name, source_kind='refinish',
                         finish_source_id=source_id, triangles=triangles, texture_size=texture_size,
@@ -347,6 +393,8 @@ class StudioServices:
             mode_label = 'HD 768 ≤'
         if wtivo:
             mode_label = 'WTiVo 1024 ≤'
+        if master_finishing:
+            mode_label = 'HD Master ' + mode_label
         normal_label = ' + normal map' if bake_normals else ''
         suffix = f' · {mode_label} {triangles / 1000:g}k · {texture_size // 1024}K{normal_label}'
         metadata.update(display_name=label[:80-len(suffix)] + suffix, review_state='review', favorite=False)
@@ -380,6 +428,8 @@ class StudioServices:
     def retry_recipe(self, folder, saved, priority, changes):
         if not isinstance(changes, dict) or set(changes) - RETRY_FIELDS:
             raise ValueError('Choose only editable queue settings.')
+        if saved.get('master_finishing') and set(changes) - {'resolution', 'texture_size', 'height_m', 'priority'}:
+            raise ValueError('HD Master Finishing fixes the reconstruction and triangle ceiling.')
 
         refinish = saved.get('source_kind') == 'refinish'
         pixal = saved.get('engine') == 'pixal3d'
@@ -454,6 +504,8 @@ class StudioServices:
             ready, reason = wtivo_capability(self.root, source_resolution)
             if not ready:
                 raise HTTPException(503, reason)
+            if saved.get('master_finishing') and not self.g['find_blender']():
+                raise HTTPException(503, 'Install Blender for WTiVo HD Master Finishing or choose Studio 768.')
             settings['wtivo_reconstruction'] = True
         else:
             settings.pop('wtivo_reconstruction', None)
@@ -731,14 +783,17 @@ class StudioServices:
                 raise HTTPException(409, 'Unable to read the finishing cache or choice.') from error
             source_resolution = cached_source_resolution(source)
             wtivo, wtivo_reason = wtivo_capability(self.root, source_resolution)
+            textures = self.g['generation_capabilities']()[1]
             return dict(source_id=source_id, source_triangles=finishing_source_triangles(source), cache_bytes=cache_bytes,
-                        texture_sizes=self.g['generation_capabilities']()[1],
+                        texture_sizes=textures,
                         triangle_limits=dict(min=TRIANGLE_MIN, max=TRIANGLE_MAX),
                         triangle_presets=triangle_presets(record),
                         normal_bake=normal_bake,
                         repair_surface=True,
                         hd_reconstruction=source_resolution >= HD_RECONSTRUCTION_FINISHING['remesh_resolution'],
                         wtivo_reconstruction=wtivo, wtivo_reason=wtivo_reason,
+                        master_finishing=master_finishing_capability(source_resolution, textures, wtivo, wtivo_reason,
+                                                                     normal_bake),
                         remesh_resolutions=[512, 768, 1024], texture_sampling_modes=['trilinear', 'nearest'],
                         normal_sources=normal_sources,
                         parent_normal_source=parent_normal_source,

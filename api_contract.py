@@ -252,6 +252,8 @@ class JobRetry(Contract):
 
 
 class Refinish(Contract):
+    master_finishing: Literal['wtivo_1024', 'studio_768'] | None = Field(default=None,
+        description='Create an HD Master Finishing variant. Choose the reconstruction method and optionally the texture size.')
     triangles: int | None = Field(default=None, ge=TRIANGLE_MIN, le=TRIANGLE_MAX)
     budget_preset: Literal['low', 'medium', 'high', 'ultra'] | None = None
     texture_size: Literal[1024, 2048, 4096] | None = None
@@ -270,6 +272,8 @@ class Refinish(Contract):
 
     @model_validator(mode='after')
     def validate_budget(self):
+        if self.master_finishing is not None and self.model_dump(exclude_none=True).keys() - {'master_finishing', 'texture_size'}:
+            raise ValueError('HD Master Finishing accepts only a reconstruction method and texture size.')
         if self.triangles is not None and self.budget_preset is not None:
             raise ValueError('Choose either a triangle count or a preset.')
         return self
@@ -288,6 +292,19 @@ class ParentNormalSource(Contract):
     unavailable_reason: str | None
 
 
+class MasterFinishingMethod(Contract):
+    available: bool
+    reason: str
+
+
+class MasterFinishingOptions(Contract):
+    source_resolution: int
+    default_method: Literal['wtivo_1024', 'studio_768'] | None
+    methods: dict[Literal['wtivo_1024', 'studio_768'], MasterFinishingMethod]
+    triangle_ceiling: int
+    default_texture_size: int
+
+
 class FinishingOptions(Contract):
     source_id: Identifier
     source_triangles: int | None
@@ -300,6 +317,7 @@ class FinishingOptions(Contract):
     hd_reconstruction: bool = False
     wtivo_reconstruction: bool = False
     wtivo_reason: str = ''
+    master_finishing: MasterFinishingOptions | None = None
     remesh_resolutions: list[int]
     texture_sampling_modes: list[str]
     normal_sources: list[str]

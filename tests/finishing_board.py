@@ -113,6 +113,7 @@ def run():
                 assert send('GET', legacy_route)['source_triangles'] is None
                 assert board['selected_id'] is None
                 assert send('GET', '/api/status')['default_profile'] == 'game_d'
+                assert 'hd_master_finishing' in send('GET', '/api/status')['features']
                 send('PATCH', '/api/queue', json={'paused': True})
                 send('POST', route, 400, json={'variants': [{'triangles': 80000}, {'seed': 7}]})
                 send('POST', route, 400, json={'variants': [{}, {}]})
@@ -167,9 +168,41 @@ def run():
                     info = send('GET', f'/api/v1/models/{SOURCE}/finishing-board')
                     assert not info['wtivo_reconstruction'] and info['wtivo_reason'] == 'Configure WTiVo first.'
                     send('POST', refinish_route, 503, json={'wtivo_reconstruction': True})
+                    master = info['master_finishing']
+                    assert master['source_resolution'] == 1024 and master['default_method'] == 'studio_768'
+                    assert master['triangle_ceiling'] == 3_000_000 and master['default_texture_size'] == max(info['texture_sizes'])
+                    assert master['methods']['wtivo_1024'] == dict(available=False, reason='Configure WTiVo first.')
+                    send('POST', refinish_route, 503, json={'master_finishing': 'wtivo_1024'})
+                    send('POST', refinish_route, 400, json={'master_finishing': 'studio_768', 'triangles': 15000})
+                    send('POST', f'/api/v1/models/{SOURCE}/refinish', 422,
+                         json={'master_finishing': 'studio_768', 'bake_normals': True})
+                    assert send('GET', legacy_route)['master_finishing']['default_method'] is None
+                    send('POST', f'/api/jobs/{OTHER}/refinish', 400, json={'master_finishing': 'studio_768'})
+                    finished = send('POST', f'/api/v1/models/{SOURCE}/refinish', 202,
+                                    json={'master_finishing': 'studio_768'})
+                    saved = wait_for(finished['id'], 'queued')['settings']
+                    assert saved['master_finishing'] == 'studio_768' and saved['hd_reconstruction']
+                    assert saved['triangles'] == 3_000_000 and saved['texture_size'] == master['default_texture_size']
+                    assert not any(saved.get(key) for key in ('bake_normals', 'reproject_face', 'wtivo_reconstruction'))
+                    assert 'raw_state.pt' not in {path.name for path in (app.OUTPUT / finished['id']).iterdir()}
+                    send('POST', f'/api/jobs/{finished["id"]}/cancel')
+                    send('POST', f'/api/v1/queue/{finished["id"]}/retry', 400, json={'triangles': 15000})
+                    retried = send('POST', f'/api/v1/queue/{finished["id"]}/retry', 202, json={'texture_size': 1024})
+                    retry_settings = wait_for(retried['id'], 'queued')['settings']
+                    assert retry_settings['master_finishing'] == 'studio_768' and retry_settings['texture_size'] == 1024
                 with patch('studio_api.wtivo_capability', return_value=(True, '')):
                     info = send('GET', f'/api/v1/models/{SOURCE}/finishing-board')
                     assert info['wtivo_reconstruction'] and info['wtivo_reason'] == ''
+                    with patch.object(app, 'find_blender', return_value=None):
+                        assert send('GET', route)['master_finishing']['default_method'] == 'studio_768'
+                        send('POST', refinish_route, 503, json={'master_finishing': 'wtivo_1024'})
+                    with patch.object(app, 'find_blender', return_value=Path('fixture-blender')):
+                        assert send('GET', route)['master_finishing']['default_method'] == 'wtivo_1024'
+                        wtivo_master = send('POST', refinish_route, 202, json={'master_finishing': 'wtivo_1024'})['id']
+                        saved = wait_for(wtivo_master, 'queued')['settings']
+                        assert saved['master_finishing'] == 'wtivo_1024' and saved['wtivo_reconstruction']
+                        assert saved['triangles'] == 3_000_000 and not saved.get('hd_reconstruction')
+                        send('POST', f'/api/jobs/{wtivo_master}/cancel')
                     send('POST', f'/api/jobs/{OTHER}/refinish', 400, json={'wtivo_reconstruction': True})
                     comparison = send('POST', f'/api/v1/models/{SOURCE}/finishing-board', 202,
                                       json={'variants': [{'hd_reconstruction': True}, {'wtivo_reconstruction': True}]})

@@ -65,6 +65,8 @@ Choose **Repair holes** under **Master finishing** with Dense Master to rebuild 
 
 Choose **HD Reconstruction (768)** with Dense Master, or in **Remesh** for a compatible saved source, to rebuild a cracked surface at the HD budget. The recipe uses a 768 reconstruction grid, band 1, surface projection 0, small-hole filling, and no pre-decimation. Check close-ups of seams, fingers and openings because reconstruction can soften fine geometry.
 
+Open **Prepare → HD Master Finishing** on a model with a 1024 or 1536 cached source to create a linked dense PBR master. Choose **WTiVo 1024** with the external runtime and Blender, or **Studio 768** with the built-in reconstruction. Both methods cap the master at 3 million triangles and default to 4K textures where enabled. Studio unwraps the finished geometry and samples the cached material volume without rerunning generation. Use **Texture Projection** for further color work or **Game Copy from HD** to build a separate low-poly copy. [Workflow and engine details](docs/WTIVO.md)
+
 On a completed model with a saved source, open **Remesh** in the viewer toolbar or **Refinish model** in the card menu.
 
 | Model | Low | Medium (game) | High | Ultra |

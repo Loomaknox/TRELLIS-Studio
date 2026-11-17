@@ -310,6 +310,16 @@ preview setting. Previewing uses zero generation credits.
   the board. WTiVo uses grid 1024 and a fixed triangle ceiling (default 1.2M).
   It can be compared with Studio 768 in the same board batch. Each recipe
   chooses one method and WTiVo supports manual triangle budgets and normal baking.
+- For a dense PBR master, submit `{"master_finishing":"wtivo_1024"}` or
+  `{"master_finishing":"studio_768"}` to the same refinish endpoint.
+  Read `master_finishing` from the board for the saved source resolution,
+  method availability and reasons, the default method, the 3M triangle ceiling
+  and the default atlas size. An explicit `texture_size` is the only additional
+  recipe field. WTiVo HD Master Finishing requires the external runtime and
+  Blender. The built-in Studio 768 recipe needs neither. Both use the saved
+  decoded PBR volume, and the completed result records pre-UV topology and
+  atlas coverage. Geometry size, orientation and method can be reviewed
+  before a separate texture projection or game-copy operation.
 - `POST /models/{id}/finishing-board` accepts `{"variants":[...]}` with one
   to three distinct recipes. Poll `GET /jobs/{id}` for each returned ID. Save a
   completed variant as the board's choice with

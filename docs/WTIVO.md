@@ -13,6 +13,30 @@ ceiling. Inspect intentional openings, fingers, accessories and texture seams.
 The WTiVo audit describes geometry **before** simplification. A reduced or
 multi-component result may still report open edges or multiple shells.
 
+## HD Master Finishing
+
+The **Prepare → HD Master Finishing** workflow adapts the dense part of
+[PixelArtistry workflow 02](https://github.com/pixelartistry/PixelArtistry-Watertight-Meshes/blob/main/workflows/PixelArtistry_02_Image_to_GameReady_Asset.json).
+It uses WTiVo grid 1024 with all output components, followed by Blender's
+[Decimate Collapse](https://docs.blender.org/manual/en/latest/modeling/modifiers/generate/decimate.html)
+to trim oversized surfaces, then Studio UV unwrapping and PBR baking from the
+original sparse material volume. The saved inference resolution defines available
+source detail. The reconstruction grid defines the intermediate surface.
+
+The master uses a 3M triangle ceiling and defaults to a 4K atlas on hosts with
+4K enabled. Studio uses its own Blender bridge and UV/PBR exporter. The source
+can be a saved 1024 or 1536 generation. The workflow preserves indexed
+connectivity after the trim, removes tiny isolated shells and reports indexed
+and exact-position edge incidence before UV splitting. Compare these diagnostics
+before deciding whether the model meets a print or game topology requirement.
+The built-in alternative uses Studio's 768 reconstruction and CuMesh cleanup.
+
+The bake samples the nearest point on the decoded surface and blends occupied
+material voxels. It records coverage and inpainted texels. Pixel Match remains
+available on compatible Pixal3D models with verified saved views. The Game Copy
+from HD tool can use the finished master as a donor for reduced geometry and
+normal baking.
+
 ## Provision the external runtime
 
 On a Windows x64 host with an NVIDIA GPU, provide a private Python 3.12 x64

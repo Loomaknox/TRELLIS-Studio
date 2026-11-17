@@ -234,13 +234,13 @@ def install(app,g):
         return g['diagnostics_report'](identifier)
 
     @router.post('/models/{identifier}/refinish', tags=['Preparation'], status_code=202,
-                 response_model=JobAccepted, summary='Queue a linked finishing or hole-repair variant from cached geometry')
+                 response_model=JobAccepted, summary='Queue a linked HD master, finishing or hole-repair variant from cached geometry')
     async def refinish(identifier: Identifier, data: Refinish):
         return accepted(await legacy('POST', f'/api/jobs/{identifier}/refinish',
                                      data.model_dump(exclude_none=True)))
 
     @router.get('/models/{identifier}/finishing-board', tags=['Preparation'],
-                response_model=FinishingOptions, summary='Read the cached source and supported finishing budgets')
+                response_model=FinishingOptions, summary='Read the cached source and available HD master and finishing options')
     async def finishing_board(identifier: Identifier):
         return await legacy('GET', f'/api/jobs/{identifier}/finishing-board')
 

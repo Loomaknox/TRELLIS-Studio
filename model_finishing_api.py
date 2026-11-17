@@ -68,7 +68,8 @@ def install(router, app, upload):
         }
         for key in ('finish_source_id', 'keep_finishing_source', 'bake_normals',
                     'normal_source', 'normal_source_id', 'normal_source_model_sha256',
-                    'normal_source_normalization', 'repair_surface', 'hd_reconstruction', 'wtivo_reconstruction'):
+                    'normal_source_normalization', 'repair_surface', 'hd_reconstruction', 'wtivo_reconstruction',
+                    'master_finishing'):
             settings.pop(key, None)
         if operation == 'baked_game_copy':
             settings.update(triangles=options['triangles'], texture_size=options['texture_size'])

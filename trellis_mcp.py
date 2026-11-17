@@ -169,12 +169,12 @@ async def import_model(source:ImportModel)->dict[str,Any]:
 
 @tool(read=True)
 async def get_finishing_options(model_id: Identifier) -> dict[str, Any]:
-    """Read the reusable cache, triangle budgets, repair, Studio 768, WTiVo and normal map options for a model."""
+    """Read the reusable cache, HD Master Finishing methods and defaults, triangle budgets, repair and normal map options."""
     return await api('GET', f'/models/{model_id}/finishing-board')
 
 @tool()
 async def queue_refinish(model_id: Identifier, recipe: Refinish) -> dict[str, Any]:
-    """Create a linked Remesh variant from the saved cache. Choose hd_reconstruction for Studio 768 or wtivo_reconstruction for optional external WTiVo 1024. Poll get_model."""
+    """Create a linked variant from the saved cache. For a dense PBR master, pass master_finishing='wtivo_1024' or 'studio_768' and optionally texture_size. Read get_finishing_options for availability. The advanced reconstruction and game preparation routes remain available. Poll get_model."""
     return await api('POST', f'/models/{model_id}/refinish', recipe.model_dump(exclude_none=True))
 
 @tool(read=True)

@@ -60,6 +60,8 @@
 !/texture_projection.py
 !/generation_view_projection.py
 !/wtivo_runtime.py
+!/master_mesh.py
+!/master_mesh_blender.py
 !/third_party/
 /third_party/*
 !/third_party/assetfurnace/
@@ -261,6 +263,7 @@
 !/export_preflight.py
 !/web/export-preflight.js
 !/web/finishing-board.js
+!/web/hd-master-finishing.js
 !/docs/WINDOWS_SETUP.md
 !/docs/WTIVO.md
 !/docs/SERVER.md

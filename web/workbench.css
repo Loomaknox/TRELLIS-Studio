@@ -168,3 +168,41 @@
 @media (max-width: 850px) {
   .rig-job-notice { max-width: calc(100vw - 46px); }
 }
+
+.workbench-dialog.hd-master-dialog { max-width: 550px; }
+.hd-master-dialog .studio-dialog-head { align-items: center; }
+.hd-master-dialog .studio-dialog-head .eyebrow:empty { display: none; }
+.hd-master-dialog .studio-dialog-head h2 { margin-top: 0; }
+.hd-master-model { overflow-wrap: anywhere; }
+.hd-master-form { display: grid; gap: 14px; }
+.hd-master-form[hidden] { display: none; }
+.hd-master-metrics {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 14px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #43513e;
+  border-radius: 8px;
+  color: #aaba9f;
+  font-size: 12px;
+}
+.hd-master-metrics dd { margin: 0; color: #e2eddc; text-align: right; font-variant-numeric: tabular-nums; }
+.hd-master-options { display: grid; min-width: 0; gap: 6px; margin: 0; padding: 0; border: 0; }
+.hd-master-options legend { margin-bottom: 7px; padding: 0; font-size: 12px; font-weight: 600; }
+.hd-master-method {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 11px;
+  border: 1px solid #43513e;
+  border-radius: 8px;
+  background: #1a221b;
+  cursor: pointer;
+}
+.hd-master-method:has(input:checked) { border-color: #789a5e; background: #2c3b28; }
+.hd-master-method:has(input:disabled), .hd-master-options:disabled .hd-master-method { cursor: default; }
+.hd-master-method input { flex: none; width: 16px; height: 16px; margin: 0; padding: 0; accent-color: #b8e783; }
+.hd-master-method-copy { display: grid; gap: 3px; min-width: 0; font-size: 12px; }
+.hd-master-method-copy small { color: #a5b499; font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.hd-master-dialog .field, .hd-master-next { margin: 0; }

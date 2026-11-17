@@ -9,6 +9,9 @@ HUMANOID_EXPERIMENTAL = 'humanoid_experimental'
 DENSE_MASTER = 'dense_master'
 DENSE_MASTER_NAME = 'Dense Master'
 DENSE_MASTER_TRIANGLES = 1_200_000
+MASTER_FINISHING_TRIANGLES = 3_000_000
+MASTER_FINISHING_TEXTURE = 4096
+MASTER_FINISHING_METHODS = ('wtivo_1024', 'studio_768')
 DENSE_MASTER_FINISHING = dict(mesh_mode='direct', pre_simplify=False, repair_holes=False)
 SURFACE_REPAIR_FINISHING = dict(mesh_mode='remesh', pre_simplify=False, repair_holes=True,
                                 remesh_project=.45, remesh_band=1.)
