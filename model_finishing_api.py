@@ -8,8 +8,10 @@ from fastapi import HTTPException
 from PIL import Image
 
 from api_contract import (
-    BakedGameCopy, Identifier, JobAccepted, MultiViewTextureProjection, TextureProjectionRequest,
+    BakedGameCopy, GenerationViewTextureProjection, Identifier, JobAccepted, MultiViewTextureProjection,
+    TextureProjectionRequest,
 )
+from generation_view_projection import generation_reference, generation_reference_name, inspect_generation_views
 from studio_workspace import write
 
 
@@ -54,7 +56,7 @@ def install(router, app, upload):
             for key, label in REFERENCE_LABELS.items() if existing_file(folder, f'{key}.png')
         ]
 
-    async def prepare_copy(folder, record, source, operation, *, options=None, projections=()):
+    async def prepare_copy(folder, record, source, operation, *, options=None, projections=(), generation_views=None):
         target = app['OUTPUT'] / uuid.uuid4().hex
         label = 'Texture projection' if operation == 'texture_projection' else 'Baked game copy'
         settings = {
@@ -66,7 +68,8 @@ def install(router, app, upload):
         }
         for key in ('finish_source_id', 'keep_finishing_source', 'bake_normals',
                     'normal_source', 'normal_source_id', 'normal_source_model_sha256',
-                    'normal_source_normalization', 'repair_surface', 'hd_reconstruction'):
+                    'normal_source_normalization', 'repair_surface', 'hd_reconstruction', 'wtivo_reconstruction',
+                    'master_finishing'):
             settings.pop(key, None)
         if operation == 'baked_game_copy':
             settings.update(triangles=options['triangles'], texture_size=options['texture_size'])
@@ -82,7 +85,9 @@ def install(router, app, upload):
             name = f'projection-source{numbered}{reference.suffix.lower()}'
             staged_references[name] = reference
             projection_requests.append(dict(reference_file=name, options=view_options))
-        if len(projection_requests) > 1:
+        if generation_views is not None:
+            request['generation_views'] = generation_views
+        elif len(projection_requests) > 1:
             request['views'] = projection_requests
         elif projection_requests:
             request.update(projection_requests[0])
@@ -98,6 +103,11 @@ def install(router, app, upload):
                     shutil.copy2(path, target / path.name)
             for name, reference in staged_references.items():
                 shutil.copy2(reference, target / name)
+            if generation_views is not None:
+                for view in generation_views['views']:
+                    role = view['role']
+                    shutil.copy2(generation_reference(folder, role),
+                                 target / generation_reference_name(role, staged=True))
             write(target / 'settings.json', settings)
             write(target / 'metadata.json', metadata)
             write(target / 'finishing-request.json', request)
@@ -116,17 +126,30 @@ def install(router, app, upload):
                 summary='Check support for texture projection on a static model')
     async def projection_options(identifier: Identifier):
         from texture_projection import inspect_texture_projection
-        folder, _, source = model(identifier)
+        folder, record, source = model(identifier)
         support = await asyncio.to_thread(inspect_texture_projection, source)
+        calibrated, _ = await asyncio.to_thread(inspect_generation_views, folder, source, record['settings'],
+                                                support['supported'], support['reason'])
         return {**support, 'references': references(folder), 'max_views': 2,
                 'views': ['front', 'back', 'left', 'right', 'top', 'bottom', 'custom'],
                 'camera_projections': ['orthographic', 'perspective'],
-                'linked_selection': True, 'mask_shapes': ['ellipse', 'rectangle', 'polygon']}
+                'linked_selection': True, 'mask_shapes': ['ellipse', 'rectangle', 'polygon'],
+                'generation_views': calibrated}
 
     @router.post('/models/{identifier}/texture-projection', tags=['Models'], status_code=202,
-                 response_model=JobAccepted, summary='Project one or two reference images onto a linked copy')
+                 response_model=JobAccepted, summary='Project manual or saved generation views onto a linked copy')
     async def project(identifier: Identifier, recipe: TextureProjectionRequest):
         from texture_projection import MAX_REFERENCE_PIXELS, inspect_texture_projection, normalize_projection_options
+        if isinstance(recipe, GenerationViewTextureProjection):
+            async with app['LOCK']:
+                app['require_idle']()
+                folder, record, source = model(identifier)
+                support = await asyncio.to_thread(inspect_texture_projection, source)
+                calibrated, provenance = await asyncio.to_thread(inspect_generation_views, folder, source,
+                                                                   record['settings'], support['supported'], support['reason'])
+                if not calibrated['supported']:
+                    raise HTTPException(400, calibrated['reason'])
+                return await prepare_copy(folder, record, source, 'texture_projection', generation_views=provenance)
         views = recipe.views if isinstance(recipe, MultiViewTextureProjection) else [recipe]
         try:
             options = [normalize_projection_options(

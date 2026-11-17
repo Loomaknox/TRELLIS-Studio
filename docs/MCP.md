@@ -222,8 +222,23 @@ checking the library first, as the request may already have been accepted.
 
 ## Other tools and resources
 
+`get_finishing_options` reports `wtivo_reconstruction` and `wtivo_reason`.
+When available, `queue_refinish` accepts `{"wtivo_reconstruction":true}` along
+with optional `triangles`, `texture_size` and normal bake options for the
+external WTiVo 1024 method. `hd_reconstruction` continues to select Studio 768.
+Read the [external runtime setup](WTIVO.md) before using WTiVo.
+
+Read `master_finishing` in `get_finishing_options` before queuing a dense PBR
+master. Pass `{"master_finishing":"wtivo_1024","texture_size":4096}` or
+`{"master_finishing":"studio_768"}` to `queue_refinish`. The board reports
+the actual default atlas size and available methods on the host. Both create
+linked variants from the saved source with a 3M triangle ceiling.
+
 `get_texture_projection_options` lists compatible references, camera modes and
-the view limit. Pass one recipe to `queue_texture_projection` or pass a recipe
+the manual view limit. If `generation_views.supported` is true, pass
+`{"method":"generation_views"}` to `queue_texture_projection` for Pixel Match
+with the saved Pixal3D cameras and prepared views. For manual projection, pass
+one view recipe to `queue_texture_projection` or pass a recipe
 with a `views` list containing two complete view recipes. Each uses a saved
 reference or an ID from `upload_source`, with independent alignment and a
 preset or custom orthographic or perspective camera. Perspective cameras

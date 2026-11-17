@@ -27,6 +27,7 @@ from server_runtime import ROOT, ServerRuntime, remove_child, tree_bytes
 from server_store import DEFAULT_DISK_LIMIT, SESSION_SECONDS, Store, StoreError
 from server_setup import network_settings
 from studio_version import VERSION
+from studio_release import release_status, render_studio_version
 from studio_workspace import ID, read, write
 
 
@@ -580,7 +581,12 @@ def app_for(data, public_url, setup_token=None, on_setup=None):
         html = (ROOT / 'web' / 'studio.html').read_text(encoding='utf-8')
         shell = (f'<link rel="stylesheet" href="/web/server.css?v={VERSION}">'
                  f'<script type="module" src="/web/server-shell.js?v={VERSION}"></script>')
-        return HTMLResponse(html.replace('</head>', shell + '</head>', 1))
+        return HTMLResponse(render_studio_version(html).replace('</head>', shell + '</head>', 1))
+
+    @app.get('/api/release-status')
+    def studio_release_status(request: Request):
+        actor(request)
+        return release_status()
 
     @app.api_route('/api/{path:path}', methods=['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'DELETE'])
     async def studio_api(path: str, request: Request):

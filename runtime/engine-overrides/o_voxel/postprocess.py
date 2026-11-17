@@ -29,6 +29,37 @@ def within_repair_bounds(vertices, bounds, margin):
     return bool(((lower >= bounds[0] - margin) & (upper <= bounds[1] + margin)).all())
 
 
+def bake_master_material(positions, mask, vertices, faces, bvh, attr_volume, coords, aabb, voxel_size, grid_size):
+    """Project covered texels in batches and normalize over occupied material voxels."""
+    channel_count = attr_volume.shape[1]
+    occupied_volume = torch.cat([attr_volume, torch.ones_like(attr_volume[:, :1])], dim=1)
+    batch_coords = torch.cat([torch.zeros_like(coords[:, :1]), coords], dim=-1)
+    shape = torch.Size([1, channel_count + 1, *grid_size.tolist()])
+    texels = mask.flatten().nonzero(as_tuple=True)[0]
+    attrs = attr_volume.new_zeros((mask.numel(), channel_count))
+    supported_mask = torch.zeros_like(mask).flatten()
+    occupied_count = 0
+    partial_count = 0
+    for points, indices in zip(positions.split(1_000_000), texels.split(1_000_000), strict=True):
+        _, face_id, weights = bvh.unsigned_distance(points, return_uvw=True)
+        projected = (vertices[faces[face_id.long()]] * weights.unsqueeze(-1)).sum(dim=1)
+        grid = ((projected - aabb[0]) / voxel_size).reshape(1, -1, 3)
+        sampled = grid_sample_3d(occupied_volume, batch_coords, shape=shape, grid=grid, mode='trilinear')[0]
+        support = sampled[:, -1]
+        valid = support >= 1e-4
+        valid_indices = indices[valid]
+        attrs[valid_indices] = sampled[valid, :-1] / support[valid, None]
+        supported_mask[valid_indices] = True
+        occupied_count += len(valid_indices)
+        partial_count += int((valid & (support < 0.999)).sum().item())
+    if not occupied_count:
+        raise ValueError('The decoded material volume has no coverage on the master mesh.')
+    coverage = dict(rasterized_texels=len(texels), supported_texels=occupied_count,
+                    partially_supported_texels=partial_count, inpainted_texels=len(texels) - occupied_count,
+                    source='decoded sparse material volume', interpolation='occupancy-normalized trilinear')
+    return attrs.view(*mask.shape, channel_count), supported_mask.view_as(mask), coverage
+
+
 def to_glb(
     vertices: torch.Tensor,
     faces: torch.Tensor,
@@ -54,6 +85,8 @@ def to_glb(
     repair_surface: bool = False,
     remesh_resolution: int = 512,
     texture_sampling: str = 'trilinear',
+    reconstructed_mesh: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+    master_finishing: bool = False,
 ):
     """
     Convert an extracted mesh to a GLB file.
@@ -77,6 +110,8 @@ def to_glb(
         remesh_project: projection factor for remeshing
         remesh_resolution: explicit DC grid ceiling (512, 768 or 1024), not the generation grid
         texture_sampling: interpolation in the material voxel volume, after nearest-surface projection
+        reconstructed_mesh: optional replacement geometry in decoded coordinates; source vertices still donate the material
+        master_finishing: bake material from occupied voxels using bounded-size texel batches
         mesh_cluster_threshold_cone_half_angle_rad: threshold for cone-based clustering in uv unwrapping
         mesh_cluster_refine_iterations: number of iterations for refining clusters in uv unwrapping
         mesh_cluster_global_iterations: number of global iterations for clustering in uv unwrapping
@@ -86,6 +121,8 @@ def to_glb(
     """
     if repair_surface and not remesh:
         raise ValueError('Surface repair requires reconstruction.')
+    if reconstructed_mesh is not None and (remesh or repair_holes or adaptive_mesh is not None):
+        raise ValueError('External reconstruction requires its own finishing recipe.')
     if type(remesh_resolution) is not int or remesh_resolution not in (512, 768, 1024):
         raise ValueError('Reconstruction grid ceiling must be 512, 768 or 1024.')
     if texture_sampling not in ('trilinear', 'nearest'):
@@ -142,6 +179,7 @@ def to_glb(
     # Move data to GPU
     vertices = vertices.cuda()
     faces = faces.cuda()
+    raw_material_surface = (vertices.cpu(), faces.cpu()) if master_finishing and repair_holes else None
     repair_bounds = (vertices.amin(dim=0), vertices.amax(dim=0)) if repair_surface else None
     repair_margin = 4 * voxel_size
     initial_fill_used = repair_holes
@@ -199,7 +237,7 @@ def to_glb(
             vertices, faces, bvh, decimation_target, float(voxel_size.min()), verbose,
         )
         adaptive_report['reference'] = 'input surface after initial cleanup'
-    elif not remesh:
+    elif not remesh and reconstructed_mesh is None:
         # Step 1: Aggressive simplification (3x target)
         mesh.simplify(decimation_target * 3, verbose=verbose)
         if verbose:
@@ -229,37 +267,31 @@ def to_glb(
     
     # --- Branch 2: Remeshing Pipeline ---
     else:
-        center = aabb.mean(dim=0)
-        scale = (aabb[1] - aabb[0]).max().item()
-        resolution = grid_size.max().item()
-
-        # Keep the historical 512 cap unless the caller explicitly chooses a
-        # denser reconstruction. This changes the reconstructed geometry, not the
-        # attribute volume resolution. Never silently lower it after an OOM.
-        dc_resolution = min(int(resolution), remesh_resolution)
-        if verbose:
-            print(f'Reconstruction grid: {dc_resolution} (requested ceiling {remesh_resolution}, '
-                  f'generated grid {int(resolution)})', flush=True)
-        
         # Free CuMesh internal buffers before the heavy remesh allocation —
         # vertices/faces are still held separately for BVH texture baking later
         del mesh
         torch.cuda.empty_cache()
-        
-        # Perform Dual Contouring remeshing (rebuilds topology)
-        remesh_verts, remesh_faces = cumesh.remeshing.remesh_narrow_band_dc(
-            vertices, faces,
-            center = center,
-            scale = (dc_resolution + 3 * remesh_band) / dc_resolution * scale,
-            resolution = dc_resolution,
-            band = remesh_band,
-            project_back = remesh_project, # Snaps vertices back to original surface
-            verbose = verbose,
-            bvh = bvh,
-        )
+        if reconstructed_mesh is None:
+            center = aabb.mean(dim=0)
+            scale = (aabb[1] - aabb[0]).max().item()
+            resolution = grid_size.max().item()
+
+            # This changes the geometry grid independently of the material volume.
+            dc_resolution = min(int(resolution), remesh_resolution)
+            if verbose:
+                print(f'Reconstruction grid: {dc_resolution} (requested ceiling {remesh_resolution}, '
+                      f'generated grid {int(resolution)})', flush=True)
+            remesh_verts, remesh_faces = cumesh.remeshing.remesh_narrow_band_dc(
+                vertices, faces, center=center,
+                scale=(dc_resolution + 3 * remesh_band) / dc_resolution * scale,
+                resolution=dc_resolution, band=remesh_band, project_back=remesh_project,
+                verbose=verbose, bvh=bvh,
+            )
+        else:
+            remesh_verts, remesh_faces = (array.cuda() for array in reconstructed_mesh)
         # Offload original mesh to CPU and free BVH — not needed until texture baking.
-        vertices_cpu = vertices.cpu()
-        faces_cpu = faces.cpu()
+        vertices_cpu, faces_cpu = raw_material_surface if raw_material_surface is not None else (vertices.cpu(), faces.cpu())
+        del raw_material_surface
         del vertices, faces, bvh
         torch.cuda.empty_cache()
         _mesh_offloaded = True
@@ -273,11 +305,14 @@ def to_glb(
             print(f"After remeshing: {mesh.num_vertices} vertices, {mesh.num_faces} faces")
         
         if adaptive_mesh is None:
-            mesh.simplify(decimation_target, verbose=verbose)
-            if verbose:
-                print(f"After simplifying: {mesh.num_vertices} vertices, {mesh.num_faces} faces")
-            mesh.remove_duplicate_faces()
-            mesh.repair_non_manifold_edges()
+            # A master already trimmed in Blender keeps its indexed connectivity.
+            if not (master_finishing and reconstructed_mesh is not None):
+                if not master_finishing or mesh.num_faces > decimation_target:
+                    mesh.simplify(decimation_target, verbose=verbose)
+                if verbose:
+                    print(f"After simplifying: {mesh.num_vertices} vertices, {mesh.num_faces} faces")
+                mesh.remove_duplicate_faces()
+                mesh.repair_non_manifold_edges()
             mesh.remove_small_connected_components(1e-5)
             mesh.unify_face_orientations()
         else:
@@ -317,11 +352,15 @@ def to_glb(
     face_areas = torch.cross(v1 - v0, v2 - v0, dim=1).norm(dim=1)
     degenerate = face_areas < 1e-10
     if degenerate.any():
-        good_faces = faces_tmp[~degenerate]
+        faces_tmp = faces_tmp[~degenerate]
         mesh = cumesh.CuMesh()
-        mesh.init(verts_tmp, good_faces)
+        mesh.init(verts_tmp, faces_tmp)
         if verbose:
             print(f"Removed {degenerate.sum().item()} degenerate faces")
+    master_diagnostics = None
+    if master_finishing:
+        from master_mesh import master_topology
+        master_diagnostics = master_topology(verts_tmp.cpu().numpy(), faces_tmp.cpu().numpy())
     del verts_tmp, faces_tmp, v0, v1, v2, face_areas, degenerate
     
     out_vertices, out_faces, out_uvs, out_vmaps = mesh.uv_unwrap(
@@ -413,31 +452,31 @@ def to_glb(
         if verbose:
             print("Done")
 
-    _, face_id, uvw = bvh.unsigned_distance(valid_pos, return_uvw=True)
-    orig_tri_verts = vertices[faces[face_id.long()]] # (N_new, 3, 3)
-    valid_pos = (orig_tri_verts * uvw.unsqueeze(-1)).sum(dim=1)
-    
-    # Free original high-res mesh data and BVH — no longer needed
-    del vertices, faces, bvh, orig_tri_verts, face_id, uvw
-    torch.cuda.empty_cache()
-    
-    # Reload attr_volume and coords from CPU for texture sampling
-    attr_volume = attr_volume_cpu.cuda()
-    coords = coords_cpu.cuda()
-    del attr_volume_cpu, coords_cpu
-    
-    # Material interpolation is independent of the nearest-surface BVH projection.
-    attrs = torch.zeros(texture_size, texture_size, attr_volume.shape[1], device='cuda', dtype=attr_volume.dtype)
-    attrs[mask] = grid_sample_3d(
-        attr_volume,
-        torch.cat([torch.zeros_like(coords[:, :1]), coords], dim=-1),
-        shape=torch.Size([1, attr_volume.shape[1], *grid_size.tolist()]),
-        grid=((valid_pos - aabb[0]) / voxel_size).reshape(1, -1, 3),
-        mode=texture_sampling,
-    )
-    
-    # Free attr_volume and coords now that texture baking is done
-    del attr_volume, coords
+    material_coverage = None
+    if master_finishing:
+        attrs, mask, material_coverage = bake_master_material(
+            valid_pos, mask, vertices, faces, bvh, attr_volume_cpu.cuda(), coords_cpu.cuda(), aabb, voxel_size, grid_size)
+        del vertices, faces, bvh
+    else:
+        _, face_id, uvw = bvh.unsigned_distance(valid_pos, return_uvw=True)
+        orig_tri_verts = vertices[faces[face_id.long()]]
+        valid_pos = (orig_tri_verts * uvw.unsqueeze(-1)).sum(dim=1)
+        del vertices, faces, bvh, orig_tri_verts, face_id, uvw
+        torch.cuda.empty_cache()
+
+        # Material interpolation is independent of nearest-surface BVH projection.
+        attr_volume = attr_volume_cpu.cuda()
+        coords = coords_cpu.cuda()
+        attrs = torch.zeros(texture_size, texture_size, attr_volume.shape[1], device='cuda', dtype=attr_volume.dtype)
+        attrs[mask] = grid_sample_3d(
+            attr_volume,
+            torch.cat([torch.zeros_like(coords[:, :1]), coords], dim=-1),
+            shape=torch.Size([1, attr_volume.shape[1], *grid_size.tolist()]),
+            grid=((valid_pos - aabb[0]) / voxel_size).reshape(1, -1, 3),
+            mode=texture_sampling,
+        )
+        del attr_volume, coords
+    del attr_volume_cpu, coords_cpu, valid_pos
     torch.cuda.empty_cache()
 
     if use_tqdm:
@@ -477,7 +516,7 @@ def to_glb(
         metallicFactor=1.0,
         roughnessFactor=1.0,
         alphaMode=alpha_mode,
-        doubleSided=True if not remesh else False,
+        doubleSided=not remesh and reconstructed_mesh is None,
     )
     
     # --- Coordinate System Conversion & Final Object ---
@@ -499,7 +538,8 @@ def to_glb(
         visual=trimesh.visual.TextureVisuals(uv=uvs_np, material=material)
     )
     textured_mesh.metadata['finishing'] = dict(
-        method='remesh' if remesh else 'direct', input_triangles=input_triangles,
+        method='wtivo' if reconstructed_mesh is not None else 'remesh' if remesh else 'direct',
+        input_triangles=input_triangles,
         cleaned_source_triangles=cleaned_source_triangles,
         generated_grid_resolution=int(grid_size.max()),
         remesh_resolution_requested=remesh_resolution if remesh else None,
@@ -508,6 +548,10 @@ def to_glb(
         texture_sampling=texture_sampling, texture_projection='nearest point on source surface',
         initial_fill_used=initial_fill_used,
     )
+    if material_coverage is not None:
+        textured_mesh.metadata['finishing']['material_coverage'] = material_coverage
+    if master_diagnostics is not None:
+        textured_mesh.metadata['finishing']['topology_before_uv'] = master_diagnostics
     if adaptive_report is not None:
         textured_mesh.metadata['adaptive_finishing'] = adaptive_report
     if repair_surface:

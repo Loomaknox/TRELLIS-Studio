@@ -17,6 +17,9 @@ const cameraViews = {
     front: [0, 0], back: [180, 0], left: [-90, 0], right: [90, 0],
     top: [0, 90], bottom: [0, -90],
 };
+const generationViewFiles = {
+    front: 'prepared.png', left: 'prepared-left.png', back: 'prepared-back.png', right: 'prepared-right.png',
+};
 const defaultCamera = () => ({ view: 'front', projection: 'orthographic', yaw: 0, pitch: 0, roll: 0, fov: 35 });
 const titleCase = (value) => value[0].toUpperCase() + value.slice(1);
 const wrapAngle = (value) => ((value + 180) % 360 + 360) % 360 - 180;
@@ -211,6 +214,57 @@ export function createTextureProjection({ api, startJob }) {
     );
     const summary = el('p', 'tp-model-name');
     ui.element.querySelector('header > div').append(summary);
+    const methodChoices = el('div', 'tp-method-choices');
+    methodChoices.hidden = true;
+    methodChoices.setAttribute('role', 'group');
+    methodChoices.setAttribute('aria-label', 'Projection method');
+    const manualMethod = button('', 'image', 'secondary tp-method-choice');
+    const generationMethod = button('', 'camera', 'secondary tp-method-choice');
+    manualMethod.id = 'projectionManualMethod';
+    generationMethod.id = 'projectionGenerationMethod';
+    for (const [control, label, caption] of [
+        [manualMethod, 'Align references', 'Auto Align or manual controls'],
+        [generationMethod, 'Use generation views', 'Pixel Match · Saved cameras'],
+    ]) {
+        const copy = el('span', 'tp-method-copy');
+        const detail = el('small', '', caption);
+        detail.id = control.id + 'Detail';
+        copy.append(el('strong', '', label), detail);
+        control.lastChild.replaceWith(copy);
+        control.setAttribute('aria-label', label);
+        control.setAttribute('aria-describedby', detail.id);
+    }
+    manualMethod.setAttribute('aria-controls', 'projectionManualEditor');
+    generationMethod.setAttribute('aria-controls', 'projectionGenerationViews');
+    manualMethod.onclick = () => selectMethod('manual');
+    generationMethod.onclick = () => selectMethod('generation_views');
+    methodChoices.append(manualMethod, generationMethod);
+    const generationUnavailable = el('p', 'tp-method-unavailable');
+    generationUnavailable.id = 'projectionGenerationUnavailable';
+    generationUnavailable.hidden = true;
+    const generationPanel = el('section', 'tp-generation-views');
+    generationPanel.id = 'projectionGenerationViews';
+    generationPanel.hidden = true;
+    generationPanel.setAttribute('aria-labelledby', 'projectionGenerationViewsTitle');
+    const generationTitle = el('h3', '', 'Pixel Match');
+    generationTitle.id = 'projectionGenerationViewsTitle';
+    const generationInputs = el('div', 'tp-generation-inputs');
+    const generationCurrent = el('figure', 'tp-generation-current');
+    const sourceSnapshot = el('canvas', 'tp-generation-image');
+    sourceSnapshot.width = sourceSnapshot.height = 256;
+    sourceSnapshot.setAttribute('aria-hidden', 'true');
+    generationCurrent.append(sourceSnapshot, el('figcaption', '', 'Current model'));
+    const savedRoles = el('ul', 'tp-generation-roles');
+    savedRoles.setAttribute('aria-label', 'Saved views');
+    generationInputs.append(generationCurrent, savedRoles);
+    generationPanel.append(
+        generationTitle,
+        el('p', '', 'Project the saved cutouts using their generation cameras.'),
+        generationInputs,
+        el('p', '', 'Creates a linked copy. Pixel Match blends visible details and matches color around seams.'),
+    );
+    const manualEditor = el('div', 'tp-manual-editor');
+    manualEditor.id = 'projectionManualEditor';
     const viewStrip = el('div', 'tp-view-strip');
     viewStrip.hidden = true;
     const viewChoices = el('div', 'tp-view-choices');
@@ -616,7 +670,7 @@ export function createTextureProjection({ api, startJob }) {
     adjustments.append(cropDetails);
     const alignmentStatus = el('p', 'tp-alignment-status');
     alignmentStatus.setAttribute('role', 'status');
-    ui.body.append(
+    manualEditor.append(
         viewStrip,
         referenceFields,
         controlStrip,
@@ -628,6 +682,7 @@ export function createTextureProjection({ api, startJob }) {
         guidePanel,
         alignmentStatus,
     );
+    ui.body.append(methodChoices, generationUnavailable, generationPanel, manualEditor);
     const submit = button('Create texture copy', 'image', 'primary');
     submit.id = 'confirmTextureProjection';
     const submitLabel = submit.lastChild;
@@ -664,6 +719,40 @@ export function createTextureProjection({ api, startJob }) {
         scaleStart = null;
     let inactiveView = null;
     let activeViewIndex = 0;
+    let projectionMethod = 'manual';
+    let manualViewports = [];
+    let manualNotice = '';
+
+    function methodSwitchAvailable() {
+        return !pending && !uploading && !autoAlignRun && !gesture && !cameraRequest
+            && !Object.values(sides).some((side) => side.loading);
+    }
+    function selectMethod(method) {
+        if (method === projectionMethod || !board?.generation_views?.supported || !methodSwitchAvailable()) return;
+        closeToolbarPanel();
+        if (method === 'generation_views') {
+            manualViewports = Object.values(sides).map(({ viewport }) => [viewport.scrollLeft, viewport.scrollTop]);
+            manualNotice = ui.notice.textContent;
+            const current = sides.target.image;
+            generationCurrent.hidden = !current;
+            if (current) {
+                const snapshot = sourceSnapshot.getContext('2d');
+                snapshot.clearRect(0, 0, sourceSnapshot.width, sourceSnapshot.height);
+                snapshot.drawImage(current, 0, 0, sourceSnapshot.width, sourceSnapshot.height);
+            }
+        }
+        projectionMethod = method;
+        ui.notice.textContent = method === 'manual' ? manualNotice : '';
+        changed();
+        if (method === 'manual') {
+            Object.keys(sides).forEach((key, index) => {
+                applyZoom(key);
+                const [left, top] = manualViewports[index];
+                sides[key].viewport.scrollLeft = left;
+                sides[key].viewport.scrollTop = top;
+            });
+        }
+    }
     function setupToolbarPanel(panel, opener) {
         panel.hidden = true;
         panel.setAttribute('role', 'dialog');
@@ -1170,6 +1259,28 @@ export function createTextureProjection({ api, startJob }) {
         return !selectedReference ? 'Needs image' : issue ? 'Needs alignment' : 'Ready';
     }
     function changed() {
+        const generationAvailable = board?.generation_views?.supported === true;
+        const useGeneration = generationAvailable && projectionMethod === 'generation_views';
+        const showMethods = board?.supported && board?.generation_views != null;
+        const showUnavailable = showMethods && !generationAvailable;
+        ui.element.classList.toggle('tp-saved-view-mode', useGeneration);
+        methodChoices.hidden = !showMethods;
+        generationUnavailable.hidden = !showUnavailable;
+        generationMethod.setAttribute('aria-describedby', 'projectionGenerationMethodDetail'
+            + (showUnavailable ? ' projectionGenerationUnavailable' : ''));
+        manualEditor.hidden = useGeneration;
+        generationPanel.hidden = !useGeneration;
+        manualMethod.setAttribute('aria-pressed', String(!useGeneration));
+        generationMethod.setAttribute('aria-pressed', String(useGeneration));
+        manualMethod.disabled = !methodSwitchAvailable();
+        generationMethod.disabled = manualMethod.disabled || !generationAvailable;
+        if (useGeneration) {
+            submit.disabled = pending;
+            submitLabel.nodeValue = 'Create texture copy';
+            const count = savedRoles.childElementCount;
+            viewStatus.textContent = count + (count === 1 ? ' saved view' : ' saved views');
+            return;
+        }
         const { ready, issue } = inspectView();
         const multiple = inactiveView !== null;
         submit.disabled = pending || uploading || !!autoAlignRun || !board?.supported || gesture?.kind === 'orbit'
@@ -1660,19 +1771,22 @@ export function createTextureProjection({ api, startJob }) {
     }
     submit.onclick = async () => {
         if (submit.disabled || !base) return;
-        const { bounds, issue } = inspectView();
-        if (issue || (inactiveView && !inactiveView.recipe)) return;
-        const id = base.id,
-            version = opening,
-            current = projectionRecipe(bounds);
-        let value = current;
-        if (inactiveView) {
-            const other = inactiveView.recipe;
-            value = { views: activeViewIndex === 0 ? [current, other] : [other, current] };
+        let value;
+        const useGeneration = projectionMethod === 'generation_views';
+        if (useGeneration) {
+            if (!board?.generation_views?.supported) return;
+            value = { method: 'generation_views' };
+        } else {
+            const { bounds, issue } = inspectView();
+            if (issue || (inactiveView && !inactiveView.recipe)) return;
+            const current = projectionRecipe(bounds);
+            const other = inactiveView?.recipe;
+            value = other ? { views: activeViewIndex === 0 ? [current, other] : [other, current] } : current;
         }
+        const id = base.id, version = opening;
         pending = true;
         changed();
-        ui.notice.textContent = 'Queueing texture projection…';
+        ui.notice.textContent = useGeneration ? 'Queueing Pixel Match…' : 'Queueing texture projection…';
         try {
             const result = await api(`/api/v1/models/${id}/texture-projection`, {
                 method: 'POST',
@@ -1720,7 +1834,7 @@ export function createTextureProjection({ api, startJob }) {
         uploadName.textContent = '';
     });
     const resizeObserver = new ResizeObserver(() => {
-        if (ui.element.open) {
+        if (ui.element.open && projectionMethod === 'manual') {
             for (const key of ['source', 'target']) applyZoom(key);
         }
     });
@@ -1766,6 +1880,9 @@ export function createTextureProjection({ api, startJob }) {
             base = job;
             board = null;
             pending = uploading = false;
+            projectionMethod = 'manual';
+            manualViewports = [];
+            manualNotice = '';
             inactiveView = null;
             activeViewIndex = 0;
             resetView('front');
@@ -1780,6 +1897,25 @@ export function createTextureProjection({ api, startJob }) {
                 const response = await api(`/api/v1/models/${job.id}/texture-projection`);
                 if (version !== opening || !ui.element.open) return;
                 board = response;
+                const roles = board.generation_views?.views ?? [];
+                savedRoles.replaceChildren(...roles.map((role) => {
+                    const item = el('li');
+                    const file = generationViewFiles[role];
+                    if (file) {
+                        const image = el('img', 'tp-generation-image');
+                        image.alt = '';
+                        image.loading = 'lazy';
+                        image.decoding = 'async';
+                        image.addEventListener('error', () => image.remove(), {once: true});
+                        image.src = `/api/jobs/${job.id}/files/${file}`;
+                        item.append(image);
+                    }
+                    item.append(el('span', '', titleCase(role)));
+                    return item;
+                }));
+                generationUnavailable.textContent = job.operation === 'texture_projection' || job.settings?.source_kind === 'texture_projection'
+                    ? 'This texture copy has no saved generation cameras. Open the original Pixal3D model in the Library.'
+                    : board.generation_views?.reason || 'Saved generation cameras are unavailable for this model.';
                 reference.replaceChildren(el('option', '', 'Choose a reference'));
                 reference.firstChild.value = '';
                 for (const item of board.references || []) {

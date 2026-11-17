@@ -199,6 +199,7 @@ export function createQueueStudio({api, refresh}) {
     const saved = item.settings;
     const pixal = saved.engine === 'pixal3d';
     const refinish = saved.source_kind === 'refinish';
+    const master = saved.master_finishing;
     const adaptiveRefinish = refinish && saved.adaptive_finishing;
     const [{runtime, schema}, components] = await Promise.all([
       capabilities(),
@@ -212,13 +213,14 @@ export function createQueueStudio({api, refresh}) {
     resolution.disabled = fixedResolution;
     const texture = select(textureChoices(textures), String(saved.texture_size));
     const triangles = triangleInput(saved.triangles, schema);
+    triangles.disabled = !!master;
     const height = heightInput(saved.height_m);
     const priority = prioritySelect(item.priority);
-    const canRepairSurface = runtime.features?.includes('repair_surface') &&
+    const canRepairSurface = !master && runtime.features?.includes('repair_surface') &&
       (refinish || saved.preset === 'dense_master');
     const finishingModes = [['saved', 'Standard finishing']];
     if (canRepairSurface) finishingModes.push(['repair', 'Repair holes']);
-    if (runtime.features?.includes('hd_reconstruction') && (refinish || saved.preset === 'dense_master')) {
+    if (!master && runtime.features?.includes('hd_reconstruction') && (refinish || saved.preset === 'dense_master')) {
       finishingModes.push(['hd', 'HD Reconstruction (768)']);
     }
     const surfaceMode = select(finishingModes, saved.hd_reconstruction ? 'hd' : saved.repair_surface ? 'repair' : 'saved');
@@ -234,7 +236,8 @@ export function createQueueStudio({api, refresh}) {
     const context = 'Seed ' + saved.seed + (pixal ? ' · ' + (saved.views?.length ?? 0) + ' saved views' : ' · Saved reference');
     retry.body.replaceChildren(title, failure, el('p', 'hint', context),
       field('Geometry resolution', resolution, refinish ? 'Uses the saved geometry cache.' : pixal ? 'Pixal3D uses 1024³.' : ''),
-      field(saved.adaptive_finishing ? 'Maximum triangles' : 'Triangle target', triangles), field('Texture size', texture), field('Height · m', height),
+      field(saved.adaptive_finishing || master ? 'Maximum triangles' : 'Triangle target', triangles,
+        master ? 'Fixed by HD Master Finishing.' : ''), field('Texture size', texture), field('Height · m', height),
       field('Priority', priority));
     if (finishingModes.length > 1) {
       retry.body.append(field('Surface treatment', surfaceMode, 'HD Reconstruction requires a 1024 or higher geometry source.'));
@@ -245,7 +248,7 @@ export function createQueueStudio({api, refresh}) {
       if (hdChoice.disabled && surfaceMode.value === 'hd') surfaceMode.value = 'saved';
     };
     syncSurfaceMode();
-    if (finishing?.mesh_mode && !adaptiveRefinish) {
+    if (!master && finishing?.mesh_mode && !adaptiveRefinish) {
       const legacyFields = [field('Finishing method', method), field('Pre-simplify dense meshes to 2M', preSimplify),
         field('Fill small holes', repair)];
       const syncFinishing = () => {
@@ -258,7 +261,7 @@ export function createQueueStudio({api, refresh}) {
     } else {
       resolution.addEventListener('change', syncSurfaceMode);
     }
-    if (refinish && (canBakeNormals || saved.bake_normals)) {
+    if (!master && refinish && (canBakeNormals || saved.bake_normals)) {
       retry.body.append(field('Transfer master detail to a normal map', bakeNormals,
         canBakeNormals ? '' : 'Blender is unavailable. Clear this option to retry without a normal map.'));
     }
@@ -285,13 +288,13 @@ export function createQueueStudio({api, refresh}) {
         retry.notice.textContent = 'Clear normal map transfer before retrying without Blender.';
         return;
       }
-      const changes = {texture_size: Number(texture.value), triangles: triangles.valueAsNumber,
-        height_m: height.valueAsNumber, priority: Number(priority.value)};
+      const changes = {texture_size: Number(texture.value), height_m: height.valueAsNumber, priority: Number(priority.value)};
+      if (!master) changes.triangles = triangles.valueAsNumber;
       if (!fixedResolution) changes.resolution = Number(resolution.value);
       if (refinish && bakeNormals.checked !== !!saved.bake_normals) changes.bake_normals = bakeNormals.checked;
       if (canRepairSurface && (surfaceMode.value === 'repair') !== !!saved.repair_surface) changes.repair_surface = surfaceMode.value === 'repair';
       if (hdChoice && (surfaceMode.value === 'hd') !== !!saved.hd_reconstruction) changes.hd_reconstruction = surfaceMode.value === 'hd';
-      if (finishing?.mesh_mode && !adaptiveRefinish && surfaceMode.value === 'saved') {
+      if (!master && finishing?.mesh_mode && !adaptiveRefinish && surfaceMode.value === 'saved') {
         if (method.value !== finishing.mesh_mode) changes.mesh_mode = method.value;
         if (preSimplify.checked !== finishing.pre_simplify) changes.pre_simplify = preSimplify.checked;
         if (repair.checked !== finishing.repair_holes) changes.repair_holes = repair.checked;

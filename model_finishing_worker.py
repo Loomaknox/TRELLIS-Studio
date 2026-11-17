@@ -37,7 +37,11 @@ def run(folder):
             target = Path(directory) / 'model.glb'
             if operation == 'texture_projection':
                 from texture_projection import project_texture, project_texture_views
-                if 'views' in request:
+                if 'generation_views' in request:
+                    from generation_view_projection import generation_reference_name, project_generation_texture
+                    report = project_generation_texture(folder, source, target, request['generation_views'], progress=progress)
+                    references = [folder / generation_reference_name(view['role'], staged=True) for view in report['views']]
+                elif 'views' in request:
                     views = [(staged_reference(folder, view['reference_file']), view['options']) for view in request['views']]
                     references = [reference for reference, _ in views]
                     if len({reference.resolve() for reference in references}) != 2:

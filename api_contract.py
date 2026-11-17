@@ -248,9 +248,12 @@ class JobRetry(Contract):
     bake_normals: bool | None = None
     repair_surface: bool | None = None
     hd_reconstruction: bool | None = Field(default=None, strict=True)
+    wtivo_reconstruction: bool | None = Field(default=None, strict=True)
 
 
 class Refinish(Contract):
+    master_finishing: Literal['wtivo_1024', 'studio_768'] | None = Field(default=None,
+        description='Create an HD Master Finishing variant. Choose the reconstruction method and optionally the texture size.')
     triangles: int | None = Field(default=None, ge=TRIANGLE_MIN, le=TRIANGLE_MAX)
     budget_preset: Literal['low', 'medium', 'high', 'ultra'] | None = None
     texture_size: Literal[1024, 2048, 4096] | None = None
@@ -261,12 +264,16 @@ class Refinish(Contract):
     bake_normals: bool | None = None
     repair_surface: bool | None = None
     hd_reconstruction: bool | None = Field(default=None, strict=True, description='Reconstruct a cached HD source at grid 768.')
+    wtivo_reconstruction: bool | None = Field(default=None, strict=True,
+        description='Reconstruct a cached 1024-or-higher source using the optional external WTiVo 1024 runtime.')
     remesh_resolution: Literal[512, 768, 1024] | None = None
     texture_sampling: Literal['trilinear', 'nearest'] | None = None
     normal_source: Literal['decoded', 'parent'] | None = None
 
     @model_validator(mode='after')
     def validate_budget(self):
+        if self.master_finishing is not None and self.model_dump(exclude_none=True).keys() - {'master_finishing', 'texture_size'}:
+            raise ValueError('HD Master Finishing accepts only a reconstruction method and texture size.')
         if self.triangles is not None and self.budget_preset is not None:
             raise ValueError('Choose either a triangle count or a preset.')
         return self
@@ -285,6 +292,19 @@ class ParentNormalSource(Contract):
     unavailable_reason: str | None
 
 
+class MasterFinishingMethod(Contract):
+    available: bool
+    reason: str
+
+
+class MasterFinishingOptions(Contract):
+    source_resolution: int
+    default_method: Literal['wtivo_1024', 'studio_768'] | None
+    methods: dict[Literal['wtivo_1024', 'studio_768'], MasterFinishingMethod]
+    triangle_ceiling: int
+    default_texture_size: int
+
+
 class FinishingOptions(Contract):
     source_id: Identifier
     source_triangles: int | None
@@ -295,6 +315,9 @@ class FinishingOptions(Contract):
     normal_bake: bool
     repair_surface: bool
     hd_reconstruction: bool = False
+    wtivo_reconstruction: bool = False
+    wtivo_reason: str = ''
+    master_finishing: MasterFinishingOptions | None = None
     remesh_resolutions: list[int]
     texture_sampling_modes: list[str]
     normal_sources: list[str]
@@ -364,7 +387,12 @@ class MultiViewTextureProjection(Contract):
         description='Two independently aligned reference images to blend into one texture copy.')
 
 
-TextureProjectionRequest = TextureProjection | MultiViewTextureProjection
+class GenerationViewTextureProjection(Contract):
+    method: Literal['generation_views'] = Field(
+        description='Project the prepared views and calibrated cameras saved by the selected Pixal3D generation.')
+
+
+TextureProjectionRequest = TextureProjection | MultiViewTextureProjection | GenerationViewTextureProjection
 
 
 PROTECTED_REGION_LIMIT = 24

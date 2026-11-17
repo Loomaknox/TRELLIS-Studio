@@ -304,6 +304,22 @@ preview setting. Previewing uses zero generation credits.
   `hd_reconstruction` on the top-level `/generations/multiview` recipe. This
   option and `repair_surface` are mutually exclusive. Reconstruction improves
   surface continuity on cracked meshes and can soften fine geometry.
+- `{"wtivo_reconstruction":true}` uses the optional [external WTiVo runtime](WTIVO.md)
+  to reconstruct a cached 1024-or-higher source. Availability and the reason for
+  an unavailable option are in `wtivo_reconstruction` and `wtivo_reason` from
+  the board. WTiVo uses grid 1024 and a fixed triangle ceiling (default 1.2M).
+  It can be compared with Studio 768 in the same board batch. Each recipe
+  chooses one method and WTiVo supports manual triangle budgets and normal baking.
+- For a dense PBR master, submit `{"master_finishing":"wtivo_1024"}` or
+  `{"master_finishing":"studio_768"}` to the same refinish endpoint.
+  Read `master_finishing` from the board for the saved source resolution,
+  method availability and reasons, the default method, the 3M triangle ceiling
+  and the default atlas size. An explicit `texture_size` is the only additional
+  recipe field. WTiVo HD Master Finishing requires the external runtime and
+  Blender. The built-in Studio 768 recipe needs neither. Both use the saved
+  decoded PBR volume, and the completed result records pre-UV topology and
+  atlas coverage. Geometry size, orientation and method can be reviewed
+  before a separate texture projection or game-copy operation.
 - `POST /models/{id}/finishing-board` accepts `{"variants":[...]}` with one
   to three distinct recipes. Poll `GET /jobs/{id}` for each returned ID. Save a
   completed variant as the board's choice with
@@ -374,6 +390,15 @@ that URL and inspect the completed GLB and its result report.
   original color. The result reports `view_count`, `overlap_texels`, and
   per-view projection statistics in `views`. The overlap count can be zero
   when the cameras face different sides of the model.
+- For **Use generation views**, read `generation_views` from
+  `GET /api/v1/models/{id}/texture-projection`. When `supported` is true, send
+  `{"method":"generation_views"}` as the entire projection recipe. Studio uses
+  the verified prepared references and cameras saved by that Pixal3D
+  generation, including its export coordinates. No upload is required.
+  Pixel Match updates the base color of a linked copy with visibility masks,
+  edge blending and local color matching. Inspect the result against the
+  original under the same lighting. Earlier exports without saved camera
+  provenance can use the existing one- and two-view recipes.
 - `GET /api/v1/models/{id}/baked-game-copy` checks compatibility and the
   recommended budget for the selected model and returns `protected_region_limit`.
 - `POST /api/v1/models/{id}/baked-game-copy` accepts `triangles` (5,000 to

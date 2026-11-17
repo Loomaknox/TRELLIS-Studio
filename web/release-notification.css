@@ -1,0 +1,88 @@
+.studio-brand-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+}
+
+.studio-current-version {
+  padding: .23rem .38rem;
+  border: 1px solid #414c39;
+  border-radius: 5px;
+  color: #c7d1bf;
+  font: 10px Consolas, monospace;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.studio-release-update {
+  position: relative;
+  flex: none;
+  color: #d6efa9;
+}
+
+.studio-release-update > summary {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .35rem .5rem;
+  border: 1px solid #506340;
+  border-radius: 6px;
+  background: #2c3825;
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.studio-release-update > summary::-webkit-details-marker { display: none; }
+.studio-release-update > summary:hover { background: #38482d; }
+.studio-release-update > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.studio-release-update > summary .ui-icon { width: 13px; height: 13px; }
+
+.studio-release-popover {
+  position: absolute;
+  z-index: 101;
+  top: calc(100% + .5rem);
+  left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .35rem .7rem;
+  width: max-content;
+  max-width: min(230px, calc(100vw - 20px));
+  padding: .75rem;
+  border: 1px solid #526448;
+  border-radius: 9px;
+  background: #222b20;
+  box-shadow: 0 14px 30px #0008;
+}
+
+.studio-release-popover p { flex-basis: 100%; margin: 0; color: #e9eee4; font-weight: 600; }
+.studio-release-popover a { color: #c8ef93; white-space: nowrap; }
+.studio-release-popover button { padding: .25rem .4rem; color: #bdc6b7; font-size: 11px; }
+
+@media (max-width: 650px) {
+  .studio-brand-group { gap: .35rem; }
+  .studio-release-update { position: static; }
+  .studio-release-update > summary { padding: .28rem; }
+  .studio-release-update > summary span { display: none; }
+}
+
+@media (max-width: 420px) {
+  .studio-brand-group {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 0 .35rem;
+  }
+  .studio-brand-group .brand { grid-area: 1 / 1; gap: .42rem; }
+  .studio-brand-group .brand-logo { width: 26px; height: 26px; }
+  .studio-current-version { grid-area: 2 / 1; justify-self: start; margin-left: 32px; padding: 0; border: 0; }
+  .studio-release-update { grid-area: 1 / 2 / 3; }
+}
+
+@media (max-width: 350px) {
+  .topbar:has(.studio-brand-group) { padding-inline: 10px; gap: 8px; }
+  .studio-brand-group { grid-template-columns: max-content max-content 1fr; }
+  .studio-brand-group .brand { grid-area: 1 / 1 / 2 / -1; }
+  .studio-release-update { grid-area: 2 / 2; }
+}

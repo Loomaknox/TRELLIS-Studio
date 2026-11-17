@@ -2,13 +2,14 @@
 from pathlib import Path
 from studio_workspace import ID, finishing_source, read as read_workspace_json
 from studio_version import VERSION
+from studio_release import release_status, render_studio_version
 from contextlib import asynccontextmanager
 from tempfile import TemporaryDirectory
 import asyncio, base64, hashlib, io, json, os, re, shutil, subprocess, sys, time, uuid
 from urllib.parse import urlparse
 from typing import Annotated
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from generation_options import (normalize_options, options_for_job, schema as generation_schema,
@@ -218,7 +219,7 @@ def status():
                 export_active=EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None,
                 resolution=DEFAULT_GENERATION['resolution'], default_profile=DEFAULT_PROFILE, local=True, studio_version=VERSION,source_revision=SOURCE_REVISION,ui_revision=UI_REVISION,multi_view=pixal3d['ready'],pixal3d=pixal3d,
                 edition='server' if WORKSPACE_CONFIG else 'desktop',
-                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','hd_reconstruction','pixal3d_multiview','pixal3d_face_projection','texture_projection','baked_game_copy'], texture_sizes=textures,supported_resolutions=resolutions)
+                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','hd_reconstruction','hd_master_finishing','pixal3d_multiview','pixal3d_face_projection','texture_projection','baked_game_copy'], texture_sizes=textures,supported_resolutions=resolutions)
 
 @app.get('/api/components')
 def components():
@@ -1341,8 +1342,13 @@ async def files(identifier: str, filename: str):
 
 @app.get('/')
 def index():
-    return FileResponse(ROOT / 'web' / 'studio.html',
-                        headers={'Cache-Control': 'no-cache, must-revalidate'})
+    html = (ROOT / 'web' / 'studio.html').read_text(encoding='utf-8')
+    return HTMLResponse(render_studio_version(html), headers={'Cache-Control': 'no-cache, must-revalidate'})
+
+
+@app.get('/api/release-status', include_in_schema=False)
+def studio_release_status():
+    return JSONResponse(release_status(), headers={'Cache-Control': 'no-store'})
 
 @app.get('/api/rig-pilot')
 def rig_pilot():

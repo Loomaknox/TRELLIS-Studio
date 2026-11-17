@@ -169,22 +169,22 @@ async def import_model(source:ImportModel)->dict[str,Any]:
 
 @tool(read=True)
 async def get_finishing_options(model_id: Identifier) -> dict[str, Any]:
-    """Read the reusable cache, triangle budgets, repair and normal map options for a model."""
+    """Read the reusable cache, HD Master Finishing methods and defaults, triangle budgets, repair and normal map options."""
     return await api('GET', f'/models/{model_id}/finishing-board')
 
 @tool()
 async def queue_refinish(model_id: Identifier, recipe: Refinish) -> dict[str, Any]:
-    """Create a linked Remesh variant from the saved cache. Use hd_reconstruction for the 768-grid HD recipe. Surface repair and normal baking are optional. Poll get_model."""
+    """Create a linked variant from the saved cache. For a dense PBR master, pass master_finishing='wtivo_1024' or 'studio_768' and optionally texture_size. Read get_finishing_options for availability. The advanced reconstruction and game preparation routes remain available. Poll get_model."""
     return await api('POST', f'/models/{model_id}/refinish', recipe.model_dump(exclude_none=True))
 
 @tool(read=True)
 async def get_texture_projection_options(model_id: Identifier) -> dict[str, Any]:
-    """Check support, saved reference images and the view limit for a completed static model."""
+    """Check support, saved reference images, the manual view limit and generation_views availability for a completed static model."""
     return await api('GET', f'/models/{model_id}/texture-projection')
 
 @tool()
 async def queue_texture_projection(model_id: Identifier, recipe: TextureProjectionRequest) -> dict[str, Any]:
-    """Project into the base color of a linked copy. Submit one view recipe or a views list with two independently aligned recipes. Each view uses a saved reference or upload ID, a camera and normalized rectangles. Use linked_selection with four matching points per image for affine alignment, and source_polygon for a freeform outline. Poll get_model."""
+    """Project into the base color of a linked copy. Use {"method":"generation_views"} for Pixel Match with verified saved Pixal3D cameras. For manual projection submit one view recipe or a views list with two independently aligned recipes. Each view uses a saved reference or upload ID, a camera and normalized rectangles. Use linked_selection with four matching points per image for affine alignment, and source_polygon for a freeform outline. Poll get_model."""
     return await api('POST', f'/models/{model_id}/texture-projection',
                      recipe.model_dump(mode='json', exclude_none=True))
 

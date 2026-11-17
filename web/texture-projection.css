@@ -2,10 +2,12 @@
     --tp-border: #414b3d;
     --tp-muted: #a3b19a;
     --tp-accent: #c4f58a;
-    width: min(1420px, calc(100vw - 28px));
+    --tp-dialog-width: 1420px;
+    width: min(var(--tp-dialog-width), calc(100vw - 28px));
     max-width: 1420px;
     max-height: calc(100dvh - 24px);
 }
+.texture-projection-dialog.tp-saved-view-mode { --tp-dialog-width: 762px; }
 
 .texture-projection-dialog [hidden] { display: none !important; }
 .texture-projection-dialog .studio-dialog-head { padding: 14px 20px; align-items: center; }
@@ -72,6 +74,82 @@
 .texture-projection-dialog input[type=range]:focus-visible { outline: 2px solid var(--tp-accent); }
 .texture-projection-dialog input[type=range]:disabled { opacity: .45; cursor: default; }
 .texture-projection-dialog .check { margin: 0; }
+
+.tp-method-choices {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 466px;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+.texture-projection-dialog .tp-method-choice {
+    justify-content: flex-start;
+    gap: 9px;
+    min-height: 46px;
+    padding: 6px 10px;
+    border: 1px solid var(--tp-border);
+    border-radius: 9px;
+    background: #192119;
+    color: #c8d3c3;
+    font-size: 12px;
+    text-align: left;
+    white-space: normal;
+}
+.texture-projection-dialog .tp-method-choice:not(:disabled):hover { background: #253022; }
+.texture-projection-dialog .tp-method-choice[aria-pressed=true] {
+    border-color: #718959;
+    background: #303d29;
+    color: #edfae5;
+}
+.tp-method-choice .ui-icon { flex: none; width: 16px; height: 16px; }
+.tp-method-choice[aria-pressed=true] .ui-icon { color: var(--tp-accent); }
+.tp-method-copy { display: grid; gap: 2px; }
+.tp-method-copy strong { font-size: 12px; line-height: 1.15; }
+.tp-method-copy small, .tp-method-unavailable { color: var(--tp-muted); font-size: 11px; line-height: 1.35; }
+.tp-method-unavailable { margin: -4px 0 12px; }
+.tp-generation-views {
+    max-width: 720px;
+    padding: 16px;
+    border: 1px solid var(--tp-border);
+    border-radius: 11px;
+    background: #1b241d;
+}
+.tp-generation-views h3 { margin: 0 0 5px; font-size: 16px; }
+.tp-generation-views p { margin: 0; color: var(--tp-muted); font-size: 13px; line-height: 1.5; }
+.tp-generation-inputs {
+    --tp-thumb-size: clamp(66px, 15vw, 126px);
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 12px 0;
+}
+.tp-generation-current { flex: none; margin: 0; }
+.tp-generation-roles {
+    display: flex;
+    flex: 1;
+    flex-wrap: wrap;
+    min-width: 0;
+    gap: 7px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.tp-generation-current, .tp-generation-roles li {
+    display: grid;
+    gap: 4px;
+    align-content: end;
+    justify-items: center;
+    width: var(--tp-thumb-size);
+    padding: 4px;
+    border: 1px solid #52614b;
+    border-radius: 6px;
+    background: #161e17;
+    color: #d6e5ce;
+    font-size: 11px;
+    text-align: center;
+}
+.tp-generation-current { border-color: #758a61; }
+.tp-generation-image { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 3px; background: #252e25; }
 
 .tp-view-strip {
     display: flex;
@@ -372,6 +450,9 @@
     .texture-projection-dialog .studio-dialog-actions { column-gap: 6px; }
     .texture-projection-dialog .studio-dialog-actions button { padding-inline: 8px; }
     .texture-projection-dialog button.tp-tool { font-size: 11px; padding-inline: 6px; gap: 4px; }
+    .texture-projection-dialog .tp-method-choice { gap: 5px; padding-inline: 6px; }
+    .tp-method-choice .ui-icon { width: 13px; height: 13px; }
+    .tp-generation-views { padding: 12px; }
     .tp-view-strip { gap: 5px 6px; }
     .texture-projection-dialog .tp-view-option,
     .texture-projection-dialog .tp-view-action { font-size: 11px; padding-inline: 6px; gap: 4px; }

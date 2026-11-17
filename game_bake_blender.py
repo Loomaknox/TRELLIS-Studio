@@ -9,6 +9,26 @@ import bpy
 import numpy as np
 
 
+def _repair_baked_normals(image):
+    pixels = np.empty(len(image.pixels), dtype=np.float32)
+    image.pixels.foreach_get(pixels)
+    rgb = pixels.reshape(-1, 4)[:, :3]
+    # A transfer ray can hit the opposite wall of a thin shell. A baked
+    # tangent-space vector pointing below the target surface inverts its shading.
+    # Use the target shading normal there and where there is no usable vector.
+    invalid = (
+        (rgb[:, 2] < .5)
+        | ~np.isfinite(rgb).all(axis=1)
+        | (np.abs(rgb - .5).max(axis=1) <= 1.0 / 255.0)
+    )
+    changed = int(np.count_nonzero(invalid))
+    if changed:
+        rgb[invalid] = (.5, .5, 1.)
+        image.pixels.foreach_set(pixels)
+        image.update()
+    return changed
+
+
 def main():
     stage = Path(sys.argv[sys.argv.index('--') + 1])
     request = json.loads((stage / 'request.json').read_text(encoding='utf-8'))
@@ -87,6 +107,7 @@ def main():
     channels = ['base_color', 'metallic_roughness'] + (['normal'] if options['bake_normals'] else []) + ['hit_mask']
     labels = dict(base_color='Baking base colour', metallic_roughness='Baking roughness and metallic',
                   normal='Baking tangent-space detail', hit_mask='Measuring unpadded transfer coverage')
+    repaired_normal_texels = 0
     for index, channel in enumerate(channels):
         progress(labels[channel], .45 + index * .1)
         image = bpy.data.images.new(channel, width=size, height=size, alpha=True, float_buffer=False)
@@ -117,6 +138,8 @@ def main():
                             normal_r='POS_X', normal_g='POS_Y', normal_b='POS_Z', use_clear=False,
                             cage_extrusion=cage, max_ray_distance=ray,
                             margin=0 if channel == 'hit_mask' else 8, margin_type='EXTEND')
+        if channel == 'normal':
+            repaired_normal_texels = _repair_baked_normals(image)
         image.file_format = 'PNG'
         image.filepath_raw = str(stage / (channel + '.png'))
         image.save()
@@ -144,6 +167,7 @@ def main():
                   uv='Smart Project: 66 degrees, island margin 0.008, area weight 0.5',
                   cage_extrusion=cage, max_ray_distance=ray, gutter_px=8,
                   normal_format='Tangent-space +Y, fixed triangle corners and exported tangents',
+                  repaired_normal_texels=repaired_normal_texels,
                   seconds=round(time.monotonic() - started, 3))
     (stage / 'bake-report.json').write_text(json.dumps(report), encoding='utf-8')
 

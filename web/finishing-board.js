@@ -68,6 +68,7 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
             const modes = [['remesh', 'Remesh and simplify'], ['direct', 'Direct simplification']];
             if (board.repair_surface) modes.unshift(['repair', 'Surface reconstruction']);
             if (board.hd_reconstruction) modes.push(['hd', 'HD Reconstruction (768)']);
+            if (board.wtivo_reconstruction) modes.push(['wtivo', 'WTiVo Reconstruction (1024)']);
             const mode = select(modes, board.repair_surface ? 'repair' : 'remesh');
             const repair = input('checkbox', '');
             repair.checked = false;
@@ -82,14 +83,21 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
             const sampling = select((board.texture_sampling_modes || ['trilinear']).map(value =>
                 [value, value === 'nearest' ? 'Nearest voxel · experimental' : 'Interpolated voxels']), 'trilinear');
             const gridField = field('Reconstruction resolution', grid);
+            const repairField = field('Fill small holes', repair);
+            const samplingField = field('Texture voxel sampling', sampling);
             const toggle = () => {
-                for (const control of [triangles, texture, mode, repair, sampling]) control.disabled = !enabled.checked;
+                const wtivo = mode.value === 'wtivo';
+                const usesGrid = !['direct', 'hd', 'wtivo'].includes(mode.value);
+                for (const control of [triangles, texture, mode]) control.disabled = !enabled.checked;
                 normals.disabled = !enabled.checked || !board.normal_bake;
                 donor.disabled = !enabled.checked || !normals.checked || !board.normal_bake;
                 donorField.hidden = !normals.checked;
-                repair.disabled = !enabled.checked || mode.value === 'repair' || mode.value === 'hd';
-                grid.disabled = !enabled.checked || mode.value === 'direct' || mode.value === 'hd';
-                gridField.hidden = mode.value === 'direct' || mode.value === 'hd';
+                repair.disabled = !enabled.checked || wtivo || mode.value === 'repair' || mode.value === 'hd';
+                repairField.hidden = wtivo;
+                sampling.disabled = !enabled.checked || wtivo;
+                samplingField.hidden = wtivo;
+                grid.disabled = !enabled.checked || !usesGrid;
+                gridField.hidden = !usesGrid;
                 updateQueueButton();
             };
             enabled.addEventListener('change', toggle);
@@ -100,8 +108,7 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
             normals.addEventListener('change', toggle);
             draft.append(field('Include recipe', enabled), field('Target triangles', triangles),
                 field('Texture size', texture), field('Finishing method', mode), gridField,
-                field('Fill small holes', repair), field('Transfer surface detail to a normal map', normals), donorField,
-                field('Texture voxel sampling', sampling));
+                repairField, field('Transfer surface detail to a normal map', normals), donorField, samplingField);
             form.append(draft);
             toggle();
             return {enabled, triangles, texture, mode, repair, normals, donor, grid, sampling};
@@ -166,7 +173,9 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
             const isSource = job.id === board.source_id;
             const isKept = job.id === board.selected_id;
             const result = job.result || {};
-            const pieces = [isSource ? 'Original' : job.generation_options?.mesh_mode === 'direct' ? 'Direct' : 'Remesh'];
+            const method = isSource ? 'Original' : job.settings?.wtivo_reconstruction ? 'WTiVo 1024'
+                : job.generation_options?.mesh_mode === 'direct' ? 'Direct' : 'Remesh';
+            const pieces = [method];
             pieces.push(Number.isFinite(result.triangles) ? `${number(result.triangles)} triangles`
                 : `${number(job.settings.triangles)} target triangles`);
             const texture = result.texture_size ?? job.settings.texture_size;
@@ -215,19 +224,25 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
     form.onsubmit = async event => {
         event.preventDefault();
         if (!board || pending || !form.reportValidity()) return;
-        const variants = drafts.filter(draft => draft.enabled.checked).map(draft => ({
-            triangles: draft.triangles.valueAsNumber,
-            texture_size: Number(draft.texture.value),
-            mesh_mode: draft.mode.value === 'direct' ? 'direct' : 'remesh',
-            repair_surface: draft.mode.value === 'repair',
-            ...(draft.mode.value === 'hd' ? {hd_reconstruction: true} : {}),
-            repair_holes: draft.repair.checked,
-            pre_simplify: false,
-            bake_normals: draft.normals.checked,
-            normal_source: draft.normals.checked ? draft.donor.value : 'decoded',
-            remesh_resolution: Number(draft.grid.value),
-            texture_sampling: draft.sampling.value,
-        }));
+        const variants = drafts.filter(draft => draft.enabled.checked).map(draft => {
+            const shared = {
+                triangles: draft.triangles.valueAsNumber,
+                texture_size: Number(draft.texture.value),
+                bake_normals: draft.normals.checked,
+                normal_source: draft.normals.checked ? draft.donor.value : 'decoded',
+            };
+            if (draft.mode.value === 'wtivo') return {...shared, wtivo_reconstruction: true};
+            return {
+                ...shared,
+                mesh_mode: draft.mode.value === 'direct' ? 'direct' : 'remesh',
+                repair_surface: draft.mode.value === 'repair',
+                ...(draft.mode.value === 'hd' ? {hd_reconstruction: true} : {}),
+                repair_holes: draft.repair.checked,
+                pre_simplify: false,
+                remesh_resolution: Number(draft.grid.value),
+                texture_sampling: draft.sampling.value,
+            };
+        });
         if (!variants.length) return;
         const token = opening;
         pending = true;

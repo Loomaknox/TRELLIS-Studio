@@ -12,6 +12,8 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from api_contract import PROTECTED_REGION_LIMIT
+from generation_view_projection import digest, generation_reference_name, save_generation_views
+from pixal3d_runtime import CAMERA_FOV, camera_matrix
 from server_lan import account, call, login, PASSWORD, serve
 from studio_workspace import read, write
 
@@ -20,6 +22,17 @@ def fixture_glb():
     payload = json.dumps({'asset': {'version': '2.0'}, 'meshes': [{'primitives': []}]}).encode()
     payload += b' ' * (-len(payload) % 4)
     return struct.pack('<4sIIII', b'glTF', 2, 20 + len(payload), len(payload), 0x4e4f534a) + payload
+
+
+def calibrate(source):
+    views = []
+    for role, azimuth in (('front', 0), ('left', 40), ('back', 180), ('right', -40)):
+        name = generation_reference_name(role)
+        Image.new('RGBA', (1024, 1024), '#776644ff').save(source / name)
+        views.append(dict(role=role, azimuth=azimuth, sha256=digest(source / name), camera_angle_x=CAMERA_FOV,
+                          transform_matrix=camera_matrix(azimuth)))
+    save_generation_views(source, dict(scale=1.5, translation=[0, .75, 0], coordinate_system='y_up'), views)
+    return views
 
 
 def run():
@@ -72,9 +85,13 @@ def run():
             post = schema['paths']['/api/v1/models/{identifier}/texture-projection']['post']
             recipes = post['requestBody']['content']['application/json']['schema']['anyOf']
             assert {item['$ref'].rsplit('/', 1)[-1] for item in recipes} == {
-                'TextureProjection', 'MultiViewTextureProjection'}
+                'TextureProjection', 'MultiViewTextureProjection', 'GenerationViewTextureProjection'}
             views = schema['components']['schemas']['MultiViewTextureProjection']['properties']['views']
             assert views['minItems'] == views['maxItems'] == 2
+            assert not projection['generation_views']['supported'] and not projection['generation_views']['views']
+            generation = {'method': 'generation_views'}
+            projection_url = url + '/' + routes[0]
+            call(base, 'POST', projection_url, 400, alice, json=generation)
             game_url = url + '/' + routes[1]
             game_support = call(base, 'GET', game_url, client=alice).json()
             assert game_support['default_triangles'] == 14000
@@ -158,6 +175,27 @@ def run():
                 call(base, 'GET', queued['status_url'], 404, bob)
                 assert (source / 'model.glb').read_bytes() == glb
             assert len(state.store.jobs(users[0]['id'])) == 5
+            settings = read(source / 'settings.json')
+            write(source / 'settings.json', {**settings, 'engine': 'pixal3d'})
+            assert not call(base, 'GET', projection_url, client=alice).json()['generation_views']['supported']
+            calibrated = calibrate(source)
+            projection = call(base, 'GET', projection_url, client=alice).json()
+            assert projection['generation_views'] == dict(supported=True, reason='', views=['front', 'left', 'back', 'right'])
+            call(base, 'POST', projection_url, 422, alice, json={**generation, **options})
+            call(base, 'POST', projection_url, 422, alice, json={**generation, **multiview})
+            call(base, 'POST', projection_url, 404, bob, json=generation)
+            queued = call(base, 'POST', projection_url, 202, alice, json=generation).json()
+            child = source.parent / queued['id']
+            request = read(child / 'finishing-request.json')
+            assert request['generation_views']['views'] == calibrated
+            assert 'options' not in request and 'reference_file' not in request and 'views' not in request
+            assert not (child / '.generation-views.json').exists()
+            for view in calibrated:
+                assert digest(child / generation_reference_name(view['role'], staged=True)) == view['sha256']
+            Image.new('RGBA', (1024, 1024), 'white').save(source / 'prepared-left.png')
+            projection = call(base, 'GET', projection_url, client=alice).json()
+            assert projection['supported'] and not projection['generation_views']['supported']
+            call(base, 'POST', projection_url, 400, alice, json=generation)
             assert state.store.get_user(users[0]['id'])['credits'] == 0
     print('PASS: local derived model requests, source preservation, parent links, queue, credits and isolation.')
 
