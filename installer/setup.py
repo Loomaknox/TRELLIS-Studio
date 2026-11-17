@@ -189,7 +189,7 @@ def verify(rig=True,workshop_only=False):
     run(ROOT/'.mcp-venv/Scripts/python.exe','-c','from mcp.server import MCPServer;import httpx;print("MCP ready")')
     if not bundled_web():run('node','--check','web/studio.js')
     if workshop_only:return
-    run(python,'-c',"import torch,cumesh,flex_gemm,rembg; assert torch.cuda.is_available(),'CUDA is unavailable'; print('GPU:',torch.cuda.get_device_name());print('TORCH:',torch.__version__)")
+    run(python,'-c',"import torch,cumesh,flex_gemm,rembg; assert torch.cuda.is_available(),'CUDA is unavailable'; x=torch.ones((8,8),device='cuda'); assert ((x@x)==8).all().item(),'CUDA calculation failed'; torch.cuda.synchronize(); print('GPU:',torch.cuda.get_device_name());print('TORCH:',torch.__version__)")
     check="from studio_import import find_blender; from retarget_catalogue import ANIMATIONS, ROOT; assert find_blender(),'Blender not found'; assert all((ROOT / a['source_model']).is_file() for a in ANIMATIONS),'Animation source missing'; print(f'Blender and {len(ANIMATIONS)} animations ready')"
     run(python,'-c',check)
     if rig:
@@ -221,7 +221,7 @@ def main():
     if shutil.disk_usage(ROOT).free<minimum*1024**3:raise RuntimeError(f'Keep at least {minimum} GiB free before installing. 80 GiB is recommended for a full setup.')
     if not shutil.which('nvidia-smi'):raise RuntimeError('Missing prerequisite: nvidia-smi. See INSTALLATION.md.')
     from studio_import import find_blender
-    if not find_blender():raise RuntimeError('Install Blender 5.2 LTS before continuing. See INSTALLATION.md.')
+    if not find_blender():raise RuntimeError('Blender was not found. Install Blender 5.2 LTS or set TRELLIS_BLENDER to your blender.exe. See INSTALLATION.md.')
     run('nvidia-smi','--query-gpu=name,memory.total','--format=csv,noheader')
     if not args.skip_rig:run('wsl.exe','-d',args.wsl_distribution,'--exec','true')
     source('engine',manifest['sources']['engine'])

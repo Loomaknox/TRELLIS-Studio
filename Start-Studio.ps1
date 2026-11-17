@@ -30,10 +30,20 @@ try {
     $taskCheckLinux = (Get-Content -LiteralPath (Join-Path $taskLogs 'unirig-chemin.log') -Raw).Trim()
     if ($taskPathProcess.ExitCode -ne 0 -or -not $taskCheckLinux.StartsWith('/')) { throw 'Unable to convert the WSL path.' }
     $taskCheckProcess = Start-Process -FilePath 'wsl.exe' -ArgumentList @('-d', $taskDistro, '--', 'bash', ('"' + $taskCheckLinux + '"')) -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput (Join-Path $taskLogs 'unirig-demarrage.log') -RedirectStandardError (Join-Path $taskLogs 'unirig-demarrage-erreurs.log')
-    if ($taskCheckProcess.ExitCode -ne 0) { throw 'UniRig check failed. See logs\unirig-demarrage-erreurs.log.' }
+    if ($taskCheckProcess.ExitCode -ne 0) {
+        $taskDiagnostic=Get-Content -LiteralPath (Join-Path $taskLogs 'components.json') -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+        if ($taskDiagnostic.unirig -and -not $taskDiagnostic.unirig.ready -and $taskDiagnostic.unirig.message) {
+            throw ('UniRig check failed: '+$taskDiagnostic.unirig.message)
+        }
+        throw 'UniRig check failed. See logs\unirig-demarrage-erreurs.log.'
+    }
 } catch {
     $taskRuntimeError = $_.Exception.Message
-    @{unirig=@{ready=$false; message=$taskRuntimeError}} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $taskLogs 'components.json') -Encoding utf8
+    $taskComponents=[pscustomobject]@{}
+    try { $taskComponents=Get-Content -LiteralPath (Join-Path $taskLogs 'components.json') -Raw | ConvertFrom-Json } catch { }
+    if ($null -eq $taskComponents -or $taskComponents -isnot [pscustomobject]) { $taskComponents=[pscustomobject]@{} }
+    $taskComponents | Add-Member -MemberType NoteProperty -Name unirig -Value @{ready=$false; message=$taskRuntimeError} -Force
+    $taskComponents | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $taskLogs 'components.json') -Encoding utf8
 }
 $taskConnection = Get-NetTCPConnection -LocalPort $taskPort -State Listen -ErrorAction SilentlyContinue
 if ($taskConnection) {

@@ -1,0 +1,31 @@
+name: Installation compatibility
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  python:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -B -m unittest discover -s tests -p installation_compatibility.py -v
+      - run: python -B tests/kimodo_installer.py
+      - run: python -B tests/game_copy_installer.py
+      - if: runner.os == 'Linux'
+        run: bash -n UniRig/runtime.sh UniRig/check-runtime.sh installer/install_unirig.sh
+  windows-processes:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: powershell
+        run: ./tests/kimodo_probe.ps1
+      - shell: powershell
+        run: ./tests/kimodo_windows.ps1

@@ -5,6 +5,8 @@
 !/.github/
 /.github/*
 !/.github/FUNDING.yml
+!/.github/workflows/
+!/.github/workflows/compatibility.yml
 !/animation_edits.py
 !/animation_blend.py
 !/animation_worker.py
@@ -205,6 +207,7 @@
 !/UniRig/model_config.py
 !/UniRig/check-runtime.sh
 !/UniRig/check-runtime.py
+!/UniRig/gpu_probe.py
 !/UniRig/skeleton-preview.py
 !/UniRig/skeleton_alignment.py
 !/UniRig/apply-landmarks.py
@@ -233,6 +236,7 @@
 !/installer/pipeline.json
 !/installer/requirements-unirig.txt
 !/installer/install_unirig.sh
+!/installer/unirig_blackwell.py
 /runtime/*
 !/runtime/engine-overrides/
 /runtime/engine-overrides/*
@@ -269,6 +273,7 @@
 !/web/finishing-board.js
 !/web/hd-master-finishing.js
 !/docs/WINDOWS_SETUP.md
+!/docs/BLACKWELL_SETUP.md
 !/docs/WTIVO.md
 !/docs/SERVER.md
 !/installer/windows/
@@ -337,3 +342,5 @@
 !/installer/windows/Install-Kimodo.ps1
 !/tests/kimodo_installer.py
 !/tests/kimodo_windows.ps1
+!/tests/installation_compatibility.py
+!/tests/kimodo_probe.ps1

@@ -88,6 +88,22 @@ def copy_verified(incoming, destination, entry):
             temporary.unlink(missing_ok=True)
 
 
+def write_compiler_wrapper(path, zig, compiler):
+    """CMake's rpath-link hint is unsupported by the pinned Zig linker."""
+    path.write_text(
+        '#!/bin/bash\n'
+        'args=()\n'
+        'for arg in "$@"; do\n'
+        '    case "$arg" in\n'
+        '        -Wl,-rpath-link,*) ;;\n'
+        '        *) args+=("$arg") ;;\n'
+        '    esac\n'
+        'done\n'
+        'exec ' + shlex.quote(str(zig)) + ' ' + shlex.quote(compiler)
+        + ' -target x86_64-linux-gnu.2.35 "${args[@]}"\n', encoding='utf-8', newline='\n')
+    path.chmod(0o755)
+
+
 def smoke(root, manifest, threads):
     directory = child(root, 'smoke')
     directory.mkdir(exist_ok=True)
@@ -168,9 +184,7 @@ def install(request):
         ninja.chmod(0o755)
         for name, compiler in (('cc', 'cc'), ('cxx', 'c++')):
             path = child(root, 'tools/zig-' + name)
-            path.write_text('#!/bin/sh\nexec ' + shlex.quote(str(tools / 'zig/zig')) + ' ' + compiler
-                            + ' -target x86_64-linux-gnu.2.35 "$@"\n')
-            path.chmod(0o755)
+            write_compiler_wrapper(path, tools / 'zig/zig', compiler)
         env = dict(os.environ, ZIG_GLOBAL_CACHE_DIR=str(root / 'zig-cache'), ZIG_LOCAL_CACHE_DIR=str(root / 'zig-local-cache'))
         cmake = str(tools / 'cmake/bin/cmake')
         print('Compiling the CPU runtime. This can take several minutes on the first installation.', flush=True)

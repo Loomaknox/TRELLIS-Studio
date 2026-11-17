@@ -4,7 +4,11 @@ _studio_unirig="$HOME/.local/share/trellis-unirig"
 if [ -f "$UNIRIG_ROOT/../bundled-web.json" ]; then
     _studio_unirig="$HOME/.local/share/trellis-unirig-setup"
 fi
-export UNIRIG_ENV="${TRELLIS_UNIRIG_ENV:-$_studio_unirig}"
+export UNIRIG_BASE="${TRELLIS_UNIRIG_ENV:-$_studio_unirig}"
+export UNIRIG_ENV="$UNIRIG_BASE"
+if [ -z "${TRELLIS_UNIRIG_ENV:-}" ] && [ -f "$UNIRIG_BASE/blackwell-ready" ]; then
+    export UNIRIG_ENV="$UNIRIG_BASE-blackwell"
+fi
 unset _studio_unirig
 export PATH="$UNIRIG_ENV/venv/bin:$UNIRIG_ENV/tools:$PATH"
 export LD_LIBRARY_PATH="$UNIRIG_ENV/runtime/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"

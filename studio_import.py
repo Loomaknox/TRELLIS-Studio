@@ -24,7 +24,19 @@ def find_blender():
     if configured:
         path = Path(configured)
         return path if path.is_file() else None
-    candidates = sorted(Path(os.environ.get('PROGRAMFILES', 'C:/Program Files')).glob('Blender Foundation/Blender */blender.exe'), reverse=True)
+    executable = shutil.which('blender')
+    if executable and Path(executable).is_file():
+        return Path(executable)
+    roots = [Path(os.environ.get('PROGRAMFILES', 'C:/Program Files'))]
+    if os.name == 'nt':
+        import ctypes
+        drives = ctypes.windll.kernel32.GetLogicalDrives()
+        for index in range(26):
+            drive = chr(ord('A') + index) + ':/'
+            # Only fixed local drives, never removable media or network shares.
+            if drives & (1 << index) and ctypes.windll.kernel32.GetDriveTypeW(drive) == 3:
+                roots.append(Path(drive))
+    candidates = sorted({path for base in roots for path in base.glob('Blender Foundation/Blender */blender.exe') if path.is_file()}, reverse=True)
     return candidates[0] if candidates else None
 
 def validate_glb(path):
