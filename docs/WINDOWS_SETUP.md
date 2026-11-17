@@ -50,6 +50,12 @@ is not installed by Setup, and Workshop still works when it is absent; the
 setup diagnostic and the operation's availability message explain the missing
 component. Texture projection needs neither Blender nor an NVIDIA GPU.
 
+The Studio header shows the installed version. When a newer stable release is
+available, **Update** opens a link to its release notes. The backend checks the
+[public GitHub Releases API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
+at most once per day after a successful check and sends no Studio user data.
+Dismiss an update to hide its indicator in this browser.
+
 To update an existing installation, stop Studio/Server and rerun Setup into the
 same folder. Changed dependency pins trigger a Workshop refresh without moving
 the collection or resetting accounts and HTTPS settings. The Desktop launcher

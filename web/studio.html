@@ -8,9 +8,26 @@
 <link rel="stylesheet" href="/web/reference-preview.css?v=3.4.0">
 <link rel="stylesheet" href="/web/generation-wait.css?v=3.4.0">
 <link rel="stylesheet" href="/web/workspace.css?v=3.4.0"><link rel="stylesheet" href="/web/polish.css?v=3.4.0">
+<link rel="stylesheet" href="/web/release-notification.css?v=1">
 <script type="importmap">{"imports":{"three":"/vendor/build/three.module.js","three/addons/":"/vendor/examples/jsm/"}}</script>
+<script type="module" src="/web/release-notification.js?v=1"></script>
 <link rel="stylesheet" href="/web/animation-studio.css?v=3.4.0"><link rel="stylesheet" href="/web/details.css?v=3.4.0"><link rel="stylesheet" href="/web/studio-tools.css?v=3.8.0"><link rel="stylesheet" href="/web/lighting.css?v=3.4.0"><link rel="stylesheet" href="/web/workbench.css?v=3.4.0"><link rel="stylesheet" href="/web/personal-animation.css?v=3.4.0"><link rel="stylesheet" href="/web/texture-projection.css?v=3.8.0"></head><body>
-<header class="topbar"><a class="brand" href="/"><img class="brand-logo" src="/web/trellis-mark.svg" alt=""><strong>TRELLIS <em>Studio</em></strong><span class="version">LOCAL / 03.8</span></a><span class="top-context">IMAGE → MATERIAL → VOLUME</span><div class="top-status"><span class="online-dot"></span><span id="runtime">Connecting to the engine…</span><a class="developer-link" href="/developers" title="API & MCP documentation" aria-label="API and MCP documentation"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#details"/></svg></a><button id="shutdown" class="quiet" type="button" title="Stop the local server">Stop</button></div></header>
+<header class="topbar">
+  <div class="studio-brand-group">
+    <a class="brand" href="/"><img class="brand-logo" src="/web/trellis-mark.svg" alt=""><strong>TRELLIS <em>Studio</em></strong><span class="version">LOCAL</span></a>
+    <span id="studioCurrentVersion" class="studio-current-version" title="Installed Studio version"><!--studio-current-version--></span>
+    <details id="studioReleaseUpdate" class="studio-release-update" hidden>
+      <summary aria-label="Studio update available"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#download"/></svg><span>Update</span></summary>
+      <div class="studio-release-popover">
+        <p id="studioReleaseLabel"></p>
+        <a id="studioReleaseLink" target="_blank" rel="noopener noreferrer">View release notes</a>
+        <button id="studioReleaseDismiss" type="button">Dismiss</button>
+      </div>
+    </details>
+  </div>
+  <span class="top-context">IMAGE → MATERIAL → VOLUME</span>
+  <div class="top-status"><span class="online-dot"></span><span id="runtime">Connecting to the engine…</span><a class="developer-link" href="/developers" title="API & MCP documentation" aria-label="API and MCP documentation"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#details"/></svg></a><button id="shutdown" class="quiet" type="button" title="Stop the local server">Stop</button></div>
+</header>
 <div id="versionNotice" class="version-notice" role="status" hidden><span id="versionNoticeText"></span> <a id="reloadStudio" href="/" hidden>Reload Studio</a></div>
 <div class="app-shell">
 <nav class="rail" aria-label="Workspaces"><span class="rail-label">WORKSPACE</span><button id="imageTab" aria-pressed="true" class="rail-button"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#image"/></svg><span class="nav-text">Create</span></button><button id="openLibrary" aria-pressed="false" class="rail-button"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#grid"/></svg><span class="nav-text">Collection</span> <b id="count">0</b></button><button id="terrainTab" aria-pressed="false" class="rail-button"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#terrain"/></svg><span class="nav-text">Terrain</span></button><button id="rigTab" aria-pressed="false" class="rail-button"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="14" cy="4" r="2"/><path d="m5 10 5-3 5 3 4-1M10 7l-1 7-5 6m5-6 6 2 2 5m-5-11 2 5"/></svg><span class="nav-text">Animate</span></button><div class="rail-bottom"><span class="local-badge">● 100 % local</span><small>Your images and models<br>stay on this computer.</small><span id="hardware">Local compute</span></div></nav>
