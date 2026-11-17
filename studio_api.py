@@ -443,13 +443,16 @@ class StudioServices:
             supported_resolutions = [saved.get('resolution', 512)]
         elif pixal:
             runtime = self.g['pixal3d_capabilities']()
-            if not runtime['ready']:
-                raise HTTPException(503, runtime['message'])
+            single_image = saved.get('view_mode') == 'single'
+            readiness = runtime.get('single_image', {}) if single_image else runtime
+            if not readiness.get('ready'):
+                raise HTTPException(503, readiness.get('message', 'Install the selected Pixal3D method.'))
             if saved.get('reproject_face') and not runtime['face_projection']['ready']:
                 raise HTTPException(503, runtime['face_projection']['message'])
             supported_resolutions = [1024]
             supported_textures = runtime['texture_sizes']
-            reference_files = [view['file'] for view in validate_views(saved.get('views'))]
+            if not single_image:
+                reference_files = [view['file'] for view in validate_views(saved.get('views'))]
         else:
             if saved.get('preset') not in GENERATION_PRESETS:
                 raise HTTPException(409, 'This queued item has no saved generation recipe.')
@@ -498,6 +501,7 @@ class StudioServices:
                     settings['adaptive_finishing'] = True
         wtivo = changes.get('wtivo_reconstruction', saved.get('wtivo_reconstruction', False))
         validate_wtivo_recipe(wtivo, source_resolution, refinish=refinish, hd_reconstruction=hd_reconstruction,
+                              inline_master=bool(saved.get('master_finishing')),
                               repair_surface=settings.get('repair_surface', False),
                               adaptive=settings.get('adaptive_finishing', False), budget_preset=settings.get('budget_preset'))
         if wtivo:
@@ -705,7 +709,11 @@ class StudioServices:
             try:
                 specs=json.loads(specifications)
                 if not isinstance(specs,list) or not 1<=len(specs)<=30 or len(specs)!=len(images):raise ValueError('Choose 1–30 images, with one recipe per image.')
-                if any(not isinstance(s,dict) or set(s)-{'name','profile_id','height_m','seed','priority','remove_bg','triangles','texture_size','resolution','advanced_settings','asset_type','reference_prompt','parent_id','keep_finishing_source','repair_surface','hd_reconstruction','reference_edits'} for s in specs):raise ValueError('Unknown queue settings.')
+                allowed = {'name', 'profile_id', 'height_m', 'seed', 'priority', 'remove_bg', 'triangles',
+                           'texture_size', 'resolution', 'advanced_settings', 'asset_type', 'reference_prompt',
+                           'parent_id', 'keep_finishing_source', 'repair_surface', 'hd_reconstruction',
+                           'reference_edits', 'engine', 'master_finishing', 'reproject_face'}
+                if any(not isinstance(s,dict) or set(s)-allowed for s in specs):raise ValueError('Unknown queue settings.')
                 for spec in specs:
                     for key,limit in [('name',80),('profile_id',80),('asset_type',80),('reference_prompt',6000),('parent_id',32)]:
                         if key in spec and (not isinstance(spec[key],str) or len(spec[key])>limit):raise ValueError('Invalid '+key+'.')
@@ -716,6 +724,9 @@ class StudioServices:
                     if 'keep_finishing_source' in spec and type(spec['keep_finishing_source']) is not bool:raise ValueError('Invalid finishing cache setting.')
                     if 'repair_surface' in spec and type(spec['repair_surface']) is not bool:raise ValueError('Invalid surface repair setting.')
                     if 'hd_reconstruction' in spec and type(spec['hd_reconstruction']) is not bool:raise ValueError('Invalid HD Reconstruction setting.')
+                    if 'reproject_face' in spec and type(spec['reproject_face']) is not bool:raise ValueError('Invalid face reprojection setting.')
+                    if spec.get('engine', 'trellis2') not in ('trellis2', 'pixal3d_single'):raise ValueError('Invalid single-image method.')
+                    if spec.get('master_finishing') not in (None, *MASTER_FINISHING_METHODS):raise ValueError('Invalid master finishing method.')
                     if 'advanced_settings' in spec and not isinstance(spec['advanced_settings'],dict):raise ValueError('Invalid advanced settings.')
                     if 'reference_edits' in spec and not isinstance(spec['reference_edits'],dict):raise ValueError('Invalid reference corrections.')
                     if spec.get('parent_id') and not ID.fullmatch(spec['parent_id']):raise ValueError('Invalid parent model.')
@@ -730,6 +741,12 @@ class StudioServices:
                     s=profile['settings'];params=dict(name=spec.get('name',Path(file.filename or 'Model').stem),preset=s['preset'],height_m=spec.get('height_m',1),seed=spec.get('seed',42),remove_bg=spec.get('remove_bg',s['remove_bg']),triangles=spec.get('triangles',s['triangles']),asset_type=spec.get('asset_type','object'),texture_size=spec.get('texture_size',s['texture_size']),reference_prompt=spec.get('reference_prompt',''),resolution=spec.get('resolution',s['resolution']),advanced_settings=json.dumps(spec.get('advanced_settings',s['advanced'])),profile_id=profile['id'],parent_id=spec.get('parent_id',''),queue_only=True,queue_priority=spec.get('priority',0),queue_hold=True,keep_finishing_source=spec.get('keep_finishing_source',False))
                     params['repair_surface'] = spec.get('repair_surface', False)
                     params['hd_reconstruction'] = spec.get('hd_reconstruction', False)
+                    params['engine'] = spec.get('engine', 'trellis2')
+                    params['master_finishing'] = spec.get('master_finishing')
+                    params['reproject_face'] = spec.get('reproject_face', False)
+                    if params['engine'] == 'pixal3d_single':
+                        params['resolution'] = spec.get('resolution', 1024)
+                        params['advanced_settings'] = json.dumps(spec.get('advanced_settings', {}))
                     if spec.get('reference_edits'):
                         params['reference_edits'] = json.dumps(spec['reference_edits'], allow_nan=False)
                     result=await self.g['generate'](image=file,**params);created.append(result['id'])

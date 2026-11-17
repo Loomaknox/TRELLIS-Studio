@@ -108,7 +108,8 @@ export function createReferencePreview({api, multiview, removeBackground}) {
   const edits = () => draft[role] || {};
   const crop = () => edits().crop || fullCrop;
   const strokes = () => edits().strokes || [];
-  const context = (removeBg = removeBackground.checked) => multiview.active ? 'pixal3d' : `trellis2:${Boolean(removeBg)}`;
+  const context = (removeBg = removeBackground.checked) => multiview.usesPixal
+    ? multiview.method : `trellis2:${Boolean(removeBg)}`;
 
   function selectedEdits(value) {
     return multiview.active ? value : value.front ? {front: value.front} : {};
@@ -236,8 +237,8 @@ export function createReferencePreview({api, multiview, removeBackground}) {
       describeStatus();
       return;
     }
-    form.set('engine', multiview.active ? 'pixal3d' : 'trellis2');
-    form.set('remove_bg', String(removeBackground.checked));
+    form.set('engine', multiview.method);
+    form.set('remove_bg', String(multiview.usesPixal || removeBackground.checked));
     form.set('reference_edits', payload);
     const controller = new AbortController();
     request = controller;
@@ -383,6 +384,13 @@ export function createReferencePreview({api, multiview, removeBackground}) {
     discard(role) {
       if (dialog.open) dialog.close();
       if (role) delete saved[role];
+      approvedContext = null;
+    },
+    swapSides() {
+      if (dialog.open) dialog.close();
+      [saved.left, saved.right] = [saved.right, saved.left];
+      if (!saved.left) delete saved.left;
+      if (!saved.right) delete saved.right;
       approvedContext = null;
     },
     restore(value, removeBg) {

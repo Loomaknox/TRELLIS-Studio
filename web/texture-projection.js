@@ -2065,11 +2065,14 @@ export function createTextureProjection({ api, startJob }) {
                 if (version !== opening || !ui.element.open) return;
                 board = response;
                 const single = savedProjectionMethod() === 'generation_reference';
+                const estimated = board.generation_views?.camera_model === 'moge';
                 generationMethod.querySelector('small').textContent = single
-                    ? 'One saved image · Auto Align' : 'Pixel Match · Saved cameras';
+                    ? 'One saved image · Auto Align'
+                    : estimated ? 'Pixel Match · Estimated camera' : 'Pixel Match · Saved cameras';
                 generationTitle.textContent = single ? 'Saved generation image' : 'Pixel Match';
                 generationDescription.textContent = single ? 'Match the model to the saved TRELLIS.2 cutout.'
-                    : 'Project the saved cutouts using their generation cameras.';
+                    : estimated ? 'Project the saved Pixal3D cutout from its estimated camera.'
+                      : 'Project the saved cutouts using their generation cameras.';
                 generationFootnote.textContent = single ? 'Creates a linked copy with color projected onto the visible surface.'
                     : 'Creates a linked copy. Pixel Match blends visible details and matches color around seams.';
                 const roles = board.generation_views?.views ?? [];
@@ -2099,7 +2102,7 @@ export function createTextureProjection({ api, startJob }) {
                         savedRoles.append(item);
                     }
                 }
-                savedRoles.setAttribute('aria-label', single ? 'Saved image' : 'Saved views');
+                savedRoles.setAttribute('aria-label', single || estimated ? 'Saved image' : 'Saved views');
                 generationUnavailable.textContent = job.operation === 'texture_projection' || job.settings?.source_kind === 'texture_projection'
                     ? 'Open the original generated model in the Library to use its saved references.'
                     : (job.settings?.engine === 'pixal3d' ? board.generation_views?.reason : board.generation_reference?.reason)

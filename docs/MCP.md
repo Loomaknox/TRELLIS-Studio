@@ -222,6 +222,17 @@ checking the library first, as the request may already have been accepted.
 
 ## Other tools and resources
 
+`studio_status` lists each `generation_methods` entry and the
+`create_master_finishing` methods installed on this host.
+`queue_generation` accepts `engine: "pixal3d_single"` for one reference image,
+with automatic MoGe-2 framing. It defaults to TRELLIS.2.
+`queue_multiview_generation` uses Pixal3D with the front and additional views.
+Both tools accept `profile_id: "dense_master"` and
+`master_finishing: "studio_768"` (Balanced Reconstruction) or `"wtivo_1024"`
+(Surface Closure) to publish one finished master. The generation profile
+sets the triangle and atlas budgets. The default HD Master budget is 1.2M
+triangles and 2K.
+
 `get_finishing_options` reports `wtivo_reconstruction` and `wtivo_reason`.
 When available, `queue_refinish` accepts `{"wtivo_reconstruction":true}` along
 with optional `triangles`, `texture_size` and normal bake options for the
@@ -237,7 +248,9 @@ linked variants from the saved source with a 3M triangle ceiling.
 `get_texture_projection_options` lists compatible references, camera modes and
 the manual view limit. If `generation_views.supported` is true, pass
 `{"method":"generation_views"}` to `queue_texture_projection` for Pixel Match
-with the saved Pixal3D cameras and prepared views. If
+with the saved Pixal3D cameras and prepared views. Single-image Pixal3D saves
+one estimated MoGe camera. Verified linked refinishing, game and texture
+copies retain these views. If
 `generation_reference.supported` is true, pass
 `{"method":"generation_reference"}` plus the aligned camera and rectangles to
 project the model's saved TRELLIS.2 cutout. Studio Auto Align can estimate the

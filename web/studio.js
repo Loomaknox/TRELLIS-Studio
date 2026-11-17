@@ -1,4 +1,4 @@
-import {createStudioWorkbench} from './studio-workbench.js?v=3.9.0';
+import {createStudioWorkbench} from './studio-workbench.js?v=unified-generation';
 import {createViewerLighting} from './viewer-lighting.js?v=3.4.0';
 import {createHologramViewer} from './hologram-viewer.js?v=3.4.0-quality2';
 import {createGenerationWait} from './generation-wait.js?v=3.4.0';
@@ -8,14 +8,14 @@ import {createPrintCopy} from './print-copy.js?v=3.4.0';
 import {createAnimationStudio} from './animation-studio.js?v=3.4.0-motion2';
 import {createRigSetupViewer} from './rig-setup-viewer.js?v=3.4.0';
 import {createModelImport} from './import-model.js?v=3.4.0';
-import {createMultiviewInputs} from './multiview-inputs.js?v=3.4.0';
-import {createReferencePreview} from './reference-preview.js?v=3.4.0';
+import {createMultiviewInputs} from './multiview-inputs.js?v=unified-generation';
+import {createReferencePreview} from './reference-preview.js?v=unified-generation';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createAdvancedControls } from './advanced-controls.js?v=3.4.0-quality2';
-import { createProfileControls } from './profiles.js?v=3.9.0';
+import { createProfileControls } from './profiles.js?v=unified-generation';
 import {createCardMenu,updateCardStatus,icon} from './card-menu.js?v=3.4.0';
 import {createCardTurntables} from './card-turntable.js?v=3.4.0';
 const $=id=>document.getElementById(id);
@@ -43,14 +43,15 @@ const printCopy=createPrintCopy({api,startJob:startStudioJob});
 studioTools=createStudioTools({api,getRecords:()=>records,getJob:jobOf,refresh:async()=>{metadataId=null;await refresh();},printCopy,labelAnimation:name=>animationStudio?.label(name)||name,openPreparation:(job,action)=>workbench.prepare.open(job,action)});
 const advancedControls=await createAdvancedControls($('advancedControls'));
 const multiview=createMultiviewInputs({
-  changed({role,file,mode,profile}){
+  changed({role,file,mode,swap}){
     if(role||mode)referencePreview.discard(role);
+    if(swap)referencePreview.swapSides();
     if(role==='front'){
       $('parentId').value='';
       if(file&&$('name').value==='New model')$('name').value=file.name.replace(/\.[^.]+$/,'').slice(0,80);
     }
     $('notice').textContent='';
-    if(mode||profile)profileControls?.sync();
+    if(mode)profileControls?.sync();
     updateButtons();
   },
   invalid:message=>errorAt('notice',message),
@@ -61,7 +62,7 @@ function applyDefaultGeneration(){const d=advancedControls.defaults;if(!d)return
 applyDefaultGeneration();
 const settingsDownload=document.createElement('a');settingsDownload.className='download-settings';settingsDownload.textContent='Download settings JSON ↓';settingsDownload.download='trellis-reglages.json';settingsDownload.hidden=true;$('assetDetails').after(settingsDownload);
 $('resetAdvanced').disabled=!advancedControls.ready;
-$('resetAdvanced').onclick=()=>{profileControls?.reset();explainCost();$('notice').textContent='Game - Default restored. This model’s seed and height are preserved.';};
+$('resetAdvanced').onclick=()=>{profileControls?.reset();explainCost();$('notice').textContent='Game Asset settings restored.';};
 const resolutionOf=j=>Number(j.result?.resolution||j.settings?.resolution||512);
 let availableResolutions=[512],availableTextures=[1024,2048];
 function syncVersionNotice(status) {
@@ -76,10 +77,24 @@ function syncVersionNotice(status) {
   $('reloadStudio').hidden = !features || !outdated || olderServer;
   $('versionNotice').hidden = features && !outdated;
 }
-function syncCapabilities(status){multiview.setCapabilities(status.pixal3d);workbench?.setCapabilities(status);animationStudio?.setCapabilities(status);profileControls?.setFinishingCapabilities(status.features?.includes('repair_surface')===true,status.features?.includes('hd_reconstruction')===true);availableResolutions=status.supported_resolutions||[512];availableTextures=status.texture_sizes||[1024,2048];for(const option of $('resolution').options)option.disabled=!availableResolutions.includes(Number(option.value));for(const option of $('textureSize').options)option.disabled=Number(option.value)!==0&&!availableTextures.includes(Number(option.value));explainCost();}
+function syncCapabilities(status){
+  multiview.setCapabilities(status);
+  workbench?.setCapabilities(status);
+  animationStudio?.setCapabilities(status);
+  availableResolutions=status.supported_resolutions||[512];
+  availableTextures=status.texture_sizes||[1024,2048];
+  for(const option of $('resolution').options)option.disabled=!availableResolutions.includes(Number(option.value));
+  profileControls?.setFinishingCapabilities(status.features?.includes('repair_surface')===true,
+    status.features?.includes('hd_reconstruction')===true,status.create_master_finishing);
+  explainCost();
+}
 function explainCost(){const hint=$('qualityHint');if(!hint)return;const notes=[];if(Number($('resolution').value)===1536)notes.push('1536³ requires more processing time and memory.');if(Number($('textureSize').value)===4096)notes.push('4K uses larger textures; reserve it for close-up objects and large surfaces.');hint.textContent=notes.join(' ');hint.hidden=!notes.length;}
 $('resolution').addEventListener('change',explainCost);$('textureSize').addEventListener('change',explainCost);
-profileControls=await createProfileControls(advancedControls,{changed:()=>{explainCost();updateButtons();}});
+profileControls=await createProfileControls(advancedControls,{
+  changed:()=>{explainCost();updateButtons();},
+  usePixal:()=>multiview.usesPixal,
+  describeMethod:()=>multiview.methodLabel,
+});
 
 function node(tag,className,value){const el=document.createElement(tag);if(className)el.className=className;if(value!==undefined)el.textContent=value;return el;}
 async function api(url,options){const r=await fetch(url,options),v=await r.json();if(!r.ok)throw Error(typeof v.detail==='string'?v.detail:'This operation is unavailable.');return v;}
@@ -237,7 +252,9 @@ function renderRigJobNotice(job) {
 
 function renderSelected(){const j=jobOf();generationWait.update(j,{hasModel:!!model&&loadedId===j?.id,referenceUrl:j?`/api/jobs/${j.id}/files/prepared.png`:''});studioTools?.update(j,records,trashMode);workbench?.update(j);detailControls.update(j);animationStudio?.update();$('animateModel').disabled=!j||(j.state!=='done'&&j.operation!=='animation');downloads(j);fillMetadata(j);renderRigJobNotice(j);settingsDownload.hidden=!j;if(j)settingsDownload.href=`/api/jobs/${j.id}/files/settings.json`;$('favorite').disabled=!j||!features;$('favorite').textContent=j?.metadata?.favorite?'★':'☆';$('favorite').setAttribute('aria-pressed',!!j?.metadata?.favorite);$('saveMetadata').disabled=!j||!features;$('viewTextures').disabled=!j||j.state!=='done'||!features;
   if(!j){$('modelTitle').textContent='Your next model';$('stats').textContent='';$('sourceThumb').hidden=true;$('assetDetails').replaceChildren(node('dt','','Model'),node('dd','','No model selected'));$('textureSummary').textContent='Select a completed model.';$('textureGallery').replaceChildren();if(model||loadingId){++loadVersion;clearModel();}$('empty').hidden=false;return;}
-  $('modelTitle').textContent=nameOf(j);const terrain=j.settings.asset_type==='terrain_unity',external=['imported','rigged','print'].includes(j.settings.asset_type),pixal=j.settings.engine==='pixal3d';$('engineLabel').textContent=external?(j.settings.asset_type==='print'?'3D PRINT COPY':j.settings.asset_type==='rigged'?'RIG & ANIMATION':'IMPORTED MODEL'):terrain?'PROCEDURAL TERRAIN':pixal?`PIXAL3D · ${j.settings.views?.length||0} VIEWS`:`TRELLIS.2 · ${resolutionOf(j)}³`;$('downloadGlb').title=j.settings.asset_type==='print'?'Download print preview GLB in metres':terrain?'Download terrain GLB':'Download PBR GLB with all animations';$('sourceThumb').hidden=terrain||external;if(!terrain&&!external&&$('sourcePreview').dataset.id!==j.id){$('sourcePreview').src=`/api/jobs/${j.id}/files/input.png`;$('sourcePreview').dataset.id=j.id;}
+  $('modelTitle').textContent=nameOf(j);const terrain=j.settings.asset_type==='terrain_unity',external=['imported','rigged','print'].includes(j.settings.asset_type),pixal=j.settings.engine==='pixal3d';
+  const pixalSingle=pixal&&(j.settings.view_mode==='single'||j.settings.pipeline_type==='pixal3d_1024_monoview');
+  $('engineLabel').textContent=external?(j.settings.asset_type==='print'?'3D PRINT COPY':j.settings.asset_type==='rigged'?'RIG & ANIMATION':'IMPORTED MODEL'):terrain?'PROCEDURAL TERRAIN':pixalSingle?'PIXAL3D · SINGLE IMAGE':pixal?`PIXAL3D · ${j.settings.views?.length||0} VIEWS`:`TRELLIS.2 · ${resolutionOf(j)}³`;$('downloadGlb').title=j.settings.asset_type==='print'?'Download print preview GLB in metres':terrain?'Download terrain GLB':'Download PBR GLB with all animations';$('sourceThumb').hidden=terrain||external;if(!terrain&&!external&&$('sourcePreview').dataset.id!==j.id){$('sourcePreview').src=`/api/jobs/${j.id}/files/input.png`;$('sourcePreview').dataset.id=j.id;}
   $('exportHint').textContent=j.settings.asset_type==='print'?'The STL uses millimetres. The Blender package includes the static source and the topology report.':terrain?'The Blender package contains the terrain mesh; the Unity export keeps a native Terrain.':'GLB includes UVs and materials. The Blender package also provides separate textures and UV layouts.';const r=j.result;$('stats').textContent=j.state==='done'||(j.operation==='animation'&&r)?(r?(terrain?`${r.dimensions_m?.[0]||j.settings.size_m} m square · elevation ${r.height_m} m · ${r.resolution}² map`:`${Number(r.triangles||0).toLocaleString('en-US')} triangles${r.bones?' · '+r.bones+' bones':''} · ${Number(r.height_m||0).toLocaleString('en-US',{maximumFractionDigits:2})} m`):'Completed model · ready to inspect'):'';
   const rigPreview = usesRigPreview(j);
   const previewLoaded = loadedId === j.id && previewRevision(loadedRevision);
@@ -259,7 +276,11 @@ function renderSelected(){const j=jobOf();generationWait.update(j,{hasModel:!!mo
   const entries=[['Asset type',assetTypeName(j.metadata?.asset_type||j.settings.asset_type)],['Engine',external?(j.settings.asset_type==='print'?'Blender voxel remesh':j.result?.rig_engine||'Local import'):terrain?'Procedural':pixal?`Pixal3D / ${resolutionOf(j)}³`:`TRELLIS.2 / ${resolutionOf(j)}³`],['Height',j.settings.height_m+' m'],['Texture',j.settings.texture_size+' px'],['Seed',j.settings.seed??'—'],['Status',labels[j.state]||j.state],['Created',new Date(j.settings.created*1000).toLocaleDateString('en-US')]];const o=j.generation_options;
   const triangleBudget=[j.settings.adaptive_finishing?'Triangle ceiling':'Target triangles',Number(j.settings.triangles).toLocaleString('en-US')];
   if(pixal){
-    entries.push(['Reference views',(j.settings.views||[]).map(view=>view.role).join(' · ')],['Side view angle',j.settings.side_angle+'°'],triangleBudget);
+    if (pixalSingle) {
+      entries.push(['Reference images','1 · camera estimated with MoGe'],triangleBudget);
+    } else {
+      entries.push(['Reference views',(j.settings.views||[]).map(view=>view.role).join(' · ')],['Side view angle',j.settings.side_angle+'°'],triangleBudget);
+    }
     const projection=j.result?.face_projection;
     if(projection?.state==='applied')entries.push(['Face reprojection','Applied']);
     else if(projection?.state==='skipped')entries.push(['Face reprojection',projection.reason?'Skipped. '+projection.reason:'Skipped']);
@@ -286,13 +307,17 @@ function setView(textures){textureOpen=textures;viewport.hidden=textures;$('text
 async function inspectTextures(){const j=jobOf();if(!j||j.state!=='done'||!features)return;const id=j.id;if(inspectId===id)return;inspectId=id;const version=++inspectVersion;$('textureSummary').textContent='Extracting texture maps and UV layouts…';$('textureGallery').replaceChildren();try{const d=await api(`/api/jobs/${id}/inspect`);if(version!==inspectVersion||selectedId!==id)return;$('textureSummary').textContent=`${d.meshes.length} mesh(es) · ${d.has_uv?'UVs present':'UVs missing'} · ${d.has_pbr?'roughness and metalness present':'PBR maps incomplete'} · ${d.normals_map_present?'normal map present':'no normal map in this GLB'}`;const items=[...d.textures.map(t=>({...t,detail:`${t.width} × ${t.height} · ${t.color_space}`})),...d.meshes.filter(m=>m.uv_preview).map(m=>({file:m.uv_preview,label:'UV layout · '+m.name,detail:m.uv_warning||'Painting guide · PNG / SVG included in the package'}))];for(const t of items){const b=node('button','texture-card');b.type='button';const img=node('img');img.src=`/api/jobs/${id}/blender/${t.file}`;img.alt=t.label;b.append(img,node('strong','',t.label),node('small','',t.detail));b.onclick=()=>openImage(img.src,t.label);$('textureGallery').append(b);}if(!items.length)$('textureGallery').append(node('p','hint','This model contains no image textures.'));}catch(e){if(version===inspectVersion){inspectId=null;errorAt('textureSummary',e);}}}
 function updateButtons(){
   const label=$('generate').querySelector('span');
-  if(label)label.textContent=busy?'Add to queue':multiview.active?'Generate character':'Generate model';
-  const supported=multiview.active?multiview.ready:ready&&advancedControls.ready&&profileControls?.ready&&
-    availableResolutions.includes(Number($('resolution').value))&&availableTextures.includes(Number($('textureSize').value)||($('preset').value==='fast'?1024:2048));
+  if(label)label.textContent=busy?'Add to queue':'Generate model';
+  const budget=profileControls?.budget();
+  const textures=multiview.usesPixal?[1024,2048]:availableTextures;
+  const resolutions=multiview.usesPixal?[1024]:availableResolutions;
+  for(const option of $('textureSize').options)option.disabled=Number(option.value)!==0&&!textures.includes(Number(option.value));
+  multiview.sync(budget?.texture_size);
+  const supported=multiview.ready&&advancedControls.ready&&profileControls?.ready&&profileControls.finishingReady
+    && resolutions.includes(budget?.resolution)&&textures.includes(budget?.texture_size);
   $('generate').disabled=!multiview.hasFront||!supported||shutDown||submittingGeneration||restoringReferences;
   referencePreview.sync(shutDown||submittingGeneration||restoringReferences);
   updateRefinishTool(jobOf());
-  if(multiview.active)$('generationSummary').textContent=multiview.summary;
   $('cancel').hidden=!busy;
   $('cancel').disabled=!activeId||jobOf()?.settings.asset_type==='terrain_unity';
   $('createTerrain').disabled=busy||shutDown||!features;
@@ -305,18 +330,17 @@ $('form').onsubmit=async event=>{
   updateButtons();
   $('notice').textContent='';
   try{
-    const usePixal=multiview.active;
-    const form=usePixal?multiview.buildRequest():new FormData($('form'));
-    if(!usePixal){
-      form.set('remove_bg',String($('removeBg').checked));
-      form.set('queue_only','true');
-      form.set('advanced_settings',JSON.stringify(advancedControls.read()));
-    }
-    const finishing = $('denseMasterFinishing');
-    if (!finishing.disabled && finishing.value === 'repair') form.set('repair_surface', 'true');
-    if (!finishing.disabled && finishing.value === 'hd_reconstruction') form.set('hd_reconstruction', 'true');
+    const form=new FormData($('form'));
+    const budget=profileControls.budget();
+    for(const [field,value] of Object.entries(budget))form.set(field,String(value));
+    multiview.appendRequest(form);
+    form.set('remove_bg',String(multiview.usesPixal||$('removeBg').checked));
+    form.set('queue_only','true');
+    if($('keepFinishingSource').checked)form.set('keep_finishing_source','true');
+    if(!multiview.usesPixal)form.set('advanced_settings',JSON.stringify(advancedControls.read()));
+    profileControls.appendFinishing(form);
     referencePreview.append(form);
-    const v=await api(usePixal?'/api/generate-multiview':'/api/generate',{method:'POST',body:form});
+    const v=await api(multiview.active?'/api/generate-multiview':'/api/generate',{method:'POST',body:form});
     if(!selectedId){selectedId=v.id;metadataId=null;}
     revealNewCreation();
     await refresh();
@@ -350,27 +374,19 @@ async function reuseJob(j){
   try{
     await multiview.restore(j);
     referencePreview.restore(s.reference_edits,s.remove_bg);
-    const finishing = s.hd_reconstruction ? 'hd_reconstruction' : s.repair_surface ? 'repair' : 'direct';
     setMode(false);
     $('parentId').value=j.id;
     $('name').value=(nameOf(j)+' version').slice(0,80);
     $('height').value=String(s.height_m);
-    if(multiview.active){
-      $('denseMasterFinishing').value = finishing;
-      profileControls.restoreSource(s.keep_finishing_source);
-      $('notice').textContent='Saved views and Pixal3D settings restored. Adjust them to compare a new version.';
-      return;
-    }
     for(const [id,v] of Object.entries({preset:s.preset,seed:s.seed,triangles:s.triangles,textureSize:s.texture_size,resolution:s.resolution||j.result?.resolution||512,assetType:s.asset_type||'object',referencePrompt:j.metadata?.reference_prompt||''}))$(id).value=String(v);
-    $('denseMasterFinishing').value = finishing;
-    const restoredOptions = finishing === 'direct' ? j.generation_options : s.generation_options;
+    profileControls.restoreFinishing(s);
+    const restoredOptions = s.hd_reconstruction||s.repair_surface||s.master_finishing ? s.generation_options : j.generation_options;
     advancedControls.apply(restoredOptions||s.generation_options||{});
-    $('removeBg').checked=s.remove_bg;
+    $('removeBg').checked=s.remove_bg??multiview.usesPixal;
     detailControls.hint();
-    profileControls.detach();profileControls.restoreSource(s.keep_finishing_source);
+    profileControls.detach(s.profile?.id);profileControls.restoreSource(s.keep_finishing_source);
     $('profileBase').value=$('preset').value;
     explainCost();
-    $('generationSummary').textContent='VARIANT · LOCAL COMPUTE';
     $('notice').textContent='Reference, geometry, texture and finishing settings restored. Adjust them to compare a new version.';
   }catch(error){errorAt('notice',error);}
   finally{restoringReferences=false;updateButtons();}

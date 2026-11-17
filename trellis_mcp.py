@@ -154,12 +154,12 @@ async def upload_source(file_path:str)->dict[str,Any]:
 
 @tool()
 async def queue_generation(recipe:Generation)->dict[str,Any]:
-    """Queue one image generation with its own profile, scale, seed and priority. Dense Master supports HD Reconstruction (768) via overrides.hd_reconstruction. Upload an image first. Returns immediately; poll get_model."""
+    """Queue an uploaded image with TRELLIS.2 or engine='pixal3d_single' (MoGe camera estimation). With profile_id='dense_master', select studio_768 or wtivo_1024 using master_finishing. Check studio_status for availability and poll get_model after submission."""
     return await api('POST','/generations',recipe.model_dump())
 
 @tool()
 async def queue_multiview_generation(recipe:MultiViewGeneration)->dict[str,Any]:
-    """Queue Pixal3D from a front image and at least one posed side/back image. Upload images first. dense_master supports hd_reconstruction with the 768 grid and keeps the finishing source. Poll get_model and review anatomy."""
+    """Queue Pixal3D from a front image and at least one matching side or back image. Choose a generation profile, then optionally select master_finishing with dense_master. Upload images first and poll get_model."""
     return await api('POST','/generations/multiview',recipe.model_dump(exclude_none=True))
 
 @tool()

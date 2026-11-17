@@ -69,7 +69,7 @@ def _new_background_session(weights):
     return LocalU2netSession('u2net', options, providers=['CPUExecutionProvider'])
 
 
-def _automatic_cutouts(sources, weights, alpha_threshold):
+def _automatic_cutouts(sources, weights, alpha_threshold, *, straight_alpha=False):
     cutouts = {}
     session = None
     for role, source in sources.items():
@@ -104,7 +104,11 @@ def _automatic_cutouts(sources, weights, alpha_threshold):
             raise BackgroundRemovalError('Background removal needs the Studio U2Net model. Use transparent images or reinstall Studio.') from error
         except (ImportError, OSError) as error:
             raise BackgroundRemovalError(f'Unable to run the local background remover: {error}') from error
-        cutouts[role] = Image.composite(source, Image.new('RGBA', source.size), mask)
+        if straight_alpha:
+            cutouts[role] = source.copy()
+            cutouts[role].putalpha(mask)
+        else:
+            cutouts[role] = Image.composite(source, Image.new('RGBA', source.size), mask)
     return cutouts
 
 
@@ -180,6 +184,24 @@ def frame_pixal(silhouettes):
     return frames
 
 
+def frame_pixal_single(image):
+    # Match the single-image conditioning crop used by the MoGe comparison.
+    scale = min(1., 1024 / max(image.size))
+    if scale < 1:
+        image = image.resize(tuple(max(1, int(edge * scale)) for edge in image.size), Image.Resampling.LANCZOS)
+    bounds = image.getchannel('A').point(lambda value: 255 if value > 204 else 0).getbbox()
+    if bounds is None:
+        raise ValueError('No usable silhouette in the reference. Restore the foreground or change the crop.')
+    left, top, right, bottom = bounds
+    right -= 1
+    bottom -= 1
+    half = int(1.1 * max(right - left, bottom - top)) // 2
+    if half < 8:
+        raise ValueError('The reference silhouette is too small.')
+    x, y = (left + right) / 2, (top + bottom) / 2
+    return image.crop((x - half, y - half, x + half, y + half))
+
+
 def premultiplied_rgb(image):
     rgba = np.asarray(image, dtype=np.float32) / 255
     return rgba[..., :3] * rgba[..., 3:4]
@@ -187,8 +209,9 @@ def premultiplied_rgb(image):
 
 def prepare_references(sources, edits, engine, remove_bg, weights):
     with _PREPARATION_LOCK:
-        threshold = 128 if engine == 'pixal3d' else (255 if remove_bg else 256)
-        cutouts = _automatic_cutouts(sources, weights, threshold)
+        single_pixal = engine == 'pixal3d_single'
+        threshold = 128 if engine == 'pixal3d' or single_pixal else (255 if remove_bg else 256)
+        cutouts = _automatic_cutouts(sources, weights, threshold, straight_alpha=single_pixal)
         cropped = {}
         for role, cutout in cutouts.items():
             edit = edits.get(role, {})
@@ -196,6 +219,8 @@ def prepare_references(sources, edits, engine, remove_bg, weights):
             cropped[role] = _cropped(cutout, edit.get('crop'), role)
         if engine == 'pixal3d':
             frames = frame_pixal({role: pixal_silhouette(image, role) for role, image in cropped.items()})
+        elif single_pixal:
+            frames = {'front': frame_pixal_single(cropped['front'])}
         else:
             frames = {'front': _trellis_frame(cropped['front'])}
         return cutouts, frames

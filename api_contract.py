@@ -3,7 +3,7 @@ from typing import Literal,Annotated
 from pydantic import BaseModel,ConfigDict,Field,field_validator,model_validator
 
 from studio_version import VERSION
-from generation_options import DENSE_MASTER, HUMANOID_EXPERIMENTAL, TRIANGLE_MIN, TRIANGLE_MAX
+from generation_options import GENERATION_PRESETS, TRIANGLE_MIN, TRIANGLE_MAX
 from retarget_catalogue import ANIMATIONS
 Identifier=Annotated[str,Field(pattern=r'^[a-f0-9]{32}$')]
 
@@ -12,6 +12,9 @@ class Contract(BaseModel):
 
 Coordinate = Annotated[float, Field(ge=0, le=1)]
 ViewRole = Literal['front', 'left', 'back', 'right']
+SingleImageEngine = Literal['trellis2', 'pixal3d_single']
+ReferenceEngine = Literal['trellis2', 'pixal3d_single', 'pixal3d']
+MasterFinishing = Literal['studio_768', 'wtivo_1024']
 
 
 class ReferenceStroke(Contract):
@@ -34,7 +37,7 @@ class ReferenceUploads(Contract):
 
 
 class ReferencePreview(ReferenceUploads):
-    engine: Literal['trellis2', 'pixal3d'] = 'trellis2'
+    engine: ReferenceEngine = 'trellis2'
     remove_bg: bool = True
 
 
@@ -48,7 +51,7 @@ class ReferencePreviewView(Contract):
 
 
 class ReferencePreviewResult(Contract):
-    engine: Literal['trellis2', 'pixal3d']
+    engine: ReferenceEngine
     views: list[ReferencePreviewView]
 
 
@@ -59,18 +62,23 @@ class Generation(Contract):
     height_m:float=Field(default=1,ge=.01,le=100)
     seed:int=Field(default=42,ge=0,le=2147483647)
     priority:int=Field(default=0,ge=-2,le=2)
+    engine: SingleImageEngine = 'trellis2'
+    master_finishing: MasterFinishing | None = None
+    reproject_face: bool = False
     overrides:dict=Field(default_factory=dict,examples=[{}],description='Optional recipe overrides: triangles, texture_size, resolution, remove_bg, advanced_settings, asset_type, reference_prompt, parent_id, keep_finishing_source, repair_surface or hd_reconstruction (Dense Master only).')
     reference_edits: dict[Literal['front'], ReferenceEdit] | None = None
 
 class MultiViewGeneration(ReferenceUploads):
-    profile_id: Literal['character_pixal', HUMANOID_EXPERIMENTAL, DENSE_MASTER] = Field(
-        default='character_pixal', description='Standard Pixal3D, Humanoid Experimental or Dense Master.')
+    profile_id: str = Field(default='character_pixal', max_length=80,
+                            description='Built-in or custom profile ID. character_pixal is supported for existing callers.')
     side_angle: Literal[40, 90] = 40
     name: str = Field(default='Character', min_length=1, max_length=80)
     height_m: float = Field(default=1.7, ge=.01, le=100)
     seed: int = Field(default=42, ge=0, le=2147483647)
     triangles: int | None = Field(default=None, ge=TRIANGLE_MIN, le=TRIANGLE_MAX)
     texture_size: Literal[1024, 2048] | None = None
+    asset_type: str = Field(default='humanoid', max_length=80)
+    master_finishing: MasterFinishing | None = None
     parent_id: Identifier | None = None
     reference_prompt: str = Field(default='', max_length=6000)
     keep_finishing_source: bool = False
@@ -78,6 +86,13 @@ class MultiViewGeneration(ReferenceUploads):
     hd_reconstruction: bool = Field(default=False, strict=True, description='Reconstruct the Dense Master at grid 768. Mutually exclusive with repair_surface.')
     reproject_face: bool = False
     priority: int = Field(default=0, ge=-2, le=2)
+
+    @field_validator('profile_id')
+    @classmethod
+    def validate_profile_id(cls, value):
+        if value != 'character_pixal' and value not in GENERATION_PRESETS and not value.startswith('user_'):
+            raise ValueError('Choose a built-in or custom generation profile ID.')
+        return value
 
 
 class ImportModel(Contract):

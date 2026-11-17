@@ -21,7 +21,8 @@ os.environ.update({
 sys.path[:0] = [str(ROOT), str(ROOT / 'engine'), str(ROOT / 'engine' / 'o-voxel')]
 os.chdir(ROOT / 'engine')
 from generation_options import (options_for_job, sampler_options, export_options, configure_simplifier,
-                                MASTER_FINISHING_METHODS, MASTER_FINISHING_TRIANGLES, validate_hd_reconstruction)
+                                DENSE_MASTER, MASTER_FINISHING_METHODS, MASTER_FINISHING_TRIANGLES,
+                                TRIANGLE_MIN, validate_hd_reconstruction)
 from studio_workspace import write
 options = options_for_job(settings)
 started = time.time()
@@ -132,19 +133,21 @@ def finish_mesh(torch, source):
     from wtivo_runtime import reconstruct, validate_wtivo_recipe
     wtivo = settings.get('wtivo_reconstruction', False)
     master_finishing = settings.get('master_finishing')
+    refinish = settings.get('source_kind') == 'refinish'
+    triangle_ceiling = settings['triangles']
     if master_finishing is not None and (
-            master_finishing not in MASTER_FINISHING_METHODS or settings.get('source_kind') != 'refinish'
-            or int(source['resolution']) < 1024 or settings['triangles'] != MASTER_FINISHING_TRIANGLES
+            master_finishing not in MASTER_FINISHING_METHODS or not (refinish or settings.get('preset') == DENSE_MASTER)
+            or int(source['resolution']) < 1024 or not TRIANGLE_MIN <= triangle_ceiling <= MASTER_FINISHING_TRIANGLES
             or wtivo != (master_finishing == 'wtivo_1024') or hd_reconstruction != (master_finishing == 'studio_768')
-            or any(settings.get(key) for key in ('adaptive_finishing', 'repair_surface', 'bake_normals', 'reproject_face'))):
+            or any(settings.get(key) for key in ('adaptive_finishing', 'repair_surface', 'bake_normals'))):
         raise ValueError('Invalid HD Master Finishing recipe.')
-    validate_wtivo_recipe(wtivo, int(source['resolution']), refinish=settings.get('source_kind') == 'refinish',
+    validate_wtivo_recipe(wtivo, int(source['resolution']), refinish=refinish, inline_master=bool(master_finishing),
                           hd_reconstruction=hd_reconstruction, repair_surface=settings.get('repair_surface', False),
                           adaptive=settings.get('adaptive_finishing', False), budget_preset=settings.get('budget_preset'))
     wtivo_report = None
     trim_report = None
     if wtivo:
-        status('running', 'Reconstructing the cached mesh with WTiVo 1024', 82)
+        status('running', 'Reconstructing the surface with WTiVo 1024', 84)
         torch.cuda.empty_cache()
         rebuilt_vertices, rebuilt_faces, wtivo_report = reconstruct(
             ROOT, JOB, source['vertices'].cpu().numpy(), source['faces'].cpu().numpy())
@@ -152,7 +155,7 @@ def finish_mesh(torch, source):
             from master_mesh import trim_wtivo_master
             status('running', 'Trimming the dense WTiVo surface in Blender', 84)
             rebuilt_vertices, rebuilt_faces, trim_report = trim_wtivo_master(
-                ROOT, JOB, rebuilt_vertices, rebuilt_faces, MASTER_FINISHING_TRIANGLES)
+                ROOT, JOB, rebuilt_vertices, rebuilt_faces, triangle_ceiling)
         status('running', 'Finishing the WTiVo master' if master_finishing else 'Reducing and baking the WTiVo mesh', 84)
     import cumesh
     import o_voxel
@@ -188,7 +191,7 @@ def finish_mesh(torch, source):
         export_kwargs['repair_surface'] = True
         status('running', 'Reconstructing the surface to close holes', 84)
     vertices, faces = source['vertices'].cuda(), source['faces'].cuda()
-    if not wtivo and (not adaptive or adaptive_master) and options['pre_simplify'] and len(faces) > 2000000:
+    if not wtivo and not master_finishing and (not adaptive or adaptive_master) and options['pre_simplify'] and len(faces) > 2000000:
         mesh = cumesh.CuMesh()
         mesh.init(vertices, faces)
         mesh.simplify(2000000)
@@ -212,7 +215,7 @@ def finish_mesh(torch, source):
         result.metadata['finishing']['wtivo_reconstruction'] = wtivo_report
     if master_finishing:
         result.metadata['finishing']['master_finishing'] = dict(
-            method=master_finishing, triangle_ceiling=MASTER_FINISHING_TRIANGLES,
+            method=master_finishing, triangle_ceiling=triangle_ceiling,
             trim=trim_report or dict(method='CuMesh', output_triangles=len(result.faces)))
     if source.get('coordinate_system') == 'y_up':
         # Pixal3D is already Y-up. Undo O-Voxel's Z-up to Y-up export conversion.
@@ -291,7 +294,8 @@ def preserve_master_generation_views(source_id, result):
     try:
         # Verify that the references copied into this variant still match the saved cameras.
         verify_generation_view_inputs(JOB, original, provenance)
-        save_generation_views(JOB, result.metadata['finishing']['normalization'], provenance['views'])
+        save_generation_views(JOB, result.metadata['finishing']['normalization'], provenance['views'],
+                              camera_model=provenance.get('camera_model'))
     except (OSError, ValueError) as error:
         print(f'Unable to preserve calibrated generation views: {error}', flush=True)
 

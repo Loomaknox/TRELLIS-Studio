@@ -43,7 +43,7 @@ updates. See the [release notes](docs/RELEASE_3.9.0.md).
 
 | Workspace | Features |
 | --- | --- |
-| **Create** | Local TRELLIS.2 single-image generation and optional Pixal3D multi-view characters. Preview the cutout and the model's framing, then crop or correct the mask without changing the original. |
+| **Create** | Local TRELLIS.2 and Pixal3D generation with shared profiles and master finishing. Preview the cutout and the model's framing, then crop or correct the mask while keeping the original. |
 | **Queue** | Schedule batches of up to 30 images. Correct the recipe of a failed job and create a linked retry with the same references and seed. The original failure remains available for review. |
 | **Collection** | Search, category/type/review filters, favourites, tags, notes, nested folders, saved views, multiple selection, restorable trash and per-card action menus. |
 | **Review** | PBR/clay/normals/wireframe views, camera presets, adjustable preview lighting, synchronised before/after comparison, topology/UV/material/dimension diagnostics. |
@@ -87,9 +87,19 @@ The source cache can take hundreds of megabytes per model. Studio stores it once
 
 ### Generation profiles
 
-Create opens with **Dense Master**. Its default 1.2 million triangles is an editable ceiling for the displayed GLB. Studio measures how closely smaller candidates follow the decoded surface, or the reconstructed surface when repair is enabled. It keeps the full geometry and materials cache for Remesh. **3D print copy** uses the selected GLB. Choose another recipe and click **Use at startup** to remember it in this browser. The API default and **Reset to Game - Default** use the game recipe.
+Create opens with **HD Master** (`dense_master`). The default ceiling is 1.2
+million triangles with 2K materials. **Balanced Reconstruction** uses Studio 768
+in the same job. **Surface Closure** uses WTiVo 1024 when its optional runtime and
+Blender are installed. Both methods follow the displayed generation budget and
+retain the decoded cache for further finishing from Prepare. **Direct Export**
+and **Repair Holes** are under Advanced. Choose a recipe and click **Use at
+startup** to remember it in this browser.
 
-**Game - Default** (`game_d`) uses the validated 1024 cascade recipe: 20 steps per phase, guidance 7.5 / 7.5 / 2, approximately 28,000 target triangles, 2K textures, 2M pre-simplification, initial small-hole repair and DC remeshing capped at 512. Final triangle count is approximate. Dimensions and seeds belong to individual models.
+**Game Asset** (`game_d`) uses the 1024 TRELLIS.2 cascade with 20 steps per phase,
+guidance 7.5 / 7.5 / 2, approximately 28,000 target triangles and 2K textures.
+It uses 2M pre-simplification, initial small-hole repair and DC remeshing capped at
+512. This remains the API default and the recipe used by **Reset to Game Asset**.
+Dimensions and seeds belong to individual models.
 
 **High Detail** retains the 1024/20-step/2K sampling setup, targets 250,000 triangles and uses direct simplification to preserve more surface detail. Create custom profiles when you need another recipe; the built-in profiles remain protected. Historical recipes remain readable.
 
@@ -97,17 +107,33 @@ Create opens with **Dense Master**. Its default 1.2 million triangles is an edit
 
 512 and 1024 generation are provided by the standard installer. Higher-resolution controls require separate local capability validation and sufficient memory. Texture resolution is independent of geometry resolution.
 
-### Optional multi-view characters
+### Optional Pixal3D generation
 
-**Full Studio** includes Pixal3D. On a source installation, run **Install Pixal3D.cmd** after the main installation to add it. In the **Reference image** card in **Create**, enable **Multi-view · Pixal3D**, add a full-body front image and at least one complementary view, then choose the side angle that matches the images. The left and right slots are relative to the character. The back is a 180° view. Use the same character, scale and A-pose or T-pose in each image, with hands and feet visible. The slots accept PNG, JPEG and WebP up to 25 MB each. Studio prepares the cutouts and framing locally. Supply the views yourself.
+**Full Studio** includes Pixal3D multi-view. On a source installation, run
+**Install Pixal3D.cmd**. Add the optional single-image checkpoint and MoGe-2
+camera estimator by running `"Install Pixal3D.cmd" --single-image` in Command
+Prompt from the Studio folder. See [optional setup](INSTALLATION.md#optional-pixal3d-generation).
 
-The separate **Character · Pixal3D** recipe uses the 1024 cascade, a target of 10,600 triangles and 2K materials. The mesh and materials are generated in successive stages. Actual triangle counts are approximate. Jobs share Studio's queue and retain their input views, angles and recipe. The source cache for **Refinish model** is optional for this standard recipe. The **Character profile** selector also offers **Humanoid · Experimental**, which keeps the source and targets a detailed 250,000-triangle master before lighter finishing comparisons, and **Dense Master**, which adapts the displayed GLB to the surface under the selected ceiling.
+In Create, use **Change** next to **Generation method**. **Pixal3D · Single image**
+uses one image of an object or a character. MoGe-2 estimates its camera framing.
+**Pixal3D · Multi-view** uses a front view and one to three complementary views
+at consistent pose and scale. Choose the side angle that matches the references.
+The left and right slots are relative to the subject. **Swap sides** switches
+those images. The back slot represents 180°. References accept PNG, JPEG and
+WebP up to 25 MB each. Studio prepares the cutouts and framing locally.
 
-New Pixal3D jobs use 12 structure steps, 20 steps in each geometry pass and 12 material steps, with guidance 7.5 / 7.5 / 1. Recipe version 3 makes the geometry step count apply to both passes. Replaying a saved version 1 or 2 job retains its historical 12-step high-resolution pass. Increasing steps does not guarantee finer anatomy. Keep the references, seed and finishing settings fixed when comparing recipes.
+Both Pixal3D modes use the 1024 cascade and Studio's local queue. New monoview
+jobs use 12 steps per pass. New multi-view jobs use 12 structure steps, 20 steps
+in each geometry pass and 12 material steps, with guidance 7.5 / 7.5 / 1.
+Replaying a saved version 1 or 2 job retains its historical 12-step
+high-resolution pass. Keep the references, seed and finishing settings fixed
+when comparing recipes.
 
 Enable **Reproject the original face photo** to transfer the visible face from the original front photo into the generated base color. Use a sharp, unobstructed front view with the face large enough to see the eyes, nose and mouth. The pass runs locally after generation and keeps the existing mesh and other material maps. Check its status in the model details. If the faces cannot be aligned reliably, Studio keeps the generated texture.
 
-The optional runtime uses about 8.25 GiB of pinned downloads before Python dependencies. The tested configuration used three views on an RTX 4070 Ti with 12 GB VRAM. Review the face, fingers and silhouette before use. [Optional setup](INSTALLATION.md#optional-pixal3d-multi-view)
+The multi-view runtime uses about 8.25 GiB of pinned downloads before Python
+dependencies. Single-image generation adds about 6.4 GiB. Review the
+orientation, silhouette and fine details in the 3D preview.
 
 ### Import and review
 

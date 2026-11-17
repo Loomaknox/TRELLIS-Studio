@@ -37,12 +37,12 @@ class Runtime:
 
 
 def validate_wtivo_recipe(enabled, resolution, *, refinish=True, hd_reconstruction=False,
-                          repair_surface=False, adaptive=False, budget_preset=None):
+                          repair_surface=False, adaptive=False, budget_preset=None, inline_master=False):
     if type(enabled) is not bool:
         raise ValueError('WTiVo Reconstruction must be true or false.')
     if not enabled:
         return
-    if not refinish or resolution < WTIVO_RESOLUTION:
+    if resolution < WTIVO_RESOLUTION or not (refinish or inline_master):
         raise ValueError('WTiVo Reconstruction requires a saved decoded source at 1024 or higher.')
     if hd_reconstruction or repair_surface or adaptive or budget_preset:
         raise ValueError('WTiVo Reconstruction uses a fixed grid and a manual triangle budget. Choose one reconstruction method.')
