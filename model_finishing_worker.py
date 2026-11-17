@@ -50,7 +50,18 @@ def run(folder):
                 else:
                     reference = staged_reference(folder, request['reference_file'])
                     references = [reference]
+                    cutout = request.get('generation_reference')
+                    if cutout is not None:
+                        from generation_view_projection import digest
+                        if digest(source) != cutout['source_sha256'] or digest(reference) != cutout['reference_sha256']:
+                            raise ValueError('The model or saved generation cutout changed before projection.')
                     report = project_texture(source, reference, target, options=request['options'], progress=progress)
+                    if cutout is not None:
+                        if (report['source_sha256'] != cutout['source_sha256']
+                                or digest(reference) != cutout['reference_sha256']):
+                            raise ValueError('The model or saved generation cutout changed during projection.')
+                        report.update(method='generation_reference', alignment='supplied_camera', reference='prepared',
+                                      reference_sha256=cutout['reference_sha256'], model_sha256=digest(target))
                 completed = 'Texture projection ready'
             elif operation == 'baked_game_copy':
                 from baked_game_copy import run_baked_game_copy

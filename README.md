@@ -27,11 +27,10 @@ One local generation produced two finishes from the same saved source. The high-
 
 Read the [Windows Setup guide](docs/WINDOWS_SETUP.md) for component installation, repair and uninstall. Downloads are resumable and verified with SHA-256. The uninstaller can stop its own idle local services and keeps the library.
 
-**New in 3.8.0** — Try **HD Reconstruction (768)** on a Dense Master or a
-compatible saved generation. Mark areas such as handles or grilles for
-extra detail during **Game Copy from HD**, with automatic face and hand
-priority for front-facing T-pose humanoids.
-See the [release notes](docs/RELEASE_3.8.0.md).
+**New in 3.9.0** — Rebuild a cached source with **HD Master Finishing**, then
+reproject compatible Pixal3D generation views or fit a saved TRELLIS.2 image
+to the model. The header shows the installed version and available stable
+updates. See the [release notes](docs/RELEASE_3.9.0.md).
 
 ### Install from source
 
@@ -155,8 +154,10 @@ The linked copy keeps the source geometry, UVs and other maps.
 For a compatible Pixal3D generation with saved camera data, choose
 **Use generation views** to project the original prepared views with
 Pixel Match. It uses visibility, edge blending and local color matching,
-and creates a linked texture copy. Choose the manual editor to place a
-custom reference or use Auto Align.
+and creates a linked texture copy. On supported single-image TRELLIS.2
+generations, Studio can fit the saved reference to the model for projection.
+Use the manual editor to load a custom reference, adjust its position and
+scale, or review an Auto Align result.
 
 **Game Copy from HD** reduces the selected static HD model, unwraps new UVs,
 and bakes base color, roughness, metallic and optional tangent-space normals

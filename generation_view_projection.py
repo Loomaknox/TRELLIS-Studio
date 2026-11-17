@@ -1,4 +1,4 @@
-"""Verified Pixal3D camera provenance and projection of the prepared generation views."""
+"""Verified Texture Projection inputs from Pixal3D and TRELLIS.2 generations."""
 from dataclasses import asdict
 import hashlib
 from io import BytesIO
@@ -10,6 +10,7 @@ from time import perf_counter
 import numpy as np
 from PIL import Image
 
+from generation_options import GENERATION_PRESETS
 from normal_bake import checked_normalization
 from pixal3d_runtime import CAMERA_FOV, camera_matrix, validate_views
 from reference_preparation import PREPARED_VIEWS
@@ -115,6 +116,41 @@ def inspect_generation_views(folder, source, settings, supported, support_reason
         return dict(supported=False, reason='Saved generation views could not be verified. Use Auto Align or Manual projection.',
                     views=[]), None
     return dict(supported=True, reason='', views=[view['role'] for view in provenance['views']]), provenance
+
+
+def inspect_generation_reference(folder, record, supported, support_reason, max_pixels):
+    """Check that a completed TRELLIS.2 generation kept a usable saved cutout."""
+    def unavailable(reason):
+        return dict(supported=False, reason=reason, reference=None), None
+
+    if not supported:
+        return unavailable(support_reason)
+    settings = record['settings']
+    engine = (record.get('result') or {}).get('engine')
+    configured_engine = settings.get('engine')
+    preset = settings.get('preset')
+    generated = engine == 'TRELLIS.2' or configured_engine == 'trellis2' or (
+        isinstance(preset, str) and preset in GENERATION_PRESETS)
+    compatible_engine = configured_engine in (None, 'trellis2') or (
+        configured_engine == 'trellis' and engine == 'TRELLIS.2')
+    if (not generated or engine not in (None, 'TRELLIS.2') or not compatible_engine
+            or settings.get('source_kind') not in (None, 'refinish')):
+        return unavailable('Choose a TRELLIS.2 generation or a linked refinishing result with its saved cutout.')
+    try:
+        reference = generation_reference(folder, 'front')
+        if reference.stat().st_size > 5 * max_pixels:
+            return unavailable('The saved cutout exceeds the projection image limit. Use Manual with a resized cutout.')
+        with Image.open(reference) as image:
+            if image.format != 'PNG' or not 0 < image.width * image.height <= max_pixels:
+                return unavailable('The saved cutout must be a PNG within the projection image limit.')
+            alpha = image.convert('RGBA').getchannel('A')
+            low, high = alpha.getextrema()
+            if low >= 128 or high < 128:
+                return unavailable('A saved cutout with a visible subject and transparent background is required. '
+                                   'Use Manual with your own cutout.')
+    except (OSError, ValueError, Image.DecompressionBombError):
+        return unavailable('This model has no readable saved TRELLIS.2 cutout. Use Manual projection.')
+    return dict(supported=True, reason='', reference='prepared'), reference
 
 
 def project_generation_texture(folder, source, destination, provenance, *, progress):

@@ -179,12 +179,12 @@ async def queue_refinish(model_id: Identifier, recipe: Refinish) -> dict[str, An
 
 @tool(read=True)
 async def get_texture_projection_options(model_id: Identifier) -> dict[str, Any]:
-    """Check support, saved reference images, the manual view limit and generation_views availability for a completed static model."""
+    """Check support, saved references, view limit, calibrated Pixal3D generation_views and aligned TRELLIS.2 generation_reference availability."""
     return await api('GET', f'/models/{model_id}/texture-projection')
 
 @tool()
 async def queue_texture_projection(model_id: Identifier, recipe: TextureProjectionRequest) -> dict[str, Any]:
-    """Project into the base color of a linked copy. Use {"method":"generation_views"} for Pixel Match with verified saved Pixal3D cameras. For manual projection submit one view recipe or a views list with two independently aligned recipes. Each view uses a saved reference or upload ID, a camera and normalized rectangles. Use linked_selection with four matching points per image for affine alignment, and source_polygon for a freeform outline. Poll get_model."""
+    """Project into the base color of a linked copy. Use {"method":"generation_views"} for Pixel Match with verified Pixal3D cameras. For the saved TRELLIS.2 cutout, use {"method":"generation_reference"} plus the aligned camera, source_rect and target_rect. Studio's Auto Align can estimate this alignment. Manual one- and two-view recipes require a saved reference or upload ID for each view. Use linked_selection with four matching points per image for affine alignment, and source_polygon for a freeform outline. Poll get_model."""
     return await api('POST', f'/models/{model_id}/texture-projection',
                      recipe.model_dump(mode='json', exclude_none=True))
 

@@ -352,10 +352,8 @@ class ProjectionCamera(Contract):
         return self
 
 
-class TextureProjection(Contract):
+class ProjectionAlignment(Contract):
     camera: ProjectionCamera
-    reference: Literal['prepared', 'conditioning', 'input'] | None = None
-    upload_id: Identifier | None = None
     source_rect: tuple[Coordinate, Coordinate, Coordinate, Coordinate]
     target_rect: tuple[Coordinate, Coordinate, Coordinate, Coordinate]
     source_points: list[tuple[Coordinate, Coordinate]] | None = Field(default=None, min_length=4, max_length=4)
@@ -371,13 +369,22 @@ class TextureProjection(Contract):
     feather: float = Field(default=.06, ge=0, le=.5)
 
     @model_validator(mode='after')
-    def validate_reference(self):
-        if (self.reference is None) == (self.upload_id is None):
-            raise ValueError('Choose one saved reference or upload one image.')
+    def validate_alignment(self):
         if (self.source_points is None) != (self.target_points is None):
             raise ValueError('Supply all corresponding points on both images.')
         if (self.source_polygon is not None) != (self.mask_shape == 'polygon'):
             raise ValueError('Supply a reference polygon only with the polygon mask shape.')
+        return self
+
+
+class TextureProjection(ProjectionAlignment):
+    reference: Literal['prepared', 'conditioning', 'input'] | None = None
+    upload_id: Identifier | None = None
+
+    @model_validator(mode='after')
+    def validate_reference(self):
+        if (self.reference is None) == (self.upload_id is None):
+            raise ValueError('Choose one saved reference or upload one image.')
         return self
 
 
@@ -392,7 +399,13 @@ class GenerationViewTextureProjection(Contract):
         description='Project the prepared views and calibrated cameras saved by the selected Pixal3D generation.')
 
 
-TextureProjectionRequest = TextureProjection | MultiViewTextureProjection | GenerationViewTextureProjection
+class GenerationReferenceTextureProjection(ProjectionAlignment):
+    method: Literal['generation_reference'] = Field(
+        description='Project the saved TRELLIS.2 cutout with a supplied alignment. TRELLIS.2 has no saved generation camera.')
+
+
+TextureProjectionRequest = (TextureProjection | MultiViewTextureProjection | GenerationViewTextureProjection
+                            | GenerationReferenceTextureProjection)
 
 
 PROTECTED_REGION_LIMIT = 24
