@@ -2,13 +2,14 @@
 from pathlib import Path
 from studio_workspace import ID, finishing_source, read as read_workspace_json
 from studio_version import VERSION
+from studio_release import release_status, render_studio_version
 from contextlib import asynccontextmanager
 from tempfile import TemporaryDirectory
 import asyncio, base64, hashlib, io, json, os, re, shutil, subprocess, sys, time, uuid
 from urllib.parse import urlparse
 from typing import Annotated
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from generation_options import (normalize_options, options_for_job, schema as generation_schema,
@@ -1341,8 +1342,13 @@ async def files(identifier: str, filename: str):
 
 @app.get('/')
 def index():
-    return FileResponse(ROOT / 'web' / 'studio.html',
-                        headers={'Cache-Control': 'no-cache, must-revalidate'})
+    html = (ROOT / 'web' / 'studio.html').read_text(encoding='utf-8')
+    return HTMLResponse(render_studio_version(html), headers={'Cache-Control': 'no-cache, must-revalidate'})
+
+
+@app.get('/api/release-status', include_in_schema=False)
+def studio_release_status():
+    return JSONResponse(release_status(), headers={'Cache-Control': 'no-store'})
 
 @app.get('/api/rig-pilot')
 def rig_pilot():
