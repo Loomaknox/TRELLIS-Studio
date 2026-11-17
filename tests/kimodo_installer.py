@@ -44,7 +44,7 @@ class Installer(unittest.TestCase):
     def test_resume_exact_range_and_idempotent_cache(self):
         content = b'correct payload'; entry = self.entry(content)
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp); target = root / (entry['sha256'] + '-' + entry['filename'])
+            root = Path(tmp).resolve(); target = root / (entry['sha256'] + '-' + entry['filename'])
             target.with_suffix('.bin.partial').write_bytes(content[:4])
             def opener(request, timeout):
                 self.assertEqual(request.headers['Range'], 'bytes=4-')
@@ -124,7 +124,9 @@ class Installer(unittest.TestCase):
 
     def test_activation_preserves_options_and_commits_last(self):
         with tempfile.TemporaryDirectory(prefix='studio space ') as tmp:
-            root = Path(tmp); (root / 'config').mkdir()
+            # Windows temporary paths may use an 8.3 alias; child() canonicalizes
+            # that alias before passing paths to atomic_json.
+            root = Path(tmp).resolve(); (root / 'config').mkdir()
             manifest = json.loads((ROOT / 'installer/kimodo-manifest.json').read_text())
             receipt = dict(installation_id=installer.installation_id(root), smoke={'frames':60}, skeleton={'names':['fixture']},
                            executable='/engine/bin/kmd-generate',library_directory='/engine/lib',motion_model='/engine/motion.gguf',text_model='/engine/text.gguf')
