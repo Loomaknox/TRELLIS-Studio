@@ -72,7 +72,10 @@ For local generation, stop the Studio with **Stop TRELLIS Studio** in the Start
 menu. Choose **Install TRELLIS generation** for the NVIDIA build without WSL, or
 **Install generation and UniRig** after setting up Ubuntu 22.04 in WSL. The
 generation installer shows the DINOv3 terms before downloading the weights.
-**Install Pixal3D** is available once standard generation is installed. The
+**Install Pixal3D** is available once standard generation is installed. To add
+the optional **Pixal3D · Single image** method, run `"Install Pixal3D.cmd" --single-image`
+from the installation folder in Command Prompt. This adds approximately 6.4 GiB
+of checkpoint downloads to the Pixal3D installation. The
 [requirements and troubleshooting guide](../INSTALLATION.md) covers the driver,
 disk space, optional WSL setup and verified downloads.
 

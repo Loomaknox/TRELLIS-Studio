@@ -32,6 +32,20 @@
       "sha256": "714e5ebf094a610e12a8e3b5175c18a62f37f6ea4218acb6073644456b73ab0e"
     }
   ],
+  "single_image_weights": [
+    {
+      "path": "diffusion_models/pixal3d_int8_convrot.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Pixal3D/resolve/f37641be376725d324c56626007cc477f1249a69/diffusion_models/pixal3d_int8_convrot.safetensors?download=true",
+      "bytes": 5584555824,
+      "sha256": "4621eac3b715484f79303c7152af641fe0b2b14f4d0e3d394fd6922d00f955ec"
+    },
+    {
+      "path": "depth/moge-2-vitl.pt",
+      "url": "https://huggingface.co/Ruicheng/moge-2-vitl/resolve/39c4d5e957afe587e04eec59dc2bcc3be5ecd968/model.pt?download=true",
+      "bytes": 1305030700,
+      "sha256": "3eefd4abb2102f38f12b2d1992e5ff15e4923e5431c67dd494afe157e0111cd5"
+    }
+  ],
   "face_detector": {
     "path": "face/face_detection_yunet_2023mar.onnx",
     "url": "https://media.githubusercontent.com/media/opencv/opencv_zoo/f12e12798e8314f7c074a6656816c048dcc95b7a/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",

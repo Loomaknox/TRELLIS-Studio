@@ -1,8 +1,8 @@
 import {button, dialog, el, field, select} from './workbench-ui.js?v=3.4.0';
 
 const methods = [
-    ['wtivo_1024', 'WTiVo Reconstruction (1024)', 'Rebuilds the cached surface with WTiVo.'],
-    ['studio_768', 'Studio Reconstruction (768)', 'Rebuilds the cached surface with Studio’s built-in method.'],
+    ['studio_768', 'Balanced Reconstruction', 'Studio 768 · Rebuilds the cached surface for general use.'],
+    ['wtivo_1024', 'Surface Closure', 'WTiVo 1024 · Prioritizes closing surface gaps.'],
 ];
 const number = new Intl.NumberFormat('en-US');
 

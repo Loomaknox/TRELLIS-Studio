@@ -2,6 +2,7 @@
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 
 VIEW_FILES = {
@@ -13,10 +14,13 @@ VIEW_FILES = {
 CAMERA_RADIUS = 3.1192
 CAMERA_FOV = math.radians(20)
 FACE_SETUP_HINT = "Run Install Pixal3D.cmd --face-only to enable face reprojection."
+SINGLE_IMAGE_SETUP_HINT = "Run Install Pixal3D.cmd --single-image to enable single-image Pixal3D."
+SINGLE_IMAGE_MARKER = 'single-image-verified.json'
 
 
 def runtime_root(studio_root):
-    return Path(studio_root) / 'models' / 'pixal3d'
+    override = os.environ.get('TRELLIS_PIXAL3D_RUNTIME_DIR')
+    return Path(override).resolve() if override else Path(studio_root) / 'models' / 'pixal3d'
 
 
 def load_manifest(studio_root):
@@ -26,6 +30,13 @@ def load_manifest(studio_root):
 
 def source_path(directory, manifest):
     return directory / ('ComfyUI-' + manifest['comfy']['commit'])
+
+
+def single_image_marker(manifest):
+    return {
+        'schema': 1, 'source_sha256': manifest['comfy']['sha256'],
+        'weights_sha256': {item['path']: item['sha256'] for item in manifest['single_image_weights']},
+    }
 
 
 def verified_face_detector(studio_root):
@@ -43,6 +54,7 @@ def verified_face_detector(studio_root):
 def runtime_status(studio_root):
     directory = runtime_root(studio_root)
     face_ready = False
+    single_image_ready = False
     try:
         manifest = load_manifest(studio_root)
         marker = json.loads((directory / 'verified.json').read_text(encoding='utf-8'))
@@ -58,6 +70,16 @@ def runtime_status(studio_root):
         ready = False
     if ready:
         try:
+            marker = json.loads((directory / SINGLE_IMAGE_MARKER).read_text(encoding='utf-8'))
+            single_image_ready = (
+                marker == single_image_marker(manifest)
+                and (source_path(directory, manifest) / 'comfy' / 'ldm' / 'moge' / 'model.py').is_file()
+                and all((directory / 'models' / item['path']).stat().st_size == item['bytes']
+                        for item in manifest['single_image_weights'])
+            )
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        try:
             verified_face_detector(studio_root)
             face_ready = True
         except (OSError, RuntimeError, ValueError, KeyError, TypeError):
@@ -65,6 +87,10 @@ def runtime_status(studio_root):
     return {
         'ready': ready,
         'message': 'Pixal3D is ready.' if ready else 'Run Install Pixal3D.cmd to enable Pixal3D.',
+        'single_image': {
+            'ready': single_image_ready,
+            'message': 'Single-image Pixal3D is ready.' if single_image_ready else SINGLE_IMAGE_SETUP_HINT,
+        },
         'face_projection': {
             'ready': face_ready,
             'message': 'Face reprojection is ready.' if face_ready else FACE_SETUP_HINT,

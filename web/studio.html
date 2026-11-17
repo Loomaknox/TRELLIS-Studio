@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/web/studio.css?v=2.3">
 <link rel="stylesheet" href="/web/reference-preview.css?v=3.4.0">
 <link rel="stylesheet" href="/web/generation-wait.css?v=3.4.0">
-<link rel="stylesheet" href="/web/workspace.css?v=3.4.0"><link rel="stylesheet" href="/web/polish.css?v=3.4.0">
+<link rel="stylesheet" href="/web/workspace.css?v=3.4.0"><link rel="stylesheet" href="/web/polish.css?v=unified-generation">
 <link rel="stylesheet" href="/web/release-notification.css?v=1">
 <script type="importmap">{"imports":{"three":"/vendor/build/three.module.js","three/addons/":"/vendor/examples/jsm/"}}</script>
 <script type="module" src="/web/release-notification.js?v=1"></script>
@@ -32,29 +32,18 @@
 <div class="app-shell">
 <nav class="rail" aria-label="Workspaces"><span class="rail-label">WORKSPACE</span><button id="imageTab" aria-pressed="true" class="rail-button"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#image"/></svg><span class="nav-text">Create</span></button><button id="openLibrary" aria-pressed="false" class="rail-button"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#grid"/></svg><span class="nav-text">Collection</span> <b id="count">0</b></button><button id="terrainTab" aria-pressed="false" class="rail-button"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#terrain"/></svg><span class="nav-text">Terrain</span></button><button id="rigTab" aria-pressed="false" class="rail-button"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="14" cy="4" r="2"/><path d="m5 10 5-3 5 3 4-1M10 7l-1 7-5 6m5-6 6 2 2 5m-5-11 2 5"/></svg><span class="nav-text">Animate</span></button><div class="rail-bottom"><span class="local-badge">● 100 % local</span><small>Your images and models<br>stay on this computer.</small><span id="hardware">Local compute</span></div></nav>
 <aside class="creation" id="creationPanel">
-<div class="panel-heading"><span class="eyebrow">CREATE A MODEL</span><h1>Image to 3D</h1><p class="intro">Give your reference a new dimension.</p></div>
+<div class="panel-heading"><h1>Image to 3D</h1><p id="workspaceIntro" class="intro" hidden></p></div>
 <form id="form">
-<div class="profile-box" id="monoProfile"><div class="section-label"><span>Generation profile</span><span id="profileState" class="profile-state">REFERENCE</span></div>
-<label class="sr-only" for="profileChoice">Generation profile</label><select id="profileChoice" disabled><option>Loading profiles…</option></select>
-<p id="profileSummary" class="hint">Loading the startup profile…</p>
-<div class="profile-actions"><button id="saveProfileAs" type="button" disabled>＋ Save a copy</button><button id="updateProfile" type="button" hidden>Edit this profile</button><button id="useProfileAtStartup" type="button" aria-pressed="false" disabled>Use at startup</button></div><p id="profileNotice" role="status" aria-live="polite"></p></div>
-<div class="profile-box" id="pixalProfile" hidden>
-  <div class="section-label"><span>Character profile</span><span id="pixalRuntimeState" class="profile-state">OPTIONAL</span></div>
-  <label class="sr-only" for="pixalProfileChoice">Character profile</label><select id="pixalProfileChoice"><option value="character_pixal">Character · Pixal3D</option></select>
-  <p id="pixalProfileSummary" class="hint">Dedicated recipe for characters.</p>
-  <p id="pixalRuntimeNotice" class="hint" role="status">Checking the optional Pixal3D runtime…</p>
-</div>
 <input id="parentId" name="parent_id" type="hidden" value=""><input id="preset" name="preset" type="hidden" value="game_d"><input id="profileId" name="profile_id" type="hidden" value="game_d">
 <section class="reference-card" aria-labelledby="referenceTitle">
-<div class="section-label source-label"><span id="referenceTitle">01 / Reference image</span><span id="referenceMode">SINGLE IMAGE</span></div>
+<div class="section-label source-label"><span id="referenceTitle">Reference images</span><span id="referenceMode">0 images</span></div>
 <div class="reference-slot reference-slot-main" data-reference-slot="front">
   <label id="drop" class="drop"><input id="image" name="image" type="file" accept="image/png,image/jpeg,image/webp" aria-label="Reference image" required><img id="inputPreview" alt="Main reference preview" hidden><span id="dropText" data-slot-prompt><span class="drop-symbol">↥</span><strong id="frontDropTitle">Drop your reference image</strong><small>Click, drag or paste<br>PNG, JPG, WebP · up to 25 MB</small></span></label>
   <span id="mainViewBadge" class="reference-slot-badge" hidden>Main view · front</span>
   <button type="button" class="reference-slot-remove" aria-label="Remove main reference" title="Remove main reference" hidden><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#close"/></svg></button>
 </div>
-<label class="multiview-switch"><span><strong>Multi-view &#183; Pixal3D</strong><small>Characters &#183; 2&#8211;4 reference images</small></span><input id="pixalMode" type="checkbox" autocomplete="off" role="switch" aria-controls="pixalProfile supplementalViews pixalViewAngles" aria-label="Multi-view Pixal3D for characters"></label>
 <fieldset id="supplementalViews" class="mode-fields" hidden disabled>
-    <legend class="sr-only">Complementary character views</legend>
+    <legend class="sr-only">Additional references</legend>
     <div class="multiview-slots">
       <div class="reference-slot reference-slot-extra" data-reference-slot="left">
         <label class="reference-slot-picker"><input type="file" accept="image/png,image/jpeg,image/webp" aria-label="Add left reference"><img alt="Left reference preview" hidden><span class="reference-slot-placeholder" data-slot-prompt><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#camera"/></svg></span><strong>Left</strong></label>
@@ -69,64 +58,74 @@
         <button type="button" class="reference-slot-remove" aria-label="Remove right reference" title="Remove right reference" hidden><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#close"/></svg></button>
       </div>
     </div>
+    <button id="swapReferenceSides" type="button" class="quiet generation-link" disabled><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#rotate"/></svg> Swap sides</button>
 </fieldset>
 <fieldset id="pixalViewAngles" class="mode-fields" hidden disabled>
   <label class="field">Side view angle<select id="sideAngle"><option value="40">Three-quarter · ±40°</option><option value="90">Profile · ±90°</option></select></label>
-  <p class="hint">Use matching views of the same subject, pose and scale. Left and right are the subject’s sides. Back is 180°. For one angled image, use TRELLIS.2.</p>
+  <p class="hint">Use the same subject, pose and scale. Match Left and Right to the subject’s own sides.</p>
   <p class="hint" id="viewRequirements" aria-live="polite"></p>
-  <label class="check"><input id="reprojectFace" type="checkbox" autocomplete="off" aria-describedby="reprojectFaceHelp" disabled><span>Reproject the original face photo</span></label>
-  <p class="hint" id="reprojectFaceHelp">Checking face reprojection availability&#8230;</p>
 </fieldset>
 <div class="reference-preview-entry">
+  <button id="addReferenceView" type="button" class="secondary" aria-controls="supplementalViews" aria-expanded="false"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#plus"/></svg> Add view</button>
   <button id="openReferencePreview" type="button" class="secondary" disabled><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#camera"/></svg> Preview reference</button>
   <small id="referenceEditSummary" role="status" hidden></small>
 </div>
 </section>
-<fieldset id="monoAssetType" class="mode-fields">
-  <label class="field">Asset type<select id="assetType" name="asset_type"><option value="object">Static prop</option></select></label><p id="assetHint" class="hint">One complete object, in a three-quarter view on a plain grey background.</p>
-</fieldset>
-
-<label class="field">Name<input id="name" name="name" maxlength="80" value="New model" required></label>
-<div id="monoBrief" class="reference-tools"><button id="copyReferencePrompt" type="button" class="text-button">Copy an image brief ↗</button><span>Prepare a reference image before generation.</span></div>
-
-<div class="section-label quality-label"><span>02 / Quality & scale</span></div>
-<fieldset id="monoResolution" class="mode-fields">
-  <label class="field">3D resolution<select id="resolution" name="resolution"><option value="512">512³ · Fast</option><option value="1024" selected>1024³ · Quality</option><option value="1536" disabled>1536³ · Fine detail</option></select></label>
-</fieldset>
-<div class="two-fields">
-  <label class="field">Real-world height<input id="height" name="height_m" type="number" value="1" min="0.01" max="100" step="0.01"><small>metres · origin at ground level</small></label>
-  <fieldset id="monoTexture" class="mode-fields">
-    <label class="field">Texture<select id="textureSize" name="texture_size"><option value="0">Use profile default</option><option value="1024">1K · 1 024 px</option><option value="2048" selected>2K · 2 048 px</option><option value="4096" disabled>4K · 4 096 px</option></select></label>
-  </fieldset>
-  <fieldset id="pixalTexture" class="mode-fields" hidden disabled>
-    <label class="field">Texture<select id="pixalTextureSize"><option value="">Use profile default</option><option value="1024">1K · 1 024 px</option><option value="2048">2K · 2 048 px</option></select></label>
-  </fieldset>
-</div>
-<fieldset id="monoBackground" class="mode-fields">
-  <p id="qualityHint" class="hint" hidden></p>
-  <label class="check"><input id="removeBg" name="remove_bg" type="checkbox" checked><span>Remove image background</span></label>
-</fieldset>
-<fieldset id="pixalQuality" class="mode-fields" hidden disabled>
-  <div class="two-fields">
-    <label class="field"><span id="pixalTrianglesLabel">Target triangles</span><input id="pixalTriangles" type="number" min="1000" max="8000000" step="1" placeholder="Profile default"><small id="pixalTrianglesHint">Leave blank for the character profile</small></label>
-    <label class="field">3D seed<input id="pixalSeed" type="number" value="42" min="0" max="2147483647" step="1"></label>
+<div class="profile-box">
+  <div class="section-label"><label for="profileChoice">Generation profile</label><span id="profileState" class="profile-state" hidden>MODIFIED</span></div>
+  <select id="profileChoice" disabled><option>Loading profiles…</option></select>
+  <p id="profileSummary" class="hint"></p>
+  <div id="denseMasterRepairField" class="field master-choice" hidden>
+    <label for="denseMasterFinishing">Master finishing</label>
+    <select id="denseMasterFinishing" aria-describedby="denseMasterFinishingHint" disabled>
+      <option value="studio_768">Balanced Reconstruction</option>
+      <option value="wtivo_1024">Surface Closure</option>
+    </select>
+    <div id="masterFinishingOverride" hidden><strong id="masterFinishingOverrideLabel"></strong><button id="clearMasterOverride" type="button" class="quiet"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#rotate"/></svg> Clear override</button></div>
+    <small id="denseMasterFinishingHint"></small>
   </div>
-</fieldset>
-<label class="check"><input id="keepFinishingSource" name="keep_finishing_source" type="checkbox" value="true"><span>Keep source for finishing variants</span></label>
-<p id="humanoidProfileHelp" class="hint" hidden>Experimental humanoid recipe. Keeps its source for lighter finishing variants without generation. Local face and hand reconstruction is not automatic.</p>
-<p id="denseMasterProfileHelp" class="hint" hidden>Uses a surface detail check to choose a triangle count within the ceiling. Saves the full decoded geometry and materials for Remesh, which can take substantial disk space.</p>
-<label id="denseMasterRepairField" class="field" hidden>Master finishing<select id="denseMasterFinishing" aria-describedby="denseMasterFinishingHint" disabled><option value="direct">Dense Master · Direct</option><option value="repair">Repair holes</option><option value="hd_reconstruction">HD Reconstruction (768)</option></select><small id="denseMasterFinishingHint">Adaptive reduction within the triangle ceiling.</small></label>
-<p id="finishingSourceHelp" class="hint">Optional. Stores the dense geometry and materials locally so finishing can be repeated without generation.</p>
-<fieldset id="monoAdvanced" class="mode-fields">
-  <details class="advanced" id="advancedSettings"><summary>Advanced settings · 3D, textures & UV</summary>
-  <label class="field">Base preset<select id="profileBase"><option value="game_d">Game - Default · 20 steps</option><option value="high_detail">High Detail · 20 steps</option><option value="dense_master">Dense Master · 20 steps</option><option value="humanoid_experimental">Humanoid · Experimental · 20 steps</option></select></label><div class="advanced-actions"><button id="resetAdvanced" type="button" class="secondary">Reset to Game - Default</button></div>
-  <p class="hint">Hover over a label or field for help. Each result stores its settings for reuse with New version.</p>
-  <div class="two-fields"><label class="field"><span id="monoTrianglesLabel">Target triangles</span><input id="triangles" name="triangles" type="number" min="0" max="8000000" step="1" value="28000"><small id="monoTrianglesHint">0 = profile · up to 8,000,000. The result may be lower.</small></label><label class="field">3D seed<input id="seed" name="seed" type="number" value="42" min="0" max="2147483647" step="1"></label></div>
-  <div id="advancedControls"></div>
+</div>
+<details id="generationMethod" class="generation-method">
+  <summary aria-labelledby="generationMethodAction generationMethodLabel">
+    <span><small>Generation method</small><strong id="generationMethodLabel">TRELLIS.2 · Single image</strong></span>
+    <span class="generation-method-change" id="generationMethodAction">Change</span>
+  </summary>
+  <div role="group" aria-label="Generation methods" class="generation-method-options">
+    <button type="button" value="trellis2" aria-pressed="true"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#image"/></svg><span><strong>TRELLIS.2 · Single image</strong><small data-method-status>Standard generation</small></span></button>
+    <button type="button" value="pixal3d_single" aria-pressed="false" disabled><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#camera"/></svg><span><strong>Pixal3D · Single image</strong><small data-method-status>Checking availability…</small></span></button>
+    <button type="button" value="pixal3d" aria-pressed="false" disabled><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#layers"/></svg><span><strong>Pixal3D · Multi-view</strong><small data-method-status>Checking availability…</small></span></button>
+  </div>
+</details>
+<p id="generationMethodNotice" class="hint generation-method-notice" role="status" hidden></p>
+<div class="two-fields generation-identity">
+  <label class="field">Name<input id="name" name="name" maxlength="80" value="New model" required></label>
+  <label class="field">Height (m)<input id="height" name="height_m" type="number" value="1" min="0.01" max="100" step="0.01"></label>
+</div>
+<details class="advanced generation-advanced" id="advancedSettings">
+  <summary>Advanced</summary>
+  <label class="field">Asset type<select id="assetType" name="asset_type"><option value="object">Static prop</option></select></label>
+  <p id="assetHint" class="hint"></p>
+  <div class="reference-tools"><button id="copyReferencePrompt" type="button" class="text-button">Copy an image brief ↗</button></div>
+  <div class="two-fields">
+    <label class="field">3D resolution<select id="resolution" name="resolution"><option value="512">512³ · Fast</option><option value="1024" selected>1024³ · Quality</option><option value="1536" disabled>1536³ · Fine detail</option></select></label>
+    <label class="field">Texture<select id="textureSize" name="texture_size"><option value="0">Use profile default</option><option value="1024">1K · 1 024 px</option><option value="2048" selected>2K · 2 048 px</option><option value="4096" disabled>4K · 4 096 px</option></select></label>
+  </div>
+  <p id="qualityHint" class="hint" hidden></p>
+  <div class="two-fields"><label class="field"><span id="monoTrianglesLabel">Target triangles</span><input id="triangles" name="triangles" type="number" min="0" max="8000000" step="1" value="28000"><small id="monoTrianglesHint">0 uses the profile budget.</small></label><label class="field">3D seed<input id="seed" name="seed" type="number" value="42" min="0" max="2147483647" step="1"></label></div>
+  <label id="advancedMasterField" class="field" hidden>Finishing override<select id="advancedMasterFinishing" disabled><option value="">Use master finishing</option><option value="direct">Direct Export</option><option value="repair">Repair Holes</option></select></label>
+  <label id="removeBgField" class="check"><input id="removeBg" name="remove_bg" type="checkbox" checked><span>Remove image background</span></label>
+  <div id="faceProjectionField" hidden><label class="check"><input id="reprojectFace" type="checkbox" autocomplete="off" aria-describedby="reprojectFaceHelp" disabled><span>Reproject the reference face</span></label><p class="hint" id="reprojectFaceHelp"></p></div>
+  <label class="check"><input id="keepFinishingSource" name="keep_finishing_source" type="checkbox" value="true"><span>Keep source for finishing variants</span></label>
+  <p id="finishingSourceHelp" class="hint">Stores the decoded geometry and materials so finishing can be repeated.</p>
+  <fieldset id="generationSampling" class="mode-fields">
+    <label class="field">Base preset<select id="profileBase"><option value="game_d">Game Asset</option><option value="high_detail">High Detail</option><option value="dense_master">HD Master</option><option value="humanoid_experimental">Humanoid · Experimental</option></select></label>
+    <div id="advancedControls"></div>
+  </fieldset>
   <label class="field">Reference context / prompt<textarea id="referencePrompt" name="reference_prompt" rows="4" maxlength="6000" placeholder="Object function, setting, materials…"></textarea></label>
-  <p class="hint">Context is stored with the object; generation uses the reference image. This form supports a single image.</p></details>
-</fieldset>
-<div class="generation-dock"><p id="generationSummary">GAME - DEFAULT · LOCAL COMPUTE</p><button id="generate" class="primary generate-button" type="submit" disabled><span>Generate model</span></button><button id="cancel" class="cancel" type="button" hidden>Cancel generation</button></div>
+  <div class="profile-actions"><button id="saveProfileAs" type="button" disabled>Save a copy</button><button id="updateProfile" type="button" hidden>Edit this profile</button><button id="useProfileAtStartup" type="button" aria-pressed="false" disabled>Use at startup</button><button id="resetAdvanced" type="button" class="quiet">Reset to Game Asset</button></div>
+  <p id="profileNotice" role="status" aria-live="polite"></p>
+</details>
+<div class="generation-dock"><p id="generationSummary">Local compute</p><button id="generate" class="primary generate-button" type="submit" disabled><span>Generate model</span></button><button id="cancel" class="cancel" type="button" hidden>Cancel generation</button></div>
 </form>
 <form id="terrainForm" hidden><p class="hint">Procedural terrain, independent of the image-to-3D engine.</p><label class="field">Name<input id="terrainName" value="Terrain-Blackwater" maxlength="50" required></label><label class="field">Terrain<select id="terrainStyle"><option value="hills">Hills</option><option value="mountains">Rocky terrain</option><option value="basin">Basin</option><option value="plateau">Plateaus</option></select></label><div class="two-fields"><label class="field">Side length<select id="terrainSize"><option value="64">64 m</option><option value="128">128 m</option><option value="256" selected>256 m</option><option value="512">512 m</option><option value="1024">1 024 m</option></select></label><label class="field">Maximum elevation<input id="terrainHeight" type="number" min="1" max="250" value="32"></label></div><label class="field">Palette<select id="terrainPalette"><option value="blackwater">Blackwater</option><option value="dry">Dry ground</option><option value="ash">Ash</option></select></label><label class="field">Detail <output id="roughnessValue">55 %</output><input id="roughness" type="range" min=".1" max=".9" step=".05" value=".55"></label><label class="field">Flat area <output id="flatValue">15 %</output><input id="flatZone" type="range" min="0" max=".4" step=".05" value=".15"></label><div class="two-fields"><label class="field">Heightmap<select id="terrainResolution"><option>129</option><option selected>257</option><option>513</option></select></label><label class="field">Seed<input id="terrainSeed" type="number" min="0" max="2147483647" value="42"></label></div><p class="hint">No caves, overhangs or roads are generated. Materials remain editable.</p><button id="createTerrain" class="primary generate-button">Create terrain <span>↗</span></button></form>
 <section id="rigPanel" hidden>
@@ -204,7 +203,7 @@
 <dialog id="animationRemoveDialog" aria-labelledby="animationRemoveTitle" aria-describedby="animationRemoveDescription"><form method="dialog"><h2 id="animationRemoveTitle">Remove animation?</h2><p id="animationRemoveDescription">Remove <strong id="animationRemoveName"></strong> from this model?</p><div class="dialog-actions"><button value="cancel" class="secondary" autofocus>Keep clip</button><button value="remove" class="danger has-icon"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#trash"/></svg>Remove clip</button></div></form></dialog>
 <dialog id="imageDialog"><button class="dialog-close" id="closeImage">Close ×</button><img id="largeImage" alt="Full-size texture or UV layout"></dialog>
 <footer><span>TRELLIS STUDIO</span><span>Reference → generation → review → Blender</span><span>UV & PBR · local compute</span></footer>
-<script type="module" src="/web/studio.js?v=3.9.0"></script><script type="module" src="/web/validation-en.js?v=3.4.0"></script>
+<script type="module" src="/web/studio.js?v=unified-generation"></script><script type="module" src="/web/validation-en.js?v=3.4.0"></script>
 <div id="refinishDialog" class="refinish-popover" popover="auto" role="dialog" aria-labelledby="refinishTitle">
 <form id="refinishForm">
   <header class="refinish-head">

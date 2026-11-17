@@ -3,6 +3,7 @@ from dataclasses import asdict
 import hashlib
 from io import BytesIO
 import json
+import math
 from pathlib import Path
 import re
 from time import perf_counter
@@ -42,37 +43,56 @@ def generation_reference(folder, role, *, staged=False):
 
 
 def checked_generation_views(provenance):
-    """Accept only camera conventions produced by the calibrated Pixal3D worker."""
+    """Accept the fixed multi-view and estimated single-image Pixal3D cameras."""
     if (not isinstance(provenance, dict) or type(provenance.get('schema')) is not int
-            or provenance['schema'] != 1 or not isinstance(provenance.get('model_sha256'), str)
+            or provenance['schema'] not in (1, 2) or not isinstance(provenance.get('model_sha256'), str)
             or not SHA256.fullmatch(provenance['model_sha256'])):
         raise ValueError('Invalid generation view provenance.')
     normalization = checked_normalization(provenance.get('normalization'))
     views = provenance.get('views')
     if not isinstance(views, list) or any(not isinstance(view, dict) for view in views):
         raise ValueError('Invalid saved generation views.')
-    canonical = validate_views([{'role': view.get('role'), 'azimuth': view.get('azimuth')} for view in views])
-    if [view['role'] for view in canonical] != [view['role'] for view in views]:
-        raise ValueError('Saved generation views are out of order.')
+    estimated = provenance['schema'] == 2
+    if estimated:
+        if (provenance.get('camera_model') != 'moge' or len(views) != 1 or views[0].get('role') != 'front'
+                or type(views[0].get('azimuth')) not in (float, int) or views[0]['azimuth'] != 0):
+            raise ValueError('Invalid saved single-image camera.')
+    else:
+        canonical = validate_views([{'role': view.get('role'), 'azimuth': view.get('azimuth')} for view in views])
+        if [view['role'] for view in canonical] != [view['role'] for view in views]:
+            raise ValueError('Saved generation views are out of order.')
     checked = []
     for view in views:
         role = view['role']
         fov = view.get('camera_angle_x')
         pose = np.asarray(view.get('transform_matrix'), dtype=np.float64)
-        if (not isinstance(view.get('sha256'), str) or not SHA256.fullmatch(view['sha256'])
-                or type(fov) not in (float, int) or not np.isclose(fov, CAMERA_FOV, atol=1e-6, rtol=0)
-                or pose.shape != (4, 4) or not np.allclose(pose, camera_matrix(view['azimuth']), atol=1e-6, rtol=0)):
+        if not isinstance(view.get('sha256'), str) or not SHA256.fullmatch(view['sha256']) or type(fov) not in (float, int):
+            raise ValueError('Invalid calibrated generation camera or reference fingerprint.')
+        expected = camera_matrix(view['azimuth'])
+        if estimated:
+            if not math.radians(2) <= fov <= math.radians(160):
+                raise ValueError('Invalid estimated field of view.')
+            expected[1][3] = -.5 / math.tan(fov / 2)
+        elif not math.isclose(fov, CAMERA_FOV, abs_tol=1e-6, rel_tol=0):
+            raise ValueError('Invalid calibrated field of view.')
+        if pose.shape != (4, 4) or not np.allclose(pose, expected, atol=1e-5 if estimated else 1e-6, rtol=0):
             raise ValueError('Invalid calibrated generation camera or reference fingerprint.')
         checked.append(dict(role=role, azimuth=view['azimuth'], sha256=view['sha256'],
                             camera_angle_x=float(fov), transform_matrix=pose.tolist()))
-    return dict(schema=1, model_sha256=provenance['model_sha256'], normalization=normalization, views=checked)
+    result = dict(schema=provenance['schema'], model_sha256=provenance['model_sha256'],
+                  normalization=normalization, views=checked)
+    if estimated:
+        result['camera_model'] = 'moge'
+    return result
 
 
-def save_generation_views(folder, normalization, views):
+def save_generation_views(folder, normalization, views, *, camera_model=None):
     """Bind exact conditioning references and cameras to the finished, published GLB."""
     folder = Path(folder)
-    provenance = checked_generation_views(dict(schema=1, model_sha256=digest(folder / 'model.glb'),
-                                               normalization=normalization, views=views))
+    provenance = dict(schema=1, model_sha256=digest(folder / 'model.glb'), normalization=normalization, views=views)
+    if camera_model is not None:
+        provenance.update(schema=2, camera_model=camera_model)
+    provenance = checked_generation_views(provenance)
     write(folder / PROVENANCE_FILE, provenance)
 
 
@@ -88,8 +108,10 @@ def verify_generation_view_inputs(folder, source, provenance, *, staged=False):
             raise ValueError('A saved generation reference has changed. Use Auto Align or Manual projection.')
         try:
             with Image.open(BytesIO(payload)) as opened:
-                if opened.format != 'PNG' or opened.size != (1024, 1024) or opened.mode != 'RGBA':
-                    raise ValueError('The prepared view must be a 1024 by 1024 RGBA PNG.')
+                estimated = provenance.get('camera_model') == 'moge'
+                size_ok = (16 <= opened.width == opened.height <= 2048) if estimated else opened.size == (1024, 1024)
+                if opened.format != 'PNG' or not size_ok or opened.mode != 'RGBA':
+                    raise ValueError('The prepared view does not match the generation image format.')
                 pixels = np.asarray(opened)
                 if pixels[..., 3].max() < 128:
                     raise ValueError('The prepared view has an empty silhouette.')
@@ -115,7 +137,10 @@ def inspect_generation_views(folder, source, settings, supported, support_reason
     except (OSError, ValueError, OverflowError, TypeError):
         return dict(supported=False, reason='Saved generation views could not be verified. Use Auto Align or Manual projection.',
                     views=[]), None
-    return dict(supported=True, reason='', views=[view['role'] for view in provenance['views']]), provenance
+    capability = dict(supported=True, reason='', views=[view['role'] for view in provenance['views']])
+    if 'camera_model' in provenance:
+        capability['camera_model'] = provenance['camera_model']
+    return capability, provenance
 
 
 def inspect_generation_reference(folder, record, supported, support_reason, max_pixels):
@@ -134,8 +159,8 @@ def inspect_generation_reference(folder, record, supported, support_reason, max_
     compatible_engine = configured_engine in (None, 'trellis2') or (
         configured_engine == 'trellis' and engine == 'TRELLIS.2')
     if (not generated or engine not in (None, 'TRELLIS.2') or not compatible_engine
-            or settings.get('source_kind') not in (None, 'refinish')):
-        return unavailable('Choose a TRELLIS.2 generation or a linked refinishing result with its saved cutout.')
+            or settings.get('source_kind') not in (None, 'refinish', 'baked_game_copy', 'texture_projection')):
+        return unavailable('Choose a TRELLIS.2 generation or a linked copy with its saved cutout.')
     try:
         reference = generation_reference(folder, 'front')
         if reference.stat().st_size > 5 * max_pixels:
@@ -154,7 +179,7 @@ def inspect_generation_reference(folder, record, supported, support_reason, max_
 
 
 def project_generation_texture(folder, source, destination, provenance, *, progress):
-    """Paint the staged calibrated inputs using the AssetFurnace Pixel Match defaults."""
+    """Paint the verified generation views using the AssetFurnace Pixel Match defaults."""
     from texture_projection import _load_mesh, _publish
     from third_party.assetfurnace.image_to_3dlab import photo_paint
 
