@@ -14,12 +14,13 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from glb_data import read, accessor, image
+from model_finishing_worker import run as run_finishing_worker
 import texture_projection as projection
 from api_contract import TextureProjection
 from generation_view_projection import (digest, generation_reference_name, project_generation_texture,
                                         PROVENANCE_FILE, save_generation_views)
 from pixal3d_runtime import CAMERA_FOV, camera_matrix
-from studio_workspace import read as read_record
+from studio_workspace import read as read_record, write as write_record
 
 
 def write_glb(path, doc, binary):
@@ -178,6 +179,42 @@ class TextureProjectionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'generation reference has changed'):
             project_generation_texture(self.root, self.source, rejected, provenance, progress=lambda *_: None)
         self.assertFalse(rejected.exists())
+
+    def test_single_generation_cutout_worker_preserves_hidden_surfaces_and_requires_the_staged_input(self):
+        reference = self.root / 'projection-source.png'
+        cutout = Image.new('RGBA', (128, 128))
+        cutout.paste((255, 255, 255, 255), (16, 12, 112, 116))
+        cutout.save(reference)
+        provenance = dict(source_sha256=digest(self.source), reference_sha256=digest(reference))
+        request = dict(operation='texture_projection', result={}, reference_file=reference.name,
+                       options=options(), generation_reference=provenance)
+        write_record(self.root / 'finishing-request.json', request)
+        source_bytes = self.source.read_bytes()
+        original, binary = read(self.source)
+        run_finishing_worker(self.root)
+        output = self.root / 'model.glb'
+        result = read_record(self.root / 'status.json')
+        self.assertEqual(result['state'], 'done')
+        report = result['result']['texture_projection']
+        self.assertEqual(report['method'], 'generation_reference')
+        self.assertEqual(report['reference_sha256'], provenance['reference_sha256'])
+        self.assertEqual(report['model_sha256'], digest(output))
+        after, final_binary = read(output)
+        self.assertEqual(binary, final_binary[:len(binary)])
+        for key in ('meshes', 'nodes', 'accessors'):
+            self.assertEqual(original[key], after[key])
+        pixels = color(output)
+        self.assertEqual(int(pixels[64, 38, 0]), 188)
+        self.assertEqual(int(pixels[64, 64, 0]), 0)  # Hidden by the front strip.
+        self.assertFalse(np.any(pixels[15:110, 145:235, :3]))  # Rear-facing island.
+
+        self.source.write_bytes(source_bytes)
+        Image.new('RGBA', (128, 128), 'red').save(reference)
+        run_finishing_worker(self.root)
+        status = read_record(self.root / 'status.json')
+        self.assertEqual(status['state'], 'error')
+        self.assertIn('changed before projection', status['error'])
+        self.assertFalse(output.exists())
 
     def test_two_views_preserve_geometry_and_paint_separate_front_and_rear_islands(self):
         rear = self.root / 'rear.png'

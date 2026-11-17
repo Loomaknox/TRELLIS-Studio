@@ -23,7 +23,7 @@ if ($taskPackage.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected a numeri
 $taskRoots=@('web','installer','runtime','licenses','animations','unity','UniRig','integrations')
 $taskRootFiles=@('LICENSE','README.md','INSTALLATION.md','SECURITY.md','THIRD_PARTY_NOTICES.md','package.json','package-lock.json')
 $taskDocFiles=@('docs/API.md','docs/MCP.md','docs/DEPENDENCIES.json','docs/WINDOWS_SETUP.md','docs/SERVER.md',
-    'docs/MOTION_GENERATION.md',('docs/RELEASE_'+$taskPackage.version+'.md'))
+    'docs/MOTION_GENERATION.md','docs/WTIVO.md',('docs/RELEASE_'+$taskPackage.version+'.md'))
 $taskFiles=@(git -C $taskRoot -c core.quotePath=false ls-files --cached --others --exclude-standard)
 if ($LASTEXITCODE -ne 0) { throw 'Could not read the TRELLIS Studio public source allowlist.' }
 $taskFiles=@($taskFiles | Sort-Object -Unique | Where-Object {
@@ -47,7 +47,7 @@ $taskRequired+=@('texture_projection.py','baked_game_copy.py','game_bake_blender
     'model_finishing_worker.py','web/texture-projection.js','web/texture-projection-geometry.js',
     'web/texture-projection-auto-align.js','web/texture-projection.css',('docs/RELEASE_'+$taskPackage.version+'.md'))
 $taskRequired+=@('web/game-copy-regions.js','web/reduction-region-preview.js')
-$taskRequired+=@('wtivo_runtime.py','docs/WTIVO.md','master_mesh.py','master_mesh_blender.py')
+$taskRequired+=@('wtivo_runtime.py','docs/WTIVO.md','master_mesh.py','master_mesh_blender.py','web/hd-master-finishing.js')
 $taskRequired+=@('studio_release.py','web/release-notification.css','web/release-notification.js')
 $taskRequired+=@('generation_view_projection.py','licenses/AssetFurnace-Apache-2.0.txt',
     'third_party/assetfurnace/image_to_3dlab/__init__.py',

@@ -20,6 +20,18 @@ export function mapPoint([a, b, c, d, e, f], [x, y]) {
     return [a * x + b * y + c, d * x + e * y + f];
 }
 
+export function scaleOverlay(transform, anchor, [width, height]) {
+    const [a, b, , d, e] = transform;
+    const [x, y] = mapPoint(transform, anchor);
+    return [a * width, b * width, x - (a * anchor[0] + b * anchor[1]) * width,
+        d * height, e * height, y - (d * anchor[0] + e * anchor[1]) * height];
+}
+
+export function fitOverlayRect([x0, y0, x1, y1], [left, top, right, bottom]) {
+    const width = (right - left) / (x1 - x0), height = (bottom - top) / (y1 - y0);
+    return [width, 0, left - width * x0, 0, height, top - height * y0];
+}
+
 export function fitLinkedAffine(source, target) {
     if (!Array.isArray(source) || !Array.isArray(target) || source.length !== 4 || target.length !== 4 ||
         ![0, 1, 2, 3].every(index => inImage(source[index]) && inImage(target[index]))) return null;

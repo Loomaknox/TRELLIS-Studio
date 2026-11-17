@@ -399,6 +399,15 @@ that URL and inspect the completed GLB and its result report.
   edge blending and local color matching. Inspect the result against the
   original under the same lighting. Earlier exports without saved camera
   provenance can use the existing one- and two-view recipes.
+- On a compatible single-image TRELLIS.2 generation or linked refinishing
+  result, `generation_reference.supported` identifies an available saved
+  `prepared` cutout. Send `{"method":"generation_reference"}` with the
+  aligned `camera`, `source_rect`, `target_rect` and any selection or blending
+  fields from a single-view recipe. Studio Auto Align estimates the view
+  because TRELLIS.2 saves no calibrated camera. The endpoint uses the
+  selected model's verified cutout and accepts no `reference` or `upload_id`
+  field for this method. The result records the method, camera and cutout
+  fingerprint. Models without a usable saved cutout can use Manual projection.
 - `GET /api/v1/models/{id}/baked-game-copy` checks compatibility and the
   recommended budget for the selected model and returns `protected_region_limit`.
 - `POST /api/v1/models/{id}/baked-game-copy` accepts `triangles` (5,000 to

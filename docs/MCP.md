@@ -237,7 +237,11 @@ linked variants from the saved source with a 3M triangle ceiling.
 `get_texture_projection_options` lists compatible references, camera modes and
 the manual view limit. If `generation_views.supported` is true, pass
 `{"method":"generation_views"}` to `queue_texture_projection` for Pixel Match
-with the saved Pixal3D cameras and prepared views. For manual projection, pass
+with the saved Pixal3D cameras and prepared views. If
+`generation_reference.supported` is true, pass
+`{"method":"generation_reference"}` plus the aligned camera and rectangles to
+project the model's saved TRELLIS.2 cutout. Studio Auto Align can estimate the
+alignment for this method. For manual projection, pass
 one view recipe to `queue_texture_projection` or pass a recipe
 with a `views` list containing two complete view recipes. Each uses a saved
 reference or an ID from `upload_source`, with independent alignment and a

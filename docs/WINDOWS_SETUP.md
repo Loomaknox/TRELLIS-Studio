@@ -1,6 +1,6 @@
 # Windows x64 installer
 
-`TRELLIS-Studio-3.8.0-Setup-x64.exe` is the per-user NSIS installer for Windows x64.
+`TRELLIS-Studio-3.9.0-Setup-x64.exe` is the per-user NSIS installer for Windows x64.
 It copies the application and viewer, adds Start menu entries, and never installs
 GPU drivers, Blender or WSL. The executable is unsigned. Do not
 treat a SHA-256 checksum as an Authenticode signature.
@@ -49,6 +49,11 @@ transfer. Standard Blender installations are discovered automatically. Blender
 is not installed by Setup, and Workshop still works when it is absent; the
 setup diagnostic and the operation's availability message explain the missing
 component. Texture projection needs neither Blender nor an NVIDIA GPU.
+
+**HD Master Finishing** supports Studio 768 on a host with the TRELLIS.2
+runtime and a compatible saved source. WTiVo 1024 requires Blender and a
+separately provisioned runtime. The setup bundles Studio's integration and
+[WTiVo configuration guide](WTIVO.md).
 
 The Studio header shows the installed version. When a newer stable release is
 available, **Update** opens a link to its release notes. The backend checks the

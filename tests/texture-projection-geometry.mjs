@@ -1,10 +1,30 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {fitLinkedAffine, mapPoint, polygonBounds, simplifyLasso, validatePolygon}
+import {fitLinkedAffine, fitOverlayRect, mapPoint, polygonBounds, scaleOverlay, simplifyLasso, validatePolygon}
     from '../web/texture-projection-geometry.js';
 
 const face = [[.483, .067], [.519, .066], [.501, .088], [.502, .102]];
 const transform = [1.15, -.09, -.060, .12, .82, .030];
+
+test('independent overlay resizing keeps the opposite edge and matches rectangular baking', () => {
+    const source = [.2, .1, .8, .7];
+    const before = [.3, .2, .7, .6];
+    const anchor = [.5, source[1]];
+    const placement = fitOverlayRect(source, before);
+    const resized = scaleOverlay(placement, anchor, [1, 1.5]);
+    const points = [[source[0], source[1]], [source[2], source[1]], [source[2], source[3]], [source[0], source[3]]];
+    const expected = [.3, .2, .7, .8];
+    assert.deepEqual(mapPoint(resized, anchor), mapPoint(placement, anchor));
+    polygonBounds(points.map(point => mapPoint(resized, point))).forEach((value, index) => {
+        assert.ok(Math.abs(value - expected[index]) < 1e-10);
+    });
+    const bakedPlacement = fitOverlayRect(source, expected);
+    points.forEach(point => {
+        const [x, y] = mapPoint(resized, point);
+        const [bakedX, bakedY] = mapPoint(bakedPlacement, point);
+        assert.ok(Math.hypot(x - bakedX, y - bakedY) < 1e-10);
+    });
+});
 
 test('guides align a small selection outside their hull with one shared mapping', () => {
     const target = face.map(point => mapPoint(transform, point));

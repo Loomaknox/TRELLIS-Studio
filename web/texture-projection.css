@@ -116,6 +116,8 @@
 }
 .tp-generation-views h3 { margin: 0 0 5px; font-size: 16px; }
 .tp-generation-views p { margin: 0; color: var(--tp-muted); font-size: 13px; line-height: 1.5; }
+.tp-generation-views p[role=status]:not(:empty) { margin-bottom: 8px; color: var(--tp-text); }
+.tp-generation-retry:not([hidden]) { margin-bottom: 8px; }
 .tp-generation-inputs {
     --tp-thumb-size: clamp(66px, 15vw, 126px);
     display: flex;
@@ -210,10 +212,14 @@
 .tp-control-strip {
     position: relative;
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     justify-content: center;
+    gap: 4px 12px;
     margin-top: 10px;
     z-index: 2;
 }
+.tp-link-zoom, .tp-lock-proportions { font-size: 11px; white-space: nowrap; }
 .tp-toolbar, .tp-dock-group {
     display: flex;
     align-items: center;
@@ -407,8 +413,9 @@
     gap: 7px;
     margin: 0 0 8px;
 }
-.tp-placement > .field { flex-direction: row; align-items: center; flex: 0 1 240px; }
+.tp-placement > .field { flex-direction: row; align-items: center; flex: 0 1 210px; margin: 0; }
 .tp-placement > .field > span { flex: none; }
+.tp-size-control .tp-zoom-value { min-height: 24px; }
 .tp-placement button, .tp-polygon-controls button, .tp-pair-actions button { font-size: 11px; padding: 6px 9px; }
 .tp-nudges, .tp-pair-actions, .tp-polygon-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .tp-polygon-controls { margin: 0 0 8px; }
@@ -477,6 +484,7 @@
     .tp-view-controls .field { gap: 4px; }
     .tp-view-controls input[type=range] { width: 47px; }
     .tp-view-controls .tool-button { width: 24px; }
+    .tp-placement > .tp-size-control { flex: 1 1 145px; }
     .tp-viewport { height: 195px; }
     .tp-pair-coordinates, .tp-coordinates { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .tp-projection-status { display: none; }

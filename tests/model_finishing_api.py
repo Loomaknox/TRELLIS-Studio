@@ -85,10 +85,12 @@ def run():
             post = schema['paths']['/api/v1/models/{identifier}/texture-projection']['post']
             recipes = post['requestBody']['content']['application/json']['schema']['anyOf']
             assert {item['$ref'].rsplit('/', 1)[-1] for item in recipes} == {
-                'TextureProjection', 'MultiViewTextureProjection', 'GenerationViewTextureProjection'}
+                'TextureProjection', 'MultiViewTextureProjection', 'GenerationViewTextureProjection',
+                'GenerationReferenceTextureProjection'}
             views = schema['components']['schemas']['MultiViewTextureProjection']['properties']['views']
             assert views['minItems'] == views['maxItems'] == 2
             assert not projection['generation_views']['supported'] and not projection['generation_views']['views']
+            assert not projection['generation_reference']['supported']
             generation = {'method': 'generation_views'}
             projection_url = url + '/' + routes[0]
             call(base, 'POST', projection_url, 400, alice, json=generation)
@@ -181,6 +183,7 @@ def run():
             calibrated = calibrate(source)
             projection = call(base, 'GET', projection_url, client=alice).json()
             assert projection['generation_views'] == dict(supported=True, reason='', views=['front', 'left', 'back', 'right'])
+            assert not projection['generation_reference']['supported']
             call(base, 'POST', projection_url, 422, alice, json={**generation, **options})
             call(base, 'POST', projection_url, 422, alice, json={**generation, **multiview})
             call(base, 'POST', projection_url, 404, bob, json=generation)
@@ -196,6 +199,35 @@ def run():
             projection = call(base, 'GET', projection_url, client=alice).json()
             assert projection['supported'] and not projection['generation_views']['supported']
             call(base, 'POST', projection_url, 400, alice, json=generation)
+            source_settings = {**settings, 'preset': 'dense_master'}
+            write(source / 'settings.json', source_settings)
+            aligned = {key: value for key, value in oblique.items() if key != 'reference'}
+            aligned['method'] = 'generation_reference'
+            call(base, 'POST', projection_url, 400, alice, json=aligned)  # Opaque saved reference.
+            prepared = source / 'prepared.png'
+            cutout = Image.new('RGBA', (128, 96), (0, 0, 0, 0))
+            cutout.paste('#776644', (16, 8, 112, 88))
+            cutout.save(prepared)
+            cap = call(base, 'GET', projection_url, client=alice).json()
+            assert cap['generation_reference'] == dict(supported=True, reason='', reference='prepared')
+            assert not cap['generation_views']['supported']
+            call(base, 'POST', projection_url, 422, alice, json={**aligned, 'reference': 'input'})
+            call(base, 'POST', projection_url, 422, alice, json={**aligned, 'upload_id': upload_by_alice['id']})
+            call(base, 'POST', projection_url, 404, bob, json=aligned)
+            queued = call(base, 'POST', projection_url, 202, alice, json=aligned).json()
+            child = source.parent / queued['id']
+            request = read(child / 'finishing-request.json')
+            assert request['generation_reference'] == dict(source_sha256=digest(source / 'model.glb'),
+                                                            reference_sha256=digest(prepared))
+            assert (child / request['reference_file']).read_bytes() == prepared.read_bytes()
+            assert request['options']['camera'] == aligned['camera']
+            assert 'generation_views' not in request and 'method' not in request['options']
+            assert (source / 'model.glb').read_bytes() == glb
+            write(source / 'settings.json', {**source_settings, 'source_kind': 'refinish'})
+            assert call(base, 'GET', projection_url, client=alice).json()['generation_reference']['supported']
+            write(source / 'settings.json', {**source_settings, 'source_kind': 'baked_game_copy'})
+            assert not call(base, 'GET', projection_url, client=alice).json()['generation_reference']['supported']
+            call(base, 'POST', projection_url, 400, alice, json=aligned)
             assert state.store.get_user(users[0]['id'])['credits'] == 0
     print('PASS: local derived model requests, source preservation, parent links, queue, credits and isolation.')
 
