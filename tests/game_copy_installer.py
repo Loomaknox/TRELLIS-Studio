@@ -64,10 +64,10 @@ class InstallerTests(TestCase):
             setup.verify(rig=False, workshop_only=True)
             calls = [call.args for call in run.call_args_list]
             self.assertTrue(any(setup.GAME_COPY_CHECK in args for args in calls))
-            self.assertFalse(any('import torch' in str(args) for args in calls))
+            self.assertFalse(any(ROOT / 'gpu_runtime.py' in args for args in calls))
         with patch.object(setup, 'run') as run, patch.object(setup, 'bundled_web', return_value=True):
             setup.verify(rig=False)
-            self.assertTrue(any('import torch' in str(call.args) for call in run.call_args_list))
+            self.assertTrue(any(ROOT / 'gpu_runtime.py' in call.args for call in run.call_args_list))
             self.assertTrue(any(setup.GAME_COPY_CHECK in call.args for call in run.call_args_list))
 
     def test_native_smoke_with_missing_optional_blender(self):

@@ -1,0 +1,336 @@
+param(
+    [Alias('Action')][ValidateSet('Probe','ValidateBlender')][string]$PreflightAction='Probe',
+    [Alias('OutputPath')][string]$PreflightOutputPath,
+    [Alias('InstallRoot')][string]$PreflightInstallRoot,
+    [Alias('BlenderPath')][string]$PreflightBlenderPath,
+    [Alias('GpuUuid')][string]$PreflightGpuUuid,
+    [Alias('WslDistribution')][string]$PreflightWslDistribution
+)
+
+function ConvertTo-SetupProcessArgument([string]$Argument) {
+    # Quote for the Windows argv parser, including backslashes before quotes.
+    $escaped=[regex]::Replace($Argument, '(\\*)"', '$1$1\"')
+    return '"' + [regex]::Replace($escaped, '(\\+)$', '$1$1') + '"'
+}
+
+function Invoke-SetupProcess {
+    param([string]$FilePath, [string[]]$Arguments, [ValidateRange(1,600)][int]$TimeoutSeconds=8)
+
+    $process=New-Object System.Diagnostics.Process
+    $process.StartInfo.FileName=$FilePath
+    $process.StartInfo.Arguments=($Arguments | ForEach-Object { ConvertTo-SetupProcessArgument $_ }) -join ' '
+    $process.StartInfo.UseShellExecute=$false
+    $process.StartInfo.RedirectStandardOutput=$true
+    $process.StartInfo.RedirectStandardError=$true
+    $process.StartInfo.CreateNoWindow=$true
+    try {
+        [void]$process.Start()
+        $stdout=$process.StandardOutput.ReadToEndAsync()
+        $stderr=$process.StandardError.ReadToEndAsync()
+        $deadline=[Diagnostics.Stopwatch]::StartNew()
+        $exited=$process.WaitForExit($TimeoutSeconds * 1000)
+        if (-not $exited -and -not $process.HasExited) {
+            try { $process.Kill() } catch [InvalidOperationException] { }
+        }
+        $remaining=[Math]::Max(0, $TimeoutSeconds * 1000 - [int]$deadline.ElapsedMilliseconds)
+        if (-not $exited -or -not [Threading.Tasks.Task]::WaitAll(@($stdout,$stderr), $remaining)) {
+            return [pscustomobject]@{ExitCode=124; Output=''; Error='The check timed out.'; TimedOut=$true}
+        }
+        return [pscustomobject]@{ExitCode=$process.ExitCode; Output=$stdout.Result; Error=$stderr.Result; TimedOut=$false}
+    } catch {
+        return [pscustomobject]@{ExitCode=1; Output=''; Error=$_.Exception.Message; TimedOut=$false}
+    } finally {
+        $process.Dispose()
+    }
+}
+
+function Read-SetupJson([string]$Root, [string]$RelativePath) {
+    if ($Root) {
+        try {
+            return Get-Content -LiteralPath (Join-Path $Root $RelativePath) -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        } catch { }
+    }
+    return $null
+}
+
+function Read-SetupGpuManifest {
+    # NSIS extracts the manifest beside the temporary script before copying the app.
+    $manifestPath=Join-Path $PSScriptRoot 'gpu-runtime-profiles.json'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        $manifestPath=Join-Path $PSScriptRoot '..\gpu-runtime-profiles.json'
+    }
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw 'Setup GPU runtime manifest is missing. Run a complete Setup package.'
+    }
+    try {
+        $manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        throw 'Setup GPU runtime manifest could not be read. Run a complete Setup package.'
+    }
+    if ($manifest.schema -ne 1 -or $manifest.gpus -isnot [pscustomobject] -or
+        $manifest.windows -isnot [pscustomobject] -or $manifest.unirig -isnot [pscustomobject]) {
+        throw 'Setup GPU runtime manifest has an unsupported format. Run a complete Setup package.'
+    }
+    return $manifest
+}
+
+function Get-SetupGpu([string]$RequestedUuid, [switch]$AllowReselect) {
+    $unavailable=[pscustomobject][ordered]@{
+        Name=''; MemoryMiB=0; Driver=''; Compute=''; Uuid=''; Profile=''; WindowsRuntime=''; UniRigRuntime=''
+        Supported=$false; UniRigSupported=$false; UniRigStatus=''; Experimental=$false; VramNotice=''
+        Status='No NVIDIA CUDA GPU was detected. Workshop is available.'
+    }
+    $nativeSystemDir=if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+        'Sysnative'
+    } else {
+        'System32'
+    }
+    $smi=Join-Path $env:SystemRoot (Join-Path $nativeSystemDir 'nvidia-smi.exe')
+    if (-not (Test-Path -LiteralPath $smi -PathType Leaf)) {
+        $smi=(Get-Command nvidia-smi.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    }
+    if (-not $smi) {
+        $unavailable.Status='The NVIDIA driver utility (nvidia-smi) was not found. Workshop is available.'
+        return $unavailable
+    }
+    $probe=Invoke-SetupProcess -FilePath $smi -Arguments @('--query-gpu=uuid,name,memory.total,driver_version,compute_cap','--format=csv,noheader,nounits')
+    if ($probe.ExitCode -ne 0) {
+        $unavailable.Status='The NVIDIA detection check failed. Check the Windows NVIDIA driver.'
+        return $unavailable
+    }
+    $manifest=$null
+    $manifestError=''
+    try { $manifest=Read-SetupGpuManifest } catch { $manifestError=$_.Exception.Message }
+    $gpus=@(foreach ($line in $probe.Output -split '\r?\n') {
+        $parts=@($line -split ',' | ForEach-Object { $_.Trim() })
+        if ($parts.Count -ne 5 -or $parts[0] -notmatch '^GPU-[0-9a-f-]{36}$') { continue }
+        $memory=0
+        $driver=$null
+        [void][int]::TryParse($parts[2], [ref]$memory)
+        $driverKnown=[version]::TryParse($parts[3], [ref]$driver)
+        $profile=''
+        $windowsRuntime=''
+        $unirigRuntime=''
+        $supported=$false
+        $unirigSupported=$false
+        $unirigStatus=''
+        $experimental=$false
+        $vramNotice=''
+        if ($manifestError) {
+            $status=$manifestError
+        } else {
+            $plan=$manifest.gpus.PSObject.Properties[$parts[4]].Value
+            if (-not $plan) {
+                $status='No test runtime is available for this GPU architecture.'
+            } else {
+                $profile=[string]$plan.id
+                $experimental=$plan.experimental -eq $true
+                $windowsRuntime=[string]$plan.windows
+                $unirigRuntime=[string]$plan.unirig
+                $windowsPlan=$manifest.windows.PSObject.Properties[$windowsRuntime].Value
+                $unirigPlan=$manifest.unirig.PSObject.Properties[$unirigRuntime].Value
+                $driverFloor=$null
+                if (-not $profile -or ($windowsRuntime -and ($windowsPlan -isnot [pscustomobject] -or -not [version]::TryParse($windowsPlan.driver_min, [ref]$driverFloor)))) {
+                    $status='The Setup GPU runtime manifest has an invalid Windows profile for this GPU.'
+                } elseif (-not $windowsRuntime) {
+                    $status='Windows GPU packages are unvalidated. Workshop is available. Kimodo uses the CPU.'
+                } elseif (-not $driverKnown -or $driver -lt $driverFloor) {
+                    $status="Update the NVIDIA Windows driver to $driverFloor or newer for $windowsRuntime."
+                } else {
+                    $supported=$true
+                    if ($memory -gt 0 -and $memory -lt [int]$windowsPlan.reference_vram_mib) {
+                        $vramNotice='Below the 12 GB VRAM reference. Try TRELLIS.2 at 512. Pixal3D may run out of memory.'
+                    }
+                    if ($experimental) { $status="$windowsRuntime is experimental. Setup will test the GPU kernels." }
+                    else { $status="Setup will verify $windowsRuntime (Windows)." }
+                }
+
+                if ($unirigPlan -is [pscustomobject]) {
+                    # A UniRig-only profile can specify its own Windows driver floor.
+                    $unirigDriverFloor=$driverFloor
+                    if ($unirigPlan.driver_min) {
+                        $unirigDriverFloor=$null
+                        [void][version]::TryParse($unirigPlan.driver_min, [ref]$unirigDriverFloor)
+                    }
+                    if (-not $unirigDriverFloor) {
+                        $unirigStatus='The Setup GPU runtime manifest has an invalid driver floor for UniRig.'
+                    } elseif (-not $driverKnown -or $driver -lt $unirigDriverFloor) {
+                        $unirigStatus="Update the NVIDIA Windows driver to $unirigDriverFloor or newer for UniRig."
+                    } else {
+                        $unirigSupported=$true
+                        $unirigStatus="Setup will verify $unirigRuntime (UniRig)."
+                        if ($unirigPlan.experimental -eq $true) {
+                            $unirigStatus='UniRig on RTX 50 is experimental. Setup tests the CUDA operations before downloading its models.'
+                        }
+                        if ($supported) { $status+=" UniRig uses $unirigRuntime." }
+                    }
+                } elseif ($unirigRuntime) {
+                    $unirigStatus='The Setup GPU runtime manifest has an invalid reference for UniRig.'
+                } elseif ($profile) {
+                    $unirigStatus="No tested UniRig package is available for $profile in this Setup."
+                }
+            }
+        }
+        [pscustomobject][ordered]@{
+            Name=$parts[1]; MemoryMiB=$memory; Driver=$parts[3]; Compute=$parts[4]; Uuid=$parts[0]; Profile=$profile
+            WindowsRuntime=$windowsRuntime; UniRigRuntime=$unirigRuntime
+            Supported=$supported; UniRigSupported=$unirigSupported; Experimental=$experimental; VramNotice=$vramNotice
+            UniRigStatus=if ($unirigStatus) { $unirigStatus } else { $status }
+            Status=$status
+        }
+    })
+    if ($RequestedUuid) {
+        $selected=$gpus | Where-Object Uuid -EQ $RequestedUuid | Select-Object -First 1
+        if ($selected) { return $selected }
+        if (-not $AllowReselect) {
+            $unavailable.Status='The selected NVIDIA GPU is unavailable. Run detection again.'
+            return $unavailable
+        }
+    }
+    if (-not $gpus.Count) { return $unavailable }
+    return $gpus | Sort-Object -Property @{Expression='Supported';Descending=$true},@{Expression='MemoryMiB';Descending=$true},Uuid | Select-Object -First 1
+}
+
+function Test-SetupBlender([string]$Path) {
+    $result=[pscustomobject][ordered]@{Path=''; Version=''; Ready=$false; Status='Blender can be configured later.'}
+    if (-not $Path) { return $result }
+    try {
+        $candidate=Get-Item -LiteralPath $Path -ErrorAction Stop
+        if ($candidate.PSIsContainer -or $candidate.Name -ine 'blender.exe') { throw 'Choose blender.exe.' }
+        $result.Path=$candidate.FullName
+    } catch {
+        $result.Status='Choose an existing blender.exe.'
+        return $result
+    }
+    $probe=Invoke-SetupProcess -FilePath $result.Path -Arguments @('--version')
+    if ($probe.ExitCode -ne 0 -or $probe.Output -notmatch '(?im)^Blender ([0-9]+\.[0-9]+(?:\.[0-9]+)?)\b') {
+        $result.Status='Blender could not report its version. Check the executable.'
+        return $result
+    }
+    $result.Version=$Matches[1]
+    $result.Ready=$true
+    $result.Status="Blender $($result.Version) found."
+    if ($result.Version -notmatch '^5\.2(?:\.|$)') { $result.Status+=" Reference version: 5.2." }
+    return $result
+}
+
+function Find-SetupBlender([string]$SavedPath) {
+    $paths=@($env:TRELLIS_BLENDER, $SavedPath)
+    $paths+=@((Get-Command blender.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source)
+    $roots=@($env:ProgramW6432, $env:ProgramFiles)
+    $roots+=@(Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue | Where-Object { $_.Root -match '^[A-Za-z]:\\$' } | ForEach-Object {
+        if ([IO.DriveInfo]::new($_.Root).DriveType -eq [IO.DriveType]::Fixed) {
+            $_.Root
+            Join-Path $_.Root 'Program Files'
+            Join-Path $_.Root 'Applications'
+        }
+    })
+    foreach ($root in $roots | Where-Object { $_ } | Select-Object -Unique) {
+        $paths+=@(Join-Path $root 'Blender\blender.exe')
+        $paths+=@(Get-ChildItem -LiteralPath (Join-Path $root 'Blender Foundation') -Directory -Filter 'Blender *' -ErrorAction SilentlyContinue |
+            Sort-Object -Property @{Expression={ $_.Name -like 'Blender 5.2*' };Descending=$true},@{Expression='Name';Descending=$true} |
+            ForEach-Object { Join-Path $_.FullName 'blender.exe' })
+    }
+    # Validate the preferred executable once. Setup can browse to a different copy.
+    $found=$paths | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf -ErrorAction SilentlyContinue) } | Select-Object -First 1
+    if ($found) { return Test-SetupBlender -Path $found }
+    $result=Test-SetupBlender -Path ''
+    $result.Status='Blender was not found. Browse to blender.exe or configure it later.'
+    return $result
+}
+
+function Get-SetupWsl([string]$RequestedDistribution) {
+    $registry='HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'
+    $distro=if ($RequestedDistribution) { $RequestedDistribution } else { 'Ubuntu-22.04' }
+    $result=[pscustomobject][ordered]@{Distribution=$distro; Ready=$false; Status='Install and initialize Ubuntu 22.04 under WSL2 for UniRig.'}
+    $registration=Get-ChildItem -LiteralPath $registry -ErrorAction SilentlyContinue | ForEach-Object {
+        Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue
+    } | Where-Object { $_.DistributionName -eq $distro } | Select-Object -First 1
+    if ($registration.Version -eq 2 -and $distro -match '^[A-Za-z0-9_.-]{1,80}$') {
+        $result.Ready=$true
+        $result.Status="$distro is registered in WSL2. Setup will check it for UniRig."
+    } elseif ($registration.Version -eq 1) {
+        $result.Status="$distro uses WSL1. UniRig requires WSL2."
+    }
+    return $result
+}
+
+function Get-SetupDisk([string]$Root) {
+    $result=[pscustomobject][ordered]@{FreeGiB=''; Status='Windows disk space could not be checked.'}
+    try {
+        $drive=[IO.DriveInfo]::new([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Root)))
+        $result.FreeGiB=[Math]::Floor($drive.AvailableFreeSpace / 1GB)
+        $result.Status="$($result.FreeGiB) GiB available on $($drive.Name)"
+    } catch { }
+    return $result
+}
+
+function Get-SetupInstallPlan([string]$Root) {
+    $state=Read-SetupJson -Root $Root -RelativePath 'config\component-install.json'
+    $saved=$state.schema -eq 1 -and $state.requested -is [array]
+    $requested=if ($saved) {
+        $state.requested
+    } elseif ($Root -and (Read-SetupJson -Root $Root -RelativePath 'bundled-web.json')) {
+        # Earlier Windows installers did not record their component choices.
+        if ((Test-Path -LiteralPath (Join-Path $Root 'models/trellis2/pipeline.json') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $Root 'engine/MODELS/dinov3/model.safetensors') -PathType Leaf)) {
+            'trellis'
+            if (Test-Path -LiteralPath (Join-Path $Root 'models/pixal3d/verified.json') -PathType Leaf) { 'pixal3d' }
+        }
+        if ((Test-Path -LiteralPath (Join-Path $Root 'UniRig/models/skeleton.ckpt') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $Root 'UniRig/models/skin.ckpt') -PathType Leaf)) {
+            'unirig'
+        }
+    }
+    return [pscustomobject][ordered]@{
+        Saved=$saved
+        Trellis='trellis' -in $requested
+        Pixal3D='pixal3d' -in $requested
+        UniRig='unirig' -in $requested
+        Kimodo='kimodo' -in $requested
+    }
+}
+
+function Get-SetupPreflight {
+    param([string]$InstallRoot, [string]$BlenderPath, [string]$GpuUuid, [string]$WslDistribution)
+
+    $config=Read-SetupJson -Root $InstallRoot -RelativePath 'config\runtime.json'
+    $automaticGpu=-not $GpuUuid
+    if ($automaticGpu) { $GpuUuid=[string]$config.gpu_uuid }
+    if (-not $WslDistribution) { $WslDistribution=[string]$config.wsl_distribution }
+    $blender=if ($PSBoundParameters.ContainsKey('BlenderPath')) { Test-SetupBlender -Path $BlenderPath } else { Find-SetupBlender -SavedPath ([string]$config.blender_path) }
+    return [pscustomobject][ordered]@{
+        GPU=(Get-SetupGpu -RequestedUuid $GpuUuid -AllowReselect:$automaticGpu)
+        Blender=$blender
+        WSL=(Get-SetupWsl -RequestedDistribution $WslDistribution)
+        Disk=(Get-SetupDisk -Root $InstallRoot)
+        Plan=(Get-SetupInstallPlan -Root $InstallRoot)
+    }
+}
+
+function Write-SetupIni([string]$Path, [psobject]$Data) {
+    $lines=foreach ($section in $Data.PSObject.Properties) {
+        "[$($section.Name)]"
+        foreach ($property in $section.Value.PSObject.Properties) {
+            $value=if ($property.Value -is [bool]) { [int]$property.Value } else { ([string]$property.Value) -replace '[\r\n\x00]', ' ' }
+            "$($property.Name)=$value"
+        }
+        ''
+    }
+    [IO.File]::WriteAllLines($Path, [string[]]$lines, [Text.Encoding]::Unicode)
+}
+
+if ($MyInvocation.InvocationName -ne '.') {
+    $ErrorActionPreference='Stop'
+    if (-not $PreflightOutputPath) { throw 'Pass -OutputPath for the Setup INI result.' }
+    if ($PreflightAction -eq 'ValidateBlender') {
+        Write-SetupIni -Path $PreflightOutputPath -Data ([pscustomobject]@{Blender=(Test-SetupBlender -Path $PreflightBlenderPath)})
+    } else {
+        $options=@{}
+        foreach ($key in @('InstallRoot','BlenderPath','GpuUuid','WslDistribution')) {
+            $parameter='Preflight'+$key
+            if ($PSBoundParameters.ContainsKey($parameter)) { $options[$key]=$PSBoundParameters[$parameter] }
+        }
+        Write-SetupIni -Path $PreflightOutputPath -Data (Get-SetupPreflight @options)
+    }
+}

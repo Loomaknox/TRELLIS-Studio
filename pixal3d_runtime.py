@@ -19,8 +19,11 @@ SINGLE_IMAGE_MARKER = 'single-image-verified.json'
 
 
 def runtime_root(studio_root):
+    root = Path(studio_root)
+    if (root / '.trellis-setup-test').is_file():
+        return root / 'models' / 'pixal3d'
     override = os.environ.get('TRELLIS_PIXAL3D_RUNTIME_DIR')
-    return Path(override).resolve() if override else Path(studio_root) / 'models' / 'pixal3d'
+    return Path(override).resolve() if override else root / 'models' / 'pixal3d'
 
 
 def load_manifest(studio_root):

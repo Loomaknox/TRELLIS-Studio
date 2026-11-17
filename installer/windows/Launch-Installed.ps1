@@ -1,17 +1,26 @@
 param(
-    [ValidateSet('Workshop','PrepareWorkshop','Generation','Rig','Pixal3D','Kimodo','Full','Stop','Server','ServerSetup','ConfigureServer','StopServer')]
+    [ValidateSet('Workshop','PrepareWorkshop','Generation','Rig','Pixal3D','Kimodo','Full','Retry','Stop','Server','ServerSetup','ConfigureServer','StopServer')]
     [string]$Mode='Workshop',
     [switch]$NoBrowser,
     [switch]$FullStudio,
     [switch]$WithKimodo,
-    [switch]$AcceptKimodoModelLicenses
+    [switch]$AcceptKimodoModelLicenses,
+    [switch]$Guided,
+    [string]$Components='',
+    [string]$BlenderPath='',
+    [string]$GpuUuid='',
+    [string]$WslDistribution=''
 )
 $ErrorActionPreference='Stop'
 $taskInstallFull = $Mode -eq 'Full' -or ($Mode -eq 'ServerSetup' -and $FullStudio)
 $taskRoot=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if (-not (Test-Path -LiteralPath (Join-Path $taskRoot 'bundled-web.json'))) { throw 'Run this launcher from the Windows Setup installation.' }
-if (-not $env:TRELLIS_PORT) { $env:TRELLIS_PORT='7870' }
-if (-not $env:TRELLIS_MCP_PORT) { $env:TRELLIS_MCP_PORT='7871' }
+$taskPreview=Test-Path -LiteralPath (Join-Path $taskRoot '.trellis-setup-test') -PathType Leaf
+$taskGuidedInstall=$taskPreview -or (Test-Path -LiteralPath (Join-Path $taskRoot '.trellis-guided-setup') -PathType Leaf)
+if (-not $taskPreview) {
+    if (-not $env:TRELLIS_PORT) { $env:TRELLIS_PORT='7870' }
+    if (-not $env:TRELLIS_MCP_PORT) { $env:TRELLIS_MCP_PORT='7871' }
+}
 if ($Mode -eq 'Stop') { & (Join-Path $taskRoot 'Arreter-TRELLIS.ps1') -WithBridge -IdleOnly; return }
 if ($Mode -eq 'StopServer') { & (Join-Path $taskRoot 'Stop-Server.ps1'); return }
 if ($Mode -eq 'Server') {
@@ -53,14 +62,38 @@ if (-not $taskNeedsWorkshop) {
         }
     } catch { $taskNeedsWorkshop=$true }
 }
+$taskGuided=$Guided -or $Mode -eq 'Retry' -or ($taskGuidedInstall -and $Mode -in @('PrepareWorkshop','ServerSetup','Generation','Rig','Pixal3D','Kimodo','Full'))
+$taskGuidedStatus=0
 if ($Mode -ne 'Workshop' -or $taskNeedsWorkshop -or $WithKimodo) {
-    & (Join-Path $PSScriptRoot 'check-idle.ps1') -InstallRoot $taskRoot -IgnoreCurrentProcess
+    & (Join-Path $PSScriptRoot 'check-idle.ps1') -InstallRoot $taskRoot -IgnoreCurrentProcess -IgnoreTray:$taskGuided
     $taskLockPath=Join-Path $taskRoot '.component-install.lock'
     try { $taskLock=[IO.File]::Open($taskLockPath,'OpenOrCreate','ReadWrite','None') }
     catch [IO.IOException] { throw 'Another TRELLIS component installation is running.' }
     $taskTranscript=$false
     try {
-        if ($Mode -eq 'Generation') {
+        if ($taskGuided) {
+            $taskLogDirectory=Join-Path $taskRoot 'logs'
+            New-Item -ItemType Directory -Path $taskLogDirectory -Force | Out-Null
+            Start-Transcript -LiteralPath (Join-Path $taskLogDirectory 'component-setup.log') -Append | Out-Null
+            $taskTranscript=$true
+            if (-not $Components) {
+                $Components=switch ($Mode) {
+                    'Full' {'trellis,pixal3d,unirig'}
+                    'Generation' {'trellis'}
+                    'Rig' {'unirig'}
+                    'Pixal3D' {'pixal3d'}
+                    'Kimodo' {'kimodo'}
+                    'ServerSetup' {if ($FullStudio) {'trellis,pixal3d,unirig'}}
+                }
+            }
+            . (Join-Path $PSScriptRoot 'Install-Components.ps1')
+            $taskOptions=@{
+                InstallRoot=$taskRoot; RequestedComponents=$Components; BlenderPath=$BlenderPath; GpuUuid=$GpuUuid
+                WslDistribution=$WslDistribution; Retry=($Mode -eq 'Retry'); NeedsWorkshop=$taskNeedsWorkshop
+                WithKimodo=$WithKimodo; AcceptKimodoModelLicenses=$AcceptKimodoModelLicenses
+            }
+            $taskGuidedStatus=Invoke-GuidedSetup @taskOptions
+        } elseif ($Mode -eq 'Generation') {
             Write-Host 'TRELLIS generation downloads about 15 GiB before Python packages. NVIDIA CUDA and Blender are required.'
             & $taskBootstrap -SkipRig -NoLaunch
             if ($LASTEXITCODE -ne 0) { throw 'TRELLIS generation installation stopped.' }
@@ -105,11 +138,11 @@ if ($Mode -ne 'Workshop' -or $taskNeedsWorkshop -or $WithKimodo) {
             & $taskBootstrap -WorkshopOnly -NoLaunch
             if ($LASTEXITCODE -ne 0) { throw 'Workshop installation stopped.' }
         }
-        if ($WithKimodo -or $Mode -eq 'Kimodo') {
+        if (-not $taskGuided -and ($WithKimodo -or $Mode -eq 'Kimodo')) {
             & (Join-Path $PSScriptRoot 'Install-Kimodo.ps1') -InstallRoot $taskRoot -AcceptModelLicenses:$AcceptKimodoModelLicenses
         }
     } catch {
-        if ($taskTranscript) { Write-Host ('Full setup stopped. ' + $_.Exception.Message) }
+        if ($taskTranscript) { Write-Host ('Setup stopped. ' + $_.Exception.Message) }
         throw
     } finally {
         try { if ($taskTranscript) { Stop-Transcript | Out-Null } }
@@ -125,4 +158,5 @@ if ($Mode -eq 'ServerSetup') {
     Start-Process -FilePath (Join-Path $taskRoot 'TRELLIS Studio Tray.exe') -ArgumentList $taskTrayArguments
 }
 elseif($Mode -eq 'PrepareWorkshop'){Write-Host 'The Workshop is ready. Use the TRELLIS tray icon to start and stop it.'}
-elseif ($Mode -notin @('Full','Kimodo')) { Write-Host 'Component ready. Reopen TRELLIS Studio from the Start menu.' }
+elseif (-not $taskGuided -and $Mode -notin @('Full','Kimodo')) { Write-Host 'Component ready. Reopen TRELLIS Studio from the Start menu.' }
+if ($taskGuidedStatus -ne 0) { exit $taskGuidedStatus }

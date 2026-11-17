@@ -13,6 +13,7 @@ from pixal3d_runtime import (
     CAMERA_FOV, VIEW_FILES, SINGLE_IMAGE_SETUP_HINT, camera_matrix, load_manifest, runtime_root, runtime_status,
     source_path, validate_views,
 )
+from gpu_runtime import configure_attention, probe, select_gpu
 from studio_workspace import write
 
 ROOT = Path(__file__).resolve().parent
@@ -25,6 +26,7 @@ SINGLE_MAX_TOKENS = 49_152
 
 
 def configure_runtime():
+    select_gpu(ROOT)
     manifest = load_manifest(ROOT)
     # Comfy and Studio each have an app.py. Keep the isolated backend first.
     sys.path[:0] = [str(source_path(RUNTIME, manifest)), str(RUNTIME / 'deps'),
@@ -269,6 +271,7 @@ def check_runtime(single_image=False):
         if not (RUNTIME / 'models' / SINGLE_DIFFUSION).is_file():
             raise RuntimeError(SINGLE_IMAGE_SETUP_HINT)
         load_moge_estimator(torch)
+    probe()
     print('Pixal3D runtime imports verified on ' + torch.cuda.get_device_name(), flush=True)
 
 
@@ -296,6 +299,7 @@ def run_job():
         torch.set_num_threads(6)
         if not torch.cuda.is_available():
             raise RuntimeError('CUDA is unavailable in this environment.')
+        configure_attention(torch)
         torch.cuda.reset_peak_memory_stats()
         settings_version = settings.get('settings_version', 2)
         sampling = sampling_options(options, settings['seed'], settings_version)

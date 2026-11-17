@@ -2,11 +2,14 @@ param(
     [string]$Compiler,
     [string]$OutputDirectory,
     [string]$Python = 'python',
-    [switch]$KeepStage
+    [switch]$KeepStage,
+    [switch]$Preview
 )
 $ErrorActionPreference='Stop'
 $taskRoot=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-if (-not $OutputDirectory) { $OutputDirectory=Join-Path $taskRoot 'Builds\Windows' }
+if (-not $OutputDirectory) {
+    $OutputDirectory=Join-Path $taskRoot $(if ($Preview) {'Builds\Windows\Preview'} else {'Builds\Windows'})
+}
 $OutputDirectory=[IO.Path]::GetFullPath($OutputDirectory)
 if (-not $Compiler) {
     $taskOnPath=Get-Command makensis.exe -ErrorAction SilentlyContinue
@@ -53,6 +56,11 @@ $taskRequired+=@('generation_view_projection.py','licenses/AssetFurnace-Apache-2
     'third_party/assetfurnace/image_to_3dlab/__init__.py',
     'third_party/assetfurnace/image_to_3dlab/photo_paint.py',
     'third_party/assetfurnace/image_to_3dlab/view_align.py')
+$taskRequired+=@('gpu_runtime.py','installer/windows/Setup-Preflight.ps1',
+    'installer/windows/Install-Components.ps1','installer/gpu-runtime-profiles.json',
+    'UniRig/check-runtime.py','UniRig/runtime.sh','UniRig/runtime-profile.py',
+    'installer/windows/trellis-welcome.bmp','installer/requirements-unirig-blackwell.txt',
+    'installer/prepare_unirig_bpy.py','UniRig/run-skin-inference.py')
 foreach($taskItem in $taskRequired) {
     if ($taskItem -cnotin $taskFiles) { throw "Required public payload is missing: $taskItem" }
 }
@@ -123,9 +131,12 @@ try {
     $taskUninstallPath=Join-Path $taskStage 'uninstall-files.nsh'
     [IO.File]::WriteAllLines($taskInstallPath,$taskInstall,[Text.UTF8Encoding]::new($true))
     [IO.File]::WriteAllLines($taskUninstallPath,$taskUninstall,[Text.UTF8Encoding]::new($true))
-    $taskName='TRELLIS-Studio-'+$taskPackage.version+'-Setup-x64.exe'
+    $taskSuffix=if ($Preview) {'-Setup-Test-x64.exe'} else {'-Setup-x64.exe'}
+    $taskName='TRELLIS-Studio-'+$taskPackage.version+$taskSuffix
     $taskOut=Join-Path $taskStage $taskName
-    & $Compiler /V3 /INPUTCHARSET UTF8 "/DOUTPUT_EXE=$taskOut" "/DPAYLOAD_ROOT=$taskPayload" "/DINSTALL_FILES=$taskInstallPath" "/DUNINSTALL_FILES=$taskUninstallPath" "/DSTUDIO_VERSION=$($taskPackage.version)" (Join-Path $PSScriptRoot 'StudioSetup.nsi')
+    $taskVariant=@()
+    if ($Preview) { $taskVariant+='/DSETUP_PREVIEW' }
+    & $Compiler /V3 /INPUTCHARSET UTF8 @taskVariant "/DOUTPUT_EXE=$taskOut" "/DPAYLOAD_ROOT=$taskPayload" "/DINSTALL_FILES=$taskInstallPath" "/DUNINSTALL_FILES=$taskUninstallPath" "/DSTUDIO_VERSION=$($taskPackage.version)" (Join-Path $PSScriptRoot 'StudioSetup.nsi')
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $taskOut)) { throw 'NSIS did not produce the installer.' }
     $taskFinal=Join-Path $OutputDirectory $taskName
     Copy-Item -LiteralPath $taskOut -Destination $taskFinal

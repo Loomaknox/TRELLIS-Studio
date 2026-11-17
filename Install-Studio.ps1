@@ -1,4 +1,4 @@
-param([switch]$SkipRig,[switch]$NoLaunch,[switch]$Plan,[switch]$VerifyOnly,[switch]$AcceptDinoV3License,[string]$WslDistribution='Ubuntu-22.04',[switch]$WorkshopOnly,
+param([switch]$SkipRig,[switch]$NoLaunch,[switch]$Plan,[switch]$VerifyOnly,[switch]$AcceptDinoV3License,[string]$WslDistribution='Ubuntu-22.04',[switch]$WorkshopOnly,[switch]$RigOnly,
       [switch]$WithKimodo,[switch]$AcceptKimodoModelLicenses,[string]$KimodoDistribution='')
 $ErrorActionPreference='Stop'
 $taskRoot=$PSScriptRoot
@@ -11,7 +11,7 @@ $taskManifest=Get-Content -LiteralPath (Join-Path $taskRoot 'installer\manifest.
 if ($Plan) { $taskManifest | ConvertTo-Json -Depth 8;return }
 if ($WithKimodo -and $VerifyOnly) { throw 'Choose either component installation or VerifyOnly. Kimodo installation cannot run in verification mode.' }
 if ($WithKimodo) { & (Join-Path $taskRoot 'installer\windows\check-idle.ps1') -InstallRoot $taskRoot -IgnoreCurrentProcess }
-if (-not $WorkshopOnly -and -not $VerifyOnly -and -not $AcceptDinoV3License) {
+if (-not $WorkshopOnly -and -not $RigOnly -and -not $VerifyOnly -and -not $AcceptDinoV3License) {
     Write-Host 'TRELLIS Studio code: MIT. Model dependencies retain their own terms.'
     Write-Host 'DINOv3 is governed by licenses\DINOv3-LICENSE.md, including use restrictions.'
     Write-Host 'Read: https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md'
@@ -40,6 +40,7 @@ if ($AcceptDinoV3License) { $taskArguments+='--accept-dinov3-license' }
 if ($SkipRig) { $taskArguments+='--skip-rig' }
 if ($VerifyOnly) { $taskArguments+='--verify-only' }
 if ($WorkshopOnly) { $taskArguments+='--workshop-only' }
+if ($RigOnly) { $taskArguments+='--rig-only' }
 & $taskPython @taskArguments
 if ($LASTEXITCODE -ne 0) { throw 'Installation did not complete. Fix the reported prerequisite and run the same command again.' }
 if ($WithKimodo) {

@@ -37,10 +37,11 @@ storage estimates above. Kimodo itself requires no NVIDIA GPU or CUDA. See
 [Motion generation](docs/MOTION_GENERATION.md). Previously saved motions remain
 reusable when the optional engine is unavailable.
 
-UniRig's pinned Torch 2.5/CUDA 12.4/FlashAttention setup was validated on an Ada GPU.
-Do not assume that a newer GPU architecture, especially Blackwell, is supported by
-these pinned Linux wheels. Driver/runtime compatibility is checked, but additional
-hardware still needs validation. `-SkipRig` leaves the Windows workflow available.
+The source workflow below uses the pinned Torch 2.5/CUDA 12.4 UniRig
+environment, validated on an Ada GPU. The packaged Windows Setup selects a
+separate experimental profile for GeForce Blackwell. See the
+[Windows Setup GPU matrix](docs/WINDOWS_SETUP.md#gpu-profiles).
+`-SkipRig` leaves the native Windows generation workflow available.
 
 ## Prepare Windows
 

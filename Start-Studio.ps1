@@ -1,6 +1,10 @@
 param([switch]$SansNavigateur)
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (Test-Path -LiteralPath (Join-Path $taskRoot '.trellis-setup-test')) {
+    $env:TRELLIS_PORT='7890'
+    $env:TRELLIS_MCP_PORT='7891'
+}
 $taskVersion = (Get-Content -LiteralPath (Join-Path $taskRoot 'package.json') -Raw | ConvertFrom-Json).version
 $taskPort = if ($env:TRELLIS_PORT) { [int]$env:TRELLIS_PORT } else { 7860 }
 $taskMcpPort = if ($env:TRELLIS_MCP_PORT) { [int]$env:TRELLIS_MCP_PORT } else { 7861 }
@@ -24,6 +28,13 @@ if (-not (Test-Path -LiteralPath (Join-Path $taskRoot 'node_modules\three\build\
 # Wake WSL and probe the private environment; weights load only on demand.
 $taskRuntimeError = $null
 try {
+    if ((Test-Path -LiteralPath (Join-Path $taskRoot '.trellis-guided-setup')) -or
+        (Test-Path -LiteralPath (Join-Path $taskRoot '.trellis-setup-test'))) {
+        $installStatePath=Join-Path $taskRoot 'config\component-install.json'
+        if (-not (Test-Path -LiteralPath $installStatePath)) { throw 'UniRig is optional. Open Repair or resume components to add rigging.' }
+        $installState=Get-Content -LiteralPath $installStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($installState.components.unirig.status -ne 'ready') { throw 'UniRig is optional. Open Repair or resume components to add rigging.' }
+    }
     if ((Test-Path -LiteralPath $taskBundle) -and -not (Test-Path -LiteralPath (Join-Path $taskRoot 'UniRig\source'))) { throw 'UniRig is optional. Install it from the Start menu to add rigging.' }
     $taskCheckWindows = Join-Path $taskRoot 'UniRig\check-runtime.sh'
     $taskPathProcess = Start-Process -FilePath 'wsl.exe' -ArgumentList @('-d', $taskDistro, '--', 'wslpath', '-a', '-u', ('"' + $taskCheckWindows + '"')) -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput (Join-Path $taskLogs 'unirig-chemin.log') -RedirectStandardError (Join-Path $taskLogs 'unirig-chemin-erreurs.log')

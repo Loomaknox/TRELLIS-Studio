@@ -148,7 +148,8 @@ class StudioServices:
     def __init__(self,app,g):
         self.g=g;self.output=g['OUTPUT'];self.root=g['ROOT'];self.task=None
         default=self.root/'config'/'studio-state' if self.output==self.root/'outputs' else self.output.parent/(self.output.name+'-state')
-        self.workspace=Workspace(g.get('WORKSPACE_CONFIG',{}).get('state',os.environ.get('TRELLIS_STATE_DIR',str(default))))
+        environment=g.get('workspace_environment',os.environ)
+        self.workspace=Workspace(g.get('WORKSPACE_CONFIG',{}).get('state',environment.get('TRELLIS_STATE_DIR',str(default))))
         self.register(app)
     def queued(self,identifier):return self.workspace.pending(identifier)
     def job_folder(self,identifier):

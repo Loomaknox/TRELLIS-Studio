@@ -11,9 +11,15 @@ $taskExisting=$null
 if(Test-Path -LiteralPath $ConfigPath -PathType Leaf) {
     $taskExisting=Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
 }
-$taskDefaultData=if(Test-Path -LiteralPath (Join-Path $taskRoot 'bundled-web.json')){
+$taskPreview=Test-Path -LiteralPath (Join-Path $taskRoot '.trellis-setup-test') -PathType Leaf
+$taskDefaultPort=if($taskPreview){'7892'}else{'7862'}
+$taskDefaultData=if($taskPreview){Join-Path $taskRoot 'server-data'}elseif(Test-Path -LiteralPath (Join-Path $taskRoot 'bundled-web.json')){
     Join-Path $env:LOCALAPPDATA 'TRELLIS Studio Server\data'
 }else{Join-Path $taskRoot 'server-data'}
+if($taskPreview -and $taskExisting -and ($taskExisting.host -ne '127.0.0.1' -or $taskExisting.reverse_proxy -or $taskExisting.tls_cert -or
+    $taskExisting.autostart -or $taskExisting.data_dir -ine $taskDefaultData)) {
+    throw 'The Setup Test is restricted to its own local server data and loopback access. Existing settings were preserved.'
+}
 $taskForm=New-Object Windows.Forms.Form
 $taskForm.Text='TRELLIS Server Setup'
 $taskForm.StartPosition='CenterScreen'
@@ -72,17 +78,19 @@ $title=Add-Label 'Configure TRELLIS Server' 20 14 738 32
 $title.Font=New-Object Drawing.Font($title.Font.FontFamily,15,[Drawing.FontStyle]::Bold)
 [void](Add-Label 'Create the administrator locally in your browser. Two-factor authentication is required for administrators; other users can enable it.' 20 52 738 42)
 $data=Add-Field 'Library data folder' (Existing 'data_dir' $taskDefaultData) 104 'folder'
-$data.ReadOnly=[bool]$taskExisting
-if($taskExisting){$data.Tag.Browse.Enabled=$false}
+$data.ReadOnly=$taskPreview -or [bool]$taskExisting
+if($data.ReadOnly){$data.Tag.Browse.Enabled=$false}
 [void](Add-Label 'Access mode' 20 146 206)
 $access=New-Object Windows.Forms.ComboBox
 $access.DropDownStyle='DropDownList'
-$access.Items.AddRange(@('This PC only (accounts, no network)','Local network / own HTTPS certificate','Internet / automatic HTTPS with Caddy'))
+[void]$access.Items.Add('This PC only (accounts, no network)')
+if(-not $taskPreview){$access.Items.AddRange(@('Local network / own HTTPS certificate','Internet / automatic HTTPS with Caddy'))}
 $access.SetBounds(230,142,528,27)
 $taskForm.Controls.Add($access)
 $bind=Add-Field 'IPv4 listen address' (Existing 'host' '127.0.0.1') 184
-$port=Add-Field 'Server port' (Existing 'port' '7862') 220
-$url=Add-Field 'Browser address' (Existing 'public_url' 'http://127.0.0.1:7862') 256
+$port=Add-Field 'Server port' (Existing 'port' $taskDefaultPort) 220
+$url=Add-Field 'Browser address' (Existing 'public_url' ('http://127.0.0.1:'+$taskDefaultPort)) 256
+$url.ReadOnly=$taskPreview
 $cert=Add-Field 'HTTPS certificate (PEM)' (Existing 'tls_cert') 292 'file'
 $key=Add-Field 'Private key (PEM)' (Existing 'tls_key') 328 'file'
 $oldDomain=''; $oldPublicPort='443'
@@ -108,6 +116,7 @@ $taskForm.Controls.Add($firewall)
 $autostart=New-Object Windows.Forms.CheckBox
 $autostart.Text='Start the server and its tray icon when I sign in to Windows'
 $autostart.Checked=[bool]$taskExisting.autostart
+$autostart.Enabled=-not $taskPreview
 $autostart.SetBounds(20,522,738,27)
 $taskForm.Controls.Add($autostart)
 $privacy=Add-Label 'Settings, accounts, libraries and certificates remain on this PC. Changing access mode preserves the existing server library.' 20 558 738 40
@@ -160,7 +169,7 @@ $advanced.Add_CheckedChanged({Update-AccessFields})
 $port.Add_TextChanged({if($access.SelectedIndex -eq 0){$url.Text='http://127.0.0.1:'+$port.Text}})
 $access.SelectedIndex=if($taskExisting.reverse_proxy){2}elseif($taskExisting -and ($taskExisting.host -ne '127.0.0.1' -or $taskExisting.tls_cert)){1}else{0}
 # Preserve saved values after the selection event.
-if($taskExisting -and -not $taskExisting.reverse_proxy){$bind.Text=$taskExisting.host; $url.Text=$taskExisting.public_url}
+if($taskExisting -and -not $taskPreview -and -not $taskExisting.reverse_proxy){$bind.Text=$taskExisting.host; $url.Text=$taskExisting.public_url}
 function Get-ServerPreferences {
     $settings=@{data_dir=$data.Text.Trim(); autostart=$autostart.Checked; reverse_proxy=($access.SelectedIndex -eq 2)}
     # Preserve migration paths: existing firewall rules and ACME registrations use them.

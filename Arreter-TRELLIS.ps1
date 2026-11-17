@@ -1,6 +1,10 @@
 param([switch]$WithBridge,[switch]$IdleOnly)
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (Test-Path -LiteralPath (Join-Path $taskRoot '.trellis-setup-test')) {
+    $env:TRELLIS_PORT='7890'
+    $env:TRELLIS_MCP_PORT='7891'
+}
 $taskApp = Join-Path $taskRoot 'app.py'
 $taskPort = if ($env:TRELLIS_PORT) { [int]$env:TRELLIS_PORT } else { 7860 }
 $taskMcpPort = if ($env:TRELLIS_MCP_PORT) { [int]$env:TRELLIS_MCP_PORT } else { 7861 }

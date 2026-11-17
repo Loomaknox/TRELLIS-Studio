@@ -337,3 +337,14 @@
 !/installer/windows/Install-Kimodo.ps1
 !/tests/kimodo_installer.py
 !/tests/kimodo_windows.ps1
+
+!/gpu_runtime.py
+!/installer/windows/Setup-Preflight.ps1
+!/installer/windows/Install-Components.ps1
+!/installer/gpu-runtime-profiles.json
+!/UniRig/runtime-profile.py
+!/installer/windows/trellis-welcome.bmp
+!/installer/requirements-unirig-blackwell.txt
+!/installer/prepare_unirig_bpy.py
+!/UniRig/run-skin-inference.py
+!/docs/RELEASE_3.10.0.md
