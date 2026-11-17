@@ -48,6 +48,7 @@ $taskRequired+=@('texture_projection.py','baked_game_copy.py','game_bake_blender
     'web/texture-projection-auto-align.js','web/texture-projection.css',('docs/RELEASE_'+$taskPackage.version+'.md'))
 $taskRequired+=@('web/game-copy-regions.js','web/reduction-region-preview.js')
 $taskRequired+=@('wtivo_runtime.py','docs/WTIVO.md','master_mesh.py','master_mesh_blender.py')
+$taskRequired+=@('studio_release.py','web/release-notification.css','web/release-notification.js')
 $taskRequired+=@('generation_view_projection.py','licenses/AssetFurnace-Apache-2.0.txt',
     'third_party/assetfurnace/image_to_3dlab/__init__.py',
     'third_party/assetfurnace/image_to_3dlab/photo_paint.py',
