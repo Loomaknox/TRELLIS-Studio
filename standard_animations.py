@@ -8,11 +8,14 @@ import bpy, json, math, sys
 from mathutils import Vector, Quaternion
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from retarget_motions import author as author_natural_motions
+from studio_import import blender_animation_source, rewrite_animation_names
 
 job=Path(sys.argv[sys.argv.index('--')+1]);work=job/'rig-work'
 settings=json.loads((job/'settings.json').read_text(encoding='utf-8'))
 bpy.ops.wm.read_factory_settings(use_empty=True)
-bpy.ops.import_scene.gltf(filepath=str(work/'rigged.glb'))
+import_source = work/'blender-input.glb'
+preserved_names = blender_animation_source(work/'rigged.glb', import_source)
+bpy.ops.import_scene.gltf(filepath=str(import_source))
 scene=bpy.context.scene;scene.render.fps=24;scene.frame_start=0
 arms=[o for o in scene.objects if o.type=='ARMATURE']
 if len(arms)!=1: raise ValueError('This tool requires one skeleton per model.')
@@ -113,6 +116,7 @@ args=dict(filepath=str(job/'model.glb'),export_format='GLB',use_selection=True,e
           export_animation_mode='ACTIONS',export_force_sampling=True,export_frame_range=False,export_anim_single_armature=True,export_yup=True)
 supported=bpy.ops.export_scene.gltf.get_rna_type().properties.keys()
 bpy.ops.export_scene.gltf(**{k:v for k,v in args.items() if k in supported})
+rewrite_animation_names(job/'model.glb', job/'model.glb', preserved_names)
 bpy.ops.file.pack_all()
 bpy.context.preferences.filepaths.save_version=0
 bpy.ops.wm.save_as_mainfile(filepath=str(job/'model.blend'))

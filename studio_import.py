@@ -65,3 +65,42 @@ def copy_version(source, destination):
         if (source/dirname).is_dir(): shutil.copytree(source/dirname, destination/dirname)
     for path in source.glob('original.*'):
         if path.suffix in FORMATS: shutil.copy2(path, destination/path.name)
+
+
+def rewrite_animation_names(source, destination, names):
+    """Change clip names only; preserve all binary chunks byte for byte."""
+    data = validate_glb(source)
+    for clip in data.get('animations', []):
+        if clip.get('name') in names:
+            clip['name'] = names[clip['name']]
+    descriptor = json.dumps(data, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    descriptor += b' ' * (-len(descriptor) % 4)
+    raw = source.read_bytes()
+    old_length = struct.unpack_from('<I', raw, 12)[0]
+    tail = raw[20 + old_length:]
+    destination.write_bytes(struct.pack('<4sIIII', b'glTF', 2, 20 + len(descriptor) + len(tail),
+                                      len(descriptor), 0x4e4f534a) + descriptor + tail)
+
+
+def blender_animation_source(source, destination):
+    """Use collision-free short names for imported clips Blender would truncate.
+
+    Blender reserves bytes in action names. Keep original names outside Blender
+    and restore them on the exported GLB, including older generated motions.
+    """
+    data = validate_glb(source)
+    occupied = {clip.get('name') for clip in data.get('animations', [])}
+    aliases = {}
+    for index, clip in enumerate(data.get('animations', [])):
+        name = clip.get('name')
+        if not isinstance(name, str) or len(name.encode('utf-8')) <= 58:
+            continue
+        if animation_recipe(name):
+            continue  # Authored recipe names must remain recognizable during replacement.
+        alias = '__TS_preserved_' + str(index)
+        while alias in occupied:
+            alias += '_'
+        occupied.add(alias)
+        aliases[alias] = name
+    rewrite_animation_names(source, destination, {name: alias for alias, name in aliases.items()})
+    return aliases
