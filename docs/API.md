@@ -86,6 +86,13 @@ generation returns one finished model and retains its decoded source for
 later comparison. The existing cached finishing route has its own defaults
 of up to 3M triangles and the largest supported atlas.
 
+For Hi3D, use `master_finishing: "hi3d_512"` or `"hi3d_1024"` with
+`engine: "trellis2"`, `profile_id: "dense_master"` and
+`overrides.resolution: 512`. Both options take a native 512 TRELLIS.2 source
+and a prepared reference cutout. The two values select the refinement
+resolution. Read their capability entries in `create_master_finishing`.
+[Powered by Hi3D 1.0](http://hi3d.ai/) · [Runtime setup](HI3D.md)
+
 ## Routes
 
 | Group | Operations |
@@ -341,6 +348,11 @@ preview setting. Previewing uses zero generation credits.
   decoded PBR volume, and the completed result records pre-UV topology and
   atlas coverage. Geometry size, orientation and method can be reviewed
   before a separate texture projection or game-copy operation.
+- `{"master_finishing":"hi3d_512"}` and `{"master_finishing":"hi3d_1024"}`
+  create linked refined masters from a retained native 512 TRELLIS.2 source
+  with its cutout. Read `master_finishing.methods` for per-model availability.
+  The variants also work in a finishing-board batch.
+
 - `POST /models/{id}/finishing-board` accepts `{"variants":[...]}` with one
   to three distinct recipes. Poll `GET /jobs/{id}` for each returned ID. Save a
   completed variant as the board's choice with

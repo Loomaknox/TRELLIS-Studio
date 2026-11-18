@@ -1,4 +1,5 @@
 import {button, dialog, el, field, input, select} from './workbench-ui.js?v=3.4.0';
+import {detailRefinements} from './hd-master-finishing.js?v=detail-refinement';
 
 const number = value => Number.isFinite(value) ? value.toLocaleString('en-US') : '—';
 const nameOf = job => job?.metadata?.display_name || job?.settings?.name || 'Source model';
@@ -17,13 +18,47 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
     const selected = el('p', 'finishing-choice');
     const form = el('form', 'finishing-form');
     form.id = 'finishingBoardRecipes';
+    const refinement = el('form', 'finishing-refinement');
+    refinement.hidden = true;
+    refinement.setAttribute('aria-labelledby', 'finishingBoardRefinement');
+    const refinementHead = el('div', 'finishing-refinement-head');
+    const refinementTitle = el('h3', '', 'Detail refinement');
+    refinementTitle.id = 'finishingBoardRefinement';
+    const credit = el('a', '', 'Powered by Hi3D 1.0');
+    credit.href = 'http://hi3d.ai/';
+    credit.target = '_blank';
+    credit.rel = 'noopener noreferrer';
+    refinementHead.append(refinementTitle, credit);
+    const refinementHint = el('p', 'hint');
+    const refinementGroup = el('fieldset', 'hd-master-options finishing-refinement-choices');
+    refinementGroup.setAttribute('aria-label', 'Detail refinement resolution');
+    const refinementChoices = Object.entries(detailRefinements).map(([value, method]) => {
+        const control = input('radio', value, {name: 'detail_refinement'});
+        const label = el('label', 'hd-master-method');
+        const copy = el('span', 'hd-master-method-copy');
+        const detail = el('small', '', method.detail);
+        detail.id = `board-refinement-${value}`;
+        control.setAttribute('aria-label', method.name);
+        control.setAttribute('aria-describedby', detail.id);
+        copy.append(el('strong', '', method.name), detail);
+        label.append(control, copy);
+        refinementGroup.append(label);
+        return {method, control, detail};
+    });
+    const refinementTexture = select([], '');
+    const refinementActions = el('div', 'finishing-refinement-actions');
+    const refinementQueue = button('Queue refinement', 'layers', 'primary');
+    refinementQueue.type = 'submit';
+    refinementQueue.disabled = true;
+    refinementActions.append(field('Texture size', refinementTexture), refinementQueue);
+    refinement.append(refinementHead, refinementHint, refinementGroup, refinementActions);
     const results = el('section', 'finishing-results');
     const rows = el('div', 'finishing-rows');
     results.setAttribute('aria-labelledby', 'finishingBoardResults');
     const heading = el('h3', '', 'Source and variants');
     heading.id = 'finishingBoardResults';
     results.append(heading, selected, rows);
-    ui.body.append(summary, form, results);
+    ui.body.append(summary, refinement, form, results);
     const queue = button('Queue variants', 'layers', 'primary');
     queue.type = 'submit';
     queue.setAttribute('form', form.id);
@@ -52,6 +87,36 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         const count = drafts.filter(draft => draft.enabled.checked).length;
         queue.disabled = pending || !board || !count;
         queue.lastChild.textContent = count ? `Queue ${count} variant${count === 1 ? '' : 's'}` : 'Queue variants';
+        const availableRefinement = !refinement.hidden && refinementChoices.some(({control}) => !control.disabled);
+        refinementGroup.disabled = pending;
+        refinementTexture.disabled = pending || !availableRefinement;
+        const chosenRefinement = refinementChoices.some(({control}) => control.checked && !control.disabled);
+        refinementQueue.disabled = pending || !board || !availableRefinement || !chosenRefinement || !refinementTexture.value;
+    }
+
+    function configureRefinement() {
+        const config = board.master_finishing;
+        const support = config?.methods || {};
+        refinement.hidden = !refinementChoices.some(({control}) => support[control.value]);
+        if (refinement.hidden) return;
+        const textureSizes = board.texture_sizes.filter(size => [1024, 2048, 4096].includes(size));
+        refinementTexture.replaceChildren(...textureSizes.map(size => new Option(`${size / 1024}K`, size)));
+        const textureDefault = [base.settings.texture_size, config.default_texture_size, textureSizes[0]]
+            .find(size => textureSizes.includes(size));
+        refinementTexture.value = String(textureDefault || '');
+        for (const {method, control, detail} of refinementChoices) {
+            const capability = support[control.value];
+            control.disabled = capability?.available !== true;
+            control.checked = false;
+            detail.textContent = control.disabled ? (capability?.reason || 'Unavailable for this source.') : method.detail;
+        }
+        const first = refinementChoices.find(({control}) => !control.disabled);
+        if (first) first.control.checked = true;
+        credit.hidden = !first;
+        refinementHint.textContent = first
+            ? 'Creates an HD variant from the cached TRELLIS.2 512³ surface and saved reference.'
+            : 'Requires a saved TRELLIS.2 single-image 512³ source with a prepared cutout.';
+        refinementActions.hidden = !first;
     }
 
     function recipeForm() {
@@ -173,8 +238,9 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
             const isSource = job.id === board.source_id;
             const isKept = job.id === board.selected_id;
             const result = job.result || {};
-            const method = isSource ? 'Original' : job.settings?.wtivo_reconstruction ? 'WTiVo 1024'
-                : job.generation_options?.mesh_mode === 'direct' ? 'Direct' : 'Remesh';
+            const method = isSource ? 'Original' : detailRefinements[job.settings?.master_finishing]?.name
+                || (job.settings?.wtivo_reconstruction ? 'WTiVo 1024'
+                    : job.generation_options?.mesh_mode === 'direct' ? 'Direct' : 'Remesh');
             const pieces = [method];
             pieces.push(Number.isFinite(result.triangles) ? `${number(result.triangles)} triangles`
                 : `${number(job.settings.triangles)} target triangles`);
@@ -220,6 +286,39 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
             }
         }
     }
+
+    refinement.onchange = updateQueueButton;
+    refinement.onsubmit = async event => {
+        event.preventDefault();
+        if (refinementQueue.disabled) return;
+        const choice = refinementChoices.find(({control}) => control.checked && !control.disabled);
+        if (!choice) return;
+        const token = opening;
+        pending = true;
+        ui.notice.textContent = 'Queueing detail refinement…';
+        update();
+        try {
+            const response = await api(`/api/jobs/${base.id}/refinish`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    master_finishing: choice.control.value,
+                    texture_size: Number(refinementTexture.value),
+                }),
+            });
+            if (token === opening) {
+                ui.notice.textContent = response.paused ? 'Refinement queued. Resume processing in Queue.'
+                    : 'Refinement queued. Progress and results will appear here.';
+            }
+            await refresh();
+        } catch (error) {
+            if (token === opening) ui.notice.textContent = error.message;
+        } finally {
+            if (token === opening) {
+                pending = false;
+                update();
+            }
+        }
+    };
 
     form.onsubmit = async event => {
         event.preventDefault();
@@ -276,6 +375,7 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
             cards.clear();
             rows.replaceChildren();
             form.replaceChildren();
+            refinement.hidden = true;
             results.hidden = true;
             summary.textContent = nameOf(job);
             ui.show();
@@ -288,6 +388,7 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
                 const source = getRecords().find(model => model.id === board.source_id);
                 const size = board.cache_bytes / 1024 ** 2;
                 summary.textContent = `${nameOf(source || job)} · ${size.toFixed(1)} MiB shared cache`;
+                configureRefinement();
                 recipeForm();
                 results.hidden = false;
                 ui.notice.textContent = '';

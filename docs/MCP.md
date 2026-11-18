@@ -245,6 +245,13 @@ master. Pass `{"master_finishing":"wtivo_1024","texture_size":4096}` or
 the actual default atlas size and available methods on the host. Both create
 linked variants from the saved source with a 3M triangle ceiling.
 
+For Detail Refinement, pass `master_finishing: "hi3d_512"` or
+`"hi3d_1024"` to `queue_generation` with `engine: "trellis2"`,
+`profile_id: "dense_master"` and `overrides.resolution: 512`.
+For a model with a retained native 512 source and cutout, check
+`get_finishing_options` and pass the same method to `queue_refinish`.
+[Powered by Hi3D 1.0](http://hi3d.ai/) · [Runtime setup](HI3D.md)
+
 `get_texture_projection_options` lists compatible references, camera modes and
 the manual view limit. If `generation_views.supported` is true, pass
 `{"method":"generation_views"}` to `queue_texture_projection` for Pixel Match
