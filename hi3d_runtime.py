@@ -14,7 +14,8 @@ from time import perf_counter
 
 
 HI3D_METHODS = {'hi3d_512': 512, 'hi3d_1024': 1024}
-SOURCE_RESOLUTION = 512
+# TRELLIS.2 may lower its 1536 cascade grid in 128-voxel steps to fit its token budget.
+_SOURCE_DECODED_RESOLUTIONS = {512: (512,), 1024: (1024,), 1536: range(1024, 1537, 128)}
 HI3D_PORT_REVISION = '03dea7e366ba951d7475f3f1c8a71596a87f913c'
 HI3D_WEIGHT_REVISION = '23d1bace196f618265b4b0b9c90d95fa9a9b1df5'
 HI3D_PORT_PYTHON_SHA256 = 'adeda18e23db59c66b34b63ecc2e7882191dd2c7a843c9a83baff77a835afdd9'
@@ -26,7 +27,7 @@ HI3D_MAX_HOLE_EDGES = 10_000
 HI3D_FLOATER_FACE_RATIO = 0.005
 REQUIRED_PACKAGES = {'spconv-cu124': '2.3.8', 'cumm-cu124': '0.8.2', 'pyfqmr': '0.5.0'}
 RUNTIME_HINT = 'Configure the optional local Hi3D component.'
-SOURCE_HINT = 'Hi3D requires a native TRELLIS.2 single-image 512 source with a prepared transparent cutout.'
+SOURCE_HINT = 'Hi3D requires a native TRELLIS.2 single-image source with its prepared transparent cutout.'
 OUTPUT_LIMIT_BYTES = 256 * 1024**2
 WEIGHT_FILES = {
     'Hi3Dv1.0/transformer_512/model.safetensors': 3675679280,
@@ -137,11 +138,14 @@ def hi3d_source_status(source_folder, source_resolution=None, *, require_cache=T
         if any(path.is_symlink() for path in (settings, reference)):
             raise ValueError('Invalid native generation files.')
         saved = _read_json(settings, 128 * 1024)
+        requested = saved.get('resolution')
+        decoded_resolutions = _SOURCE_DECODED_RESOLUTIONS.get(requested, ()) if type(requested) is int else ()
         if (saved.get('engine', 'trellis2') != 'trellis2'
                 or saved.get('source_kind') not in (None, 'generation')
                 or saved.get('view_mode', 'single') != 'single'
-                or saved.get('resolution') != SOURCE_RESOLUTION
-                or (source_resolution is not None and source_resolution != SOURCE_RESOLUTION)):
+                or not decoded_resolutions
+                or (source_resolution is not None
+                    and (type(source_resolution) is not int or source_resolution not in decoded_resolutions))):
             raise ValueError('Incompatible native generation.')
         with Image.open(reference) as image:
             if image.format != 'PNG' or image.mode != 'RGBA':
@@ -216,11 +220,13 @@ def _run(runtime, work, resolution, triangle_target):
         raise ValueError('Hi3D refinement failed. See the generation log for details.')
 
 
-def reconstruct(root, job, reference, vertices, faces, resolution, triangle_ceiling):
+def reconstruct(root, job, reference, vertices, faces, resolution, triangle_ceiling, *, source_resolution):
     """Refine a copy and return valid replacement geometry in decoded TRELLIS.2 coordinates."""
     import numpy as np
 
-    if resolution not in HI3D_METHODS.values() or type(triangle_ceiling) is not int or triangle_ceiling < 1000:
+    if (resolution not in HI3D_METHODS.values() or type(triangle_ceiling) is not int or triangle_ceiling < 1000
+            or type(source_resolution) is not int
+            or not any(source_resolution in allowed for allowed in _SOURCE_DECODED_RESOLUTIONS.values())):
         raise ValueError('Invalid Hi3D refinement settings.')
     check_mesh(vertices, faces)
     runtime = _read_runtime(root)
@@ -251,7 +257,7 @@ def reconstruct(root, job, reference, vertices, faces, resolution, triangle_ceil
             raise ValueError('Hi3D returned an invalid reconstructed mesh.') from error
     report = dict(
         engine='Hi3D', port_revision=HI3D_PORT_REVISION, weights_revision=HI3D_WEIGHT_REVISION,
-        source_resolution=SOURCE_RESOLUTION, resolution=resolution, steps=HI3D_STEPS, seed=HI3D_SEED,
+        source_resolution=source_resolution, resolution=resolution, steps=HI3D_STEPS, seed=HI3D_SEED,
         scheduler='heun', voxel_token_limit=HI3D_VOXEL_TOKENS, triangle_target=ceiling,
         extracted_triangles=len(rebuilt_faces), fill_holes_max_edges=HI3D_MAX_HOLE_EDGES,
         floater_face_ratio=HI3D_FLOATER_FACE_RATIO, tiled_decode=True, vram_mode='model_swap',

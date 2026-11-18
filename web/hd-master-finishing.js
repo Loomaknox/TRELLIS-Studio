@@ -3,10 +3,12 @@ import {button, dialog, el, field, select} from './workbench-ui.js?v=3.4.0';
 export const detailRefinements = {
     hi3d_512: {
         name: 'Detail Refinement (512)',
+        resolution: 512,
         detail: 'The faster pass for refining surface detail.',
     },
     hi3d_1024: {
         name: 'Detail Refinement (1024)',
+        resolution: 1024,
         detail: 'A finer pass that takes longer and uses more GPU memory.',
     },
 };

@@ -4,15 +4,18 @@
 
 Detail Refinement rebuilds the decoded surface of a single-image TRELLIS.2
 generation from its reference cutout. The 512 and 1024 labels describe the Hi3D
-refinement resolution. Both methods start from a native 512 TRELLIS.2 source.
+refinement resolution. The generation profile controls the TRELLIS.2 source
+resolution independently. Hi3D accepts the native single-image resolutions
+available on the host.
 
 ## Studio workflow
 
 - In **Create**, choose **HD Master** and **TRELLIS.2 · Single image**, then
   choose **Detail Refinement (512)** or **Detail Refinement (1024)** under
-  **Master finishing**. Studio uses a 512 source and keeps its decoded cache.
+  **Master finishing**. Studio keeps the selected 3D resolution and its
+  decoded cache.
 - In **Prepare → Finishing board**, choose a detail refinement on a compatible
-  model with a saved native 512 source and its cutout. Each result is a linked
+  model with a saved native TRELLIS.2 source and its cutout. Each result is a linked
   model with its own job. Use the board to compare it with the original.
 - Open the finished master for **Texture Projection** or use
   **Game Copy from HD** to reduce it and bake a game copy.

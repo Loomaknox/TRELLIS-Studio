@@ -24,7 +24,7 @@ from generation_options import (options_for_job, sampler_options, export_options
                                 DENSE_MASTER, MASTER_FINISHING_METHODS, MASTER_FINISHING_TRIANGLES,
                                 TRIANGLE_MIN, validate_hd_reconstruction)
 from gpu_runtime import configure_attention, select_gpu
-from hi3d_runtime import HI3D_METHODS, SOURCE_RESOLUTION as HI3D_SOURCE_RESOLUTION, hi3d_source_status
+from hi3d_runtime import HI3D_METHODS, hi3d_source_status
 from studio_workspace import write
 
 select_gpu(ROOT)
@@ -156,10 +156,10 @@ def finish_mesh(torch, source, source_id=None):
     refinish = settings.get('source_kind') == 'refinish'
     triangle_ceiling = settings['triangles']
     source_resolution = int(source['resolution'])
-    supported_resolution = source_resolution == HI3D_SOURCE_RESOLUTION if hi3d_resolution else source_resolution >= 1024
     if master_finishing is not None and (
             master_finishing not in MASTER_FINISHING_METHODS or not (refinish or settings.get('preset') == DENSE_MASTER)
-            or not supported_resolution or not TRIANGLE_MIN <= triangle_ceiling <= MASTER_FINISHING_TRIANGLES
+            or (not hi3d_resolution and source_resolution < 1024)
+            or not TRIANGLE_MIN <= triangle_ceiling <= MASTER_FINISHING_TRIANGLES
             or wtivo != (master_finishing == 'wtivo_1024') or hd_reconstruction != (master_finishing == 'studio_768')
             or any(settings.get(key) for key in ('adaptive_finishing', 'repair_surface', 'bake_normals'))):
         raise ValueError('Invalid HD Master Finishing recipe.')
@@ -175,7 +175,7 @@ def finish_mesh(torch, source, source_id=None):
         if (settings.get('engine', 'trellis2') != 'trellis2'
                 or settings.get('view_mode', 'single') != 'single'
                 or source.get('coordinate_system', 'z_up') != 'z_up'):
-            raise ValueError('Hi3D requires a native TRELLIS.2 single-image 512 source.')
+            raise ValueError('Hi3D requires a native TRELLIS.2 single-image source.')
         reference = hi3d_reference(source_id, source_resolution)
         status('running', f'Refining the decoded surface with Hi3D {hi3d_resolution}', 84)
         for key in ('vertices', 'faces'):
@@ -185,7 +185,7 @@ def finish_mesh(torch, source, source_id=None):
         torch.cuda.empty_cache()
         rebuilt_vertices, rebuilt_faces, hi3d_report = refine_hi3d(
             ROOT, JOB, reference, source['vertices'].numpy(), source['faces'].numpy(),
-            hi3d_resolution, triangle_ceiling)
+            hi3d_resolution, triangle_ceiling, source_resolution=source_resolution)
         status('running', 'Baking native materials onto the refined mesh', 87)
     if wtivo:
         status('running', 'Reconstructing the surface with WTiVo 1024', 84)

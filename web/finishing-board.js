@@ -1,5 +1,5 @@
 import {button, dialog, el, field, input, select} from './workbench-ui.js?v=3.4.0';
-import {detailRefinements} from './hd-master-finishing.js?v=detail-refinement';
+import {detailRefinements} from './hd-master-finishing.js?v=detail-refinement-native';
 
 const number = value => Number.isFinite(value) ? value.toLocaleString('en-US') : '—';
 const nameOf = job => job?.metadata?.display_name || job?.settings?.name || 'Source model';
@@ -113,9 +113,10 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         const first = refinementChoices.find(({control}) => !control.disabled);
         if (first) first.control.checked = true;
         credit.hidden = !first;
+        const source = Number.isFinite(config.source_resolution) ? ` · ${config.source_resolution}³ native source` : '';
         refinementHint.textContent = first
-            ? 'Creates an HD variant from the cached TRELLIS.2 512³ surface and saved reference.'
-            : 'Requires a saved TRELLIS.2 single-image 512³ source with a prepared cutout.';
+            ? `TRELLIS.2 single image${source} · Saved cutout`
+            : 'Requires a native TRELLIS.2 single-image source at 512³, 1024³ or 1536³ with a saved cutout.';
         refinementActions.hidden = !first;
     }
 

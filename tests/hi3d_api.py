@@ -45,7 +45,7 @@ def run():
             assert Generation(upload_id='f' * 32, master_finishing=method).master_finishing == method
             assert Refinish(master_finishing=method).master_finishing == method
             validate_create_master_finishing(method, preset='dense_master', resolution=512, triangles=1_200_000)
-            for change in ({'preset': 'game_d'}, {'resolution': 1024}, {'engine': 'pixal3d_single'},
+            for change in ({'preset': 'game_d'}, {'resolution': 2048}, {'engine': 'pixal3d_single'},
                            {'hd_reconstruction': True}, {'repair_surface': True}):
                 options = dict(preset='dense_master', resolution=512, triangles=1_200_000)
                 try:
@@ -113,7 +113,7 @@ def run():
                     route = f'/api/v1/models/{identifiers[name]}/finishing-board'
                     info = call('GET', route)
                     FinishingOptions.model_validate(info)
-                    eligible = name in ('valid', 'variant')
+                    eligible = name in ('valid', 'high', 'variant')
                     assert info['master_finishing']['methods']['hi3d_512']['available'] == eligible, (name, info)
                     if not eligible:
                         call('POST', f'/api/v1/models/{identifiers[name]}/refinish', 400,
@@ -148,11 +148,11 @@ def run():
                 assert settings['resolution'] == 512 and settings['remove_bg'] is False
                 assert not any(settings.get(key) for key in ('adaptive_finishing', 'hd_reconstruction', 'wtivo_reconstruction'))
                 app.write_json(app.OUTPUT / identifier / 'status.json', dict(state='error', progress=0))
-                call('POST', f'/api/v1/queue/{identifier}/retry', 400, json={'resolution': 1024})
-                retried = call('POST', f'/api/v1/queue/{identifier}/retry', 202, json={'texture_size': 1024})['id']
+                retried = call('POST', f'/api/v1/queue/{identifier}/retry', 202,
+                               json={'resolution': 1024, 'texture_size': 1024})['id']
                 retry_settings = read(app.OUTPUT / retried / 'settings.json')
-                assert retry_settings['master_finishing'] == 'hi3d_512' and retry_settings['resolution'] == 512
-                call('POST', '/api/v1/generations', 400,
+                assert retry_settings['master_finishing'] == 'hi3d_512' and retry_settings['resolution'] == 1024
+                call('POST', '/api/v1/generations', 202,
                      json={**generation, 'overrides': {'resolution': 1024}})
                 call('POST', '/api/v1/generations', 400, json={**generation, 'engine': 'pixal3d_single'})
                 call('POST', '/api/v1/generations/multiview', 400,
@@ -162,7 +162,7 @@ def run():
                 server.should_exit = True
                 thread.join(8)
                 assert not thread.is_alive()
-        print('PASS Hi3D API contracts, native512/alpha/cache admission, linked variants and queued generation.')
+        print('PASS Hi3D API contracts, native resolution/alpha/cache admission, linked variants and queued generation.')
 
 
 if __name__ == '__main__':

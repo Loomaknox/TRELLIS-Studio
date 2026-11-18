@@ -87,10 +87,11 @@ later comparison. The existing cached finishing route has its own defaults
 of up to 3M triangles and the largest supported atlas.
 
 For Hi3D, use `master_finishing: "hi3d_512"` or `"hi3d_1024"` with
-`engine: "trellis2"`, `profile_id: "dense_master"` and
-`overrides.resolution: 512`. Both options take a native 512 TRELLIS.2 source
-and a prepared reference cutout. The two values select the refinement
-resolution. Read their capability entries in `create_master_finishing`.
+`engine: "trellis2"` and `profile_id: "dense_master"`. The profile or
+`overrides.resolution` sets the TRELLIS.2 generation resolution. Both
+methods refine that native mesh using the prepared reference cutout. The
+method value selects the Hi3D refinement resolution. Read its capability
+entry in `create_master_finishing`.
 [Powered by Hi3D 1.0](http://hi3d.ai/) · [Runtime setup](HI3D.md)
 
 ## Routes
@@ -349,8 +350,8 @@ preview setting. Previewing uses zero generation credits.
   atlas coverage. Geometry size, orientation and method can be reviewed
   before a separate texture projection or game-copy operation.
 - `{"master_finishing":"hi3d_512"}` and `{"master_finishing":"hi3d_1024"}`
-  create linked refined masters from a retained native 512 TRELLIS.2 source
-  with its cutout. Read `master_finishing.methods` for per-model availability.
+  create linked refined masters from a retained native TRELLIS.2 single-image
+  source with its cutout. Read `master_finishing.methods` for per-model availability.
   The variants also work in a finishing-board batch.
 
 - `POST /models/{id}/finishing-board` accepts `{"variants":[...]}` with one

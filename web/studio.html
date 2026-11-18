@@ -7,11 +7,11 @@
 <link rel="stylesheet" href="/web/studio.css?v=2.3">
 <link rel="stylesheet" href="/web/reference-preview.css?v=3.4.0">
 <link rel="stylesheet" href="/web/generation-wait.css?v=3.4.0">
-<link rel="stylesheet" href="/web/workspace.css?v=3.4.0"><link rel="stylesheet" href="/web/polish.css?v=detail-refinement">
+<link rel="stylesheet" href="/web/workspace.css?v=3.4.0"><link rel="stylesheet" href="/web/polish.css?v=detail-refinement-native">
 <link rel="stylesheet" href="/web/release-notification.css?v=1">
 <script type="importmap">{"imports":{"three":"/vendor/build/three.module.js","three/addons/":"/vendor/examples/jsm/"}}</script>
 <script type="module" src="/web/release-notification.js?v=1"></script>
-<link rel="stylesheet" href="/web/animation-studio.css?v=3.4.0"><link rel="stylesheet" href="/web/details.css?v=3.4.0"><link rel="stylesheet" href="/web/studio-tools.css?v=3.9.0"><link rel="stylesheet" href="/web/lighting.css?v=3.4.0"><link rel="stylesheet" href="/web/workbench.css?v=detail-refinement"><link rel="stylesheet" href="/web/personal-animation.css?v=3.4.0"><link rel="stylesheet" href="/web/texture-projection.css?v=3.9.0"></head><body>
+<link rel="stylesheet" href="/web/animation-studio.css?v=3.4.0"><link rel="stylesheet" href="/web/details.css?v=3.4.0"><link rel="stylesheet" href="/web/studio-tools.css?v=3.9.0"><link rel="stylesheet" href="/web/lighting.css?v=3.4.0"><link rel="stylesheet" href="/web/workbench.css?v=detail-refinement-native"><link rel="stylesheet" href="/web/personal-animation.css?v=3.4.0"><link rel="stylesheet" href="/web/texture-projection.css?v=3.9.0"></head><body>
 <header class="topbar">
   <div class="studio-brand-group">
     <a class="brand" href="/"><img class="brand-logo" src="/web/trellis-mark.svg" alt=""><strong>TRELLIS <em>Studio</em></strong><span class="version">LOCAL</span></a>
@@ -88,7 +88,9 @@
     <div id="masterFinishingOverride" hidden><strong id="masterFinishingOverrideLabel"></strong><button id="clearMasterOverride" type="button" class="quiet"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#rotate"/></svg> Clear override</button></div>
     <small id="denseMasterFinishingHint"></small>
     <div id="detailRefinementSource" class="detail-refinement-source" hidden>
-      <span>512³ source</span><a href="http://hi3d.ai/" target="_blank" rel="noopener noreferrer">Powered by Hi3D 1.0</a>
+      <span>3D source <b id="detailRefinementNativeResolution"></b></span>
+      <span>Hi3D pass <b id="detailRefinementPassResolution"></b></span>
+      <a href="http://hi3d.ai/" target="_blank" rel="noopener noreferrer">Powered by Hi3D 1.0</a>
     </div>
     <small id="detailRefinementUnavailable" hidden></small>
   </div>
@@ -115,7 +117,7 @@
   <p id="assetHint" class="hint"></p>
   <div class="reference-tools"><button id="copyReferencePrompt" type="button" class="text-button">Copy an image brief ↗</button></div>
   <div class="two-fields">
-    <label class="field">3D resolution<select id="resolution" name="resolution" aria-describedby="detailRefinementResolutionHint"><option value="512">512³ · Fast</option><option value="1024" selected>1024³ · Quality</option><option value="1536" disabled>1536³ · Fine detail</option></select><small id="detailRefinementResolutionHint" hidden>512³ source required by Detail Refinement.</small></label>
+    <label class="field">3D resolution<select id="resolution" name="resolution"><option value="512">512³ · Fast</option><option value="1024" selected>1024³ · Quality</option><option value="1536" disabled>1536³ · Fine detail</option></select></label>
     <label class="field">Texture<select id="textureSize" name="texture_size"><option value="0">Use profile default</option><option value="1024">1K · 1 024 px</option><option value="2048" selected>2K · 2 048 px</option><option value="4096" disabled>4K · 4 096 px</option></select></label>
   </div>
   <p id="qualityHint" class="hint" hidden></p>
@@ -211,7 +213,7 @@
 <dialog id="animationRemoveDialog" aria-labelledby="animationRemoveTitle" aria-describedby="animationRemoveDescription"><form method="dialog"><h2 id="animationRemoveTitle">Remove animation?</h2><p id="animationRemoveDescription">Remove <strong id="animationRemoveName"></strong> from this model?</p><div class="dialog-actions"><button value="cancel" class="secondary" autofocus>Keep clip</button><button value="remove" class="danger has-icon"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#trash"/></svg>Remove clip</button></div></form></dialog>
 <dialog id="imageDialog"><button class="dialog-close" id="closeImage">Close ×</button><img id="largeImage" alt="Full-size texture or UV layout"></dialog>
 <footer><span>TRELLIS STUDIO</span><span>Reference → generation → review → Blender</span><span>UV & PBR · local compute</span></footer>
-<script type="module" src="/web/studio.js?v=detail-refinement"></script><script type="module" src="/web/validation-en.js?v=3.4.0"></script>
+<script type="module" src="/web/studio.js?v=detail-refinement-native"></script><script type="module" src="/web/validation-en.js?v=3.4.0"></script>
 <div id="refinishDialog" class="refinish-popover" popover="auto" role="dialog" aria-labelledby="refinishTitle">
 <form id="refinishForm">
   <header class="refinish-head">

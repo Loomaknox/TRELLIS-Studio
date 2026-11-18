@@ -96,8 +96,9 @@ and **Repair Holes** are under Advanced. Choose a recipe and click **Use at
 startup** to remember it in this browser.
 
 **Detail Refinement (512)** and **Detail Refinement (1024)** use an optional
-Hi3D runtime to refine a native TRELLIS.2 single-image 512 source and bake
-the resulting master. Both options are also available from **Finishing board**
+Hi3D runtime to refine a native TRELLIS.2 single-image source and bake the
+resulting master. The generation profile keeps its source resolution. Both
+options are also available from **Finishing board**
 on a compatible saved source. [Powered by Hi3D 1.0](http://hi3d.ai/) · [Runtime setup](docs/HI3D.md)
 
 **Game Asset** (`game_d`) uses the 1024 TRELLIS.2 cascade with 20 steps per phase,

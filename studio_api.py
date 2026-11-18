@@ -111,7 +111,7 @@ def master_finishing_capability(resolution, textures, wtivo, wtivo_reason, blend
         'wtivo_1024': dict(available=wtivo, reason=wtivo_reason),
         'studio_768': dict(available=studio, reason='' if studio else 'Use a saved 1024 or 1536 source.'),
     }
-    hi3d = hi3d or dict(available=False, reason='Use a saved native 512 TRELLIS.2 source with its cutout.')
+    hi3d = hi3d or dict(available=False, reason='Use a saved TRELLIS.2 single-image source with its cutout.')
     methods.update({method: dict(available=hi3d['available'], reason=hi3d['reason']) for method in HI3D_FINISHING_METHODS})
     return dict(source_resolution=resolution, methods=methods,
                 default_method=next((method for method in MASTER_FINISHING_METHODS if methods[method]['available']), None),
@@ -512,8 +512,8 @@ class StudioServices:
                 eligible = hi3d_source_status(self.output / source_id, source_resolution)
                 if not eligible['available']:
                     raise ValueError(eligible['reason'])
-            elif resolution != 512 or pixal or saved.get('view_mode') not in (None, 'single'):
-                raise ValueError('Hi3D requires native 512 TRELLIS.2 single-image generation with a cutout.')
+            elif resolution not in (512, 1024, 1536) or pixal or saved.get('view_mode') not in (None, 'single'):
+                raise ValueError('Hi3D requires supported TRELLIS.2 single-image generation with a cutout.')
             runtime = hi3d_status(self.root)
             if not runtime['available']:
                 raise HTTPException(503, runtime['reason'])

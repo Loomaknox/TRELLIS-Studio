@@ -43,8 +43,8 @@ def validate_create_master_finishing(method, *, preset, resolution, triangles,
     if method not in MASTER_FINISHING_METHODS:
         raise ValueError('Choose a supported master finishing method.')
     if method in HI3D_FINISHING_METHODS:
-        if preset != DENSE_MASTER or resolution != 512 or engine != 'trellis2':
-            raise ValueError('Hi3D requires the HD Master profile with TRELLIS.2 single-image generation at 512.')
+        if preset != DENSE_MASTER or resolution not in (512, 1024, 1536) or engine != 'trellis2':
+            raise ValueError('Hi3D requires the HD Master profile with a supported TRELLIS.2 single-image resolution.')
     elif preset != DENSE_MASTER or resolution < 1024:
         raise ValueError('Master finishing requires the HD Master profile at 1024 or higher.')
     if repair_surface or hd_reconstruction:
