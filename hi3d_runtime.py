@@ -29,6 +29,8 @@ REQUIRED_PACKAGES = {'spconv-cu124': '2.3.8', 'cumm-cu124': '0.8.2', 'pyfqmr': '
 RUNTIME_HINT = 'Configure the optional local Hi3D component.'
 SOURCE_HINT = 'Hi3D requires a native TRELLIS.2 single-image source with its prepared transparent cutout.'
 OUTPUT_LIMIT_BYTES = 256 * 1024**2
+# Leave space for Triton's hashed kernel directory, temporary name, and artifact filename.
+COMPILER_CACHE_MAX_PATH = 78
 WEIGHT_FILES = {
     'Hi3Dv1.0/transformer_512/model.safetensors': 3675679280,
     'Hi3Dv1.0/transformer_1024/model.safetensors': 3675679280,
@@ -184,7 +186,29 @@ def check_mesh(vertices, faces):
         raise ValueError('Hi3D requires finite vertices and valid indexed triangles.')
 
 
-def _run(runtime, work, resolution, triangle_target):
+def _compiler_workspace(root):
+    """Allocate short, private compiler scratch independent of server job paths."""
+    candidates = [Path(root).resolve() / '.tools' / 'hi3d-cache']
+    app_data = os.environ.get('LOCALAPPDATA')
+    if app_data and Path(app_data).is_absolute():
+        candidates.append(Path(app_data) / 'TRELLIS' / 'hi3d-cache')
+    for base in candidates:
+        # Count UTF-16 units, as Windows counts paths, and include the longest cache suffix.
+        predicted = base / 'h-00000000' / 'extensions'
+        if len(str(predicted).encode('utf-16-le')) // 2 > COMPILER_CACHE_MAX_PATH:
+            continue
+        try:
+            if base.resolve() != base:
+                continue
+            base.mkdir(parents=True, exist_ok=True)
+            return TemporaryDirectory(prefix='h-', dir=base)
+        except OSError:
+            continue
+    raise ValueError('Hi3D needs a short writable compiler directory. '
+                     'Use a shorter Studio installation or Windows profile path.')
+
+
+def _run(root, runtime, work, resolution, triangle_target):
     command = [
         str(runtime.python), '-I', '-B', '-u', '-X', 'utf8',
         str(Path(__file__).resolve().with_name('hi3d_worker.py')),
@@ -193,24 +217,32 @@ def _run(runtime, work, resolution, triangle_target):
     ]
     for directory in runtime.dependencies:
         command.extend(('--dependency', str(directory)))
-    env = {
-        **os.environ, 'HF_HUB_OFFLINE': '1', 'TRANSFORMERS_OFFLINE': '1', 'HF_HUB_DISABLE_TELEMETRY': '1',
-        'CUMM_DISABLE_JIT': '1', 'TEMP': str(work), 'TMP': str(work),
-        'HF_HOME': str(work / 'hf'), 'TORCH_HOME': str(work / 'torch'),
-        'CUDA_CACHE_PATH': str(work / 'cuda'), 'TRITON_CACHE_DIR': str(work / 'triton'),
-    }
-    try:
-        process = subprocess.run(
-            command, cwd=work, env=env, timeout=1800, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            encoding='utf-8', errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
-        )
-    except subprocess.TimeoutExpired as error:
-        raise ValueError('Hi3D refinement timed out. Choose a smaller refinement resolution.') from error
-    except OSError as error:
-        raise ValueError('Unable to start the configured Hi3D runtime.') from error
+    with _compiler_workspace(root) as directory:
+        compiler = Path(directory)
+        env = {
+            **os.environ, 'HF_HUB_OFFLINE': '1', 'TRANSFORMERS_OFFLINE': '1', 'HF_HUB_DISABLE_TELEMETRY': '1',
+            'CUMM_DISABLE_JIT': '1', 'TEMP': directory, 'TMP': directory, 'TMPDIR': directory,
+            'HF_HOME': str(work / 'hf'), 'TORCH_HOME': str(work / 'torch'),
+            'CUDA_CACHE_PATH': str(compiler / 'cuda'),
+            'TRITON_HOME': directory, 'TRITON_CACHE_DIR': str(compiler / 'triton'),
+            'TORCH_EXTENSIONS_DIR': str(compiler / 'extensions'),
+            'TORCHINDUCTOR_CACHE_DIR': str(compiler / 'inductor'),
+        }
+        try:
+            (compiler / 'cuda').mkdir()
+            process = subprocess.run(
+                command, cwd=work, env=env, timeout=1800, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                encoding='utf-8', errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+            )
+        except subprocess.TimeoutExpired as error:
+            raise ValueError('Hi3D refinement timed out. Choose a smaller refinement resolution.') from error
+        except OSError as error:
+            raise ValueError('Unable to start the configured Hi3D runtime.') from error
     log = process.stdout
-    for path in (work, runtime.source, runtime.weights, runtime.python.parent.parent, *runtime.dependencies):
-        log = log.replace(str(path), path.name).replace(path.as_posix(), path.name)
+    for path in (compiler, work, runtime.source, runtime.weights, runtime.python.parent.parent, *runtime.dependencies):
+        name = 'compiler workspace' if path == compiler else path.name
+        for spelling in (str(path), path.as_posix(), str(path).replace('\\', '\\\\')):
+            log = log.replace(spelling, name)
     if log:
         print(log.rstrip(), flush=True)
     if process.returncode == 2 and 'HI3D_GPU_MEMORY_LIMIT' in process.stdout:
@@ -240,7 +272,7 @@ def reconstruct(root, job, reference, vertices, faces, resolution, triangle_ceil
         np.save(work / 'vertices.npy', np.ascontiguousarray(vertices, dtype=np.float32), allow_pickle=False)
         np.save(work / 'faces.npy', np.ascontiguousarray(faces, dtype=np.int32), allow_pickle=False)
         shutil.copyfile(reference, work / 'source.png')
-        _run(runtime, work, resolution, ceiling)
+        _run(root, runtime, work, resolution, ceiling)
         try:
             v_out, f_out = work / 'refined-vertices.npy', work / 'refined-faces.npy'
             if v_out.stat().st_size + f_out.stat().st_size > OUTPUT_LIMIT_BYTES:
