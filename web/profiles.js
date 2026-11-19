@@ -1,6 +1,6 @@
 // Recipes are persisted by the local server, independently from object history.
 import {detailRefinements} from './hd-master-finishing.js?v=detail-refinement-native';
-import {optionHelp} from './advanced-controls.js?v=detail-study';
+import {optionHelp} from './advanced-controls.js?v=option-help';
 
 const $=id=>document.getElementById(id);
 const steps={game_d:20,high_detail:20,humanoid_experimental:20,dense_master:20,fast:8,balanced:12,detail:20};

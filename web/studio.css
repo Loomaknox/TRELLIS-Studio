@@ -8,15 +8,19 @@
 .option-grid .detail-texturing-field,
 .option-grid .option-phase{grid-column:1/-1}
 .option-with-help{position:relative;min-width:0;display:flow-root;align-self:start}
-.option-with-help:has(>label[hidden]){display:none}
-.option-with-help>.field>span:first-child,.option-with-help>.check{padding-right:25px}
-.option-help-button{position:absolute;right:0;top:13px;display:grid;place-items:center;width:22px;height:22px;padding:0;border:1px solid var(--line);border-radius:50%;background:var(--panel);color:var(--accent);font-size:12px;line-height:1;cursor:pointer}
-.option-with-help:has(.check)>.option-help-button{top:13px}
-.option-grid .option-with-help:has(.check)>.option-help-button{top:0}
+.option-with-help:has(label[hidden]){display:none}
+.option-with-help>.field{margin-top:0}
+.option-help-heading{display:flex;align-items:center;gap:6px;min-width:0;margin-top:15px;color:#c0c8ba;font-size:11px;font-weight:500}
+.option-help-caption{min-width:0;overflow-wrap:anywhere}
+.option-grid .option-help-heading{min-height:28px;align-items:flex-end;font-size:10px}
+.option-help-checkbox-heading{margin-bottom:19px}
+.option-grid .option-help-checkbox-heading{min-height:24px;align-items:center;margin:0 0 14px}
+.option-with-help .option-help-checkbox-heading>label{display:flex;align-items:center;gap:9px;margin:0}
+.option-help-checkbox-heading input[type=checkbox]{margin:0}
+.option-help-button{display:grid;place-items:center;flex:0 0 19px;width:19px;height:19px;padding:0;border:1px solid var(--line);border-radius:50%;background:var(--panel);color:var(--accent);font-size:11px;line-height:1;cursor:pointer}
 .option-help-button:hover,.option-help-button[aria-expanded="true"]{border-color:var(--accent);background:#a4d46018}
 .option-help-button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.option-help-text{margin:0 0 10px;padding:7px 8px;border:1px solid var(--line);border-radius:6px;background:#0e1614;color:#d4e3db}
+.option-help-text{position:fixed;inset:auto;width:max-content;max-width:min(275px,calc(100vw - 16px));max-height:calc(100dvh - 16px);overflow:auto;margin:0;padding:8px 10px;border:1px solid #4b5d44;border-radius:7px;background:#111a16;color:#e1ece4;box-shadow:0 8px 24px #0008;font-size:12px;line-height:1.45;overflow-wrap:anywhere}
 .option-phase{margin:8px 0 0;padding:0 0 4px;border-bottom:1px solid var(--line);color:#d4e3db;font-size:11px;font-weight:600}
-.option-phase~.option-with-help>.field{margin-top:9px}
-.option-phase~.option-with-help>.option-help-button{top:9px}
+.option-phase~.option-with-help>.option-help-heading{margin-top:9px}
 .detail-texturing-field>p{margin:0 0 12px}

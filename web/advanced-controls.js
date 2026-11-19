@@ -30,23 +30,101 @@ const commonHelp={
   "tags": "Comma-separated keywords to help find your models.",
   "notes": "Notes and intended changes stored with this model. They do not modify geometry."
 };
+let activeHelp;
 export function optionHelp(label, fieldName, hint) {
   const control = label.querySelector('input, select, textarea');
   const field = element('div', 'option-with-help');
+  const heading = element('div', 'option-help-heading');
   const button = element('button', 'option-help-button', '?');
   const explanation = element('p', 'hint option-help-text', hint);
+  let pinned = false;
+  let dismissTimer;
   explanation.id = control.id + 'OptionHelp';
-  explanation.hidden = true;
+  explanation.setAttribute('popover', 'manual');
+  explanation.setAttribute('role', 'tooltip');
   button.type = 'button';
   button.setAttribute('aria-label', 'Help for ' + fieldName);
-  button.setAttribute('aria-controls', explanation.id);
+  button.setAttribute('aria-describedby', explanation.id);
   button.setAttribute('aria-expanded', 'false');
+
+  function place() {
+    const anchor = button.getBoundingClientRect();
+    if (!anchor.width || anchor.bottom < 0 || anchor.top > innerHeight) {
+      dismiss();
+      return;
+    }
+    const {width, height} = explanation.getBoundingClientRect();
+    const above = anchor.bottom + height + 10 > innerHeight && anchor.top >= height + 10;
+    explanation.style.left = Math.max(8, Math.min(innerWidth - width - 8, anchor.left)) + 'px';
+    explanation.style.top = Math.max(8, Math.min(innerHeight - height - 8,
+      above ? anchor.top - height - 4 : anchor.bottom + 4)) + 'px';
+  }
+  function dismiss() {
+    if (activeHelp !== dismiss) return;
+    activeHelp = null;
+    clearTimeout(dismissTimer);
+    pinned = false;
+    explanation.hidePopover();
+    button.setAttribute('aria-expanded', 'false');
+    window.removeEventListener('scroll', place, true);
+    window.removeEventListener('resize', place);
+    document.removeEventListener('pointerdown', outside);
+    document.removeEventListener('keydown', escape);
+  }
+  function outside(event) {
+    if (!button.contains(event.target) && !explanation.contains(event.target)) dismiss();
+  }
+  function escape(event) {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    dismiss();
+  }
+  function show() {
+    clearTimeout(dismissTimer);
+    if (activeHelp === dismiss) return;
+    activeHelp?.();
+    activeHelp = dismiss;
+    explanation.showPopover();
+    button.setAttribute('aria-expanded', 'true');
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    place();
+  }
+  function scheduleDismiss() {
+    clearTimeout(dismissTimer);
+    if (!pinned && !button.matches(':focus-visible')) dismissTimer = setTimeout(dismiss, 150);
+  }
+  button.addEventListener('pointerenter', event => { if (event.pointerType === 'mouse') show(); });
+  button.addEventListener('pointerleave', scheduleDismiss);
+  button.addEventListener('focus', () => { if (button.matches(':focus-visible')) show(); });
+  button.addEventListener('blur', dismiss);
   button.addEventListener('click', () => {
-    explanation.hidden = !explanation.hidden;
-    button.setAttribute('aria-expanded', String(!explanation.hidden));
+    if (pinned) dismiss();
+    else {
+      show();
+      pinned = true;
+    }
   });
+  explanation.addEventListener('pointerenter', () => clearTimeout(dismissTimer));
+  explanation.addEventListener('pointerleave', scheduleDismiss);
+  explanation.addEventListener('toggle', event => { if (event.newState === 'closed') dismiss(); });
+
   label.before(field);
-  field.append(label, button, explanation);
+  field.append(heading, explanation);
+  if (control.type === 'checkbox') {
+    heading.classList.add('option-help-checkbox-heading');
+    label.prepend(control);
+    heading.append(label, button);
+  } else {
+    const caption = element('label', 'option-help-caption');
+    caption.htmlFor = control.id;
+    caption.append(label.querySelector(':scope > span'));
+    heading.append(caption, button);
+    field.append(label);
+  }
   return field;
 }
 
