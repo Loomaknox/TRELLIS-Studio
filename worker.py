@@ -21,7 +21,7 @@ os.environ.update({
 sys.path[:0] = [str(ROOT), str(ROOT / 'engine'), str(ROOT / 'engine' / 'o-voxel')]
 os.chdir(ROOT / 'engine')
 from generation_options import (options_for_job, sampler_options, export_options, configure_simplifier,
-                                MASTER_FINISHING_METHODS, MASTER_FINISHING_TRIANGLES,
+                                MASTER_FINISHING_METHODS, MASTER_FINISHING_TRIANGLES, NO_MASTER_FINISHING,
                                 TRIANGLE_MIN, hi3d_refinement_options, validate_hd_reconstruction,
                                 validate_post_refinement_texturing)
 from gpu_runtime import configure_attention, select_gpu
@@ -145,9 +145,11 @@ def hi3d_reference(source_id, source_resolution):
 
 
 def finish_mesh(torch, source, source_id=None):
-    status('running', 'Finishing mesh and baking textures', 83)
-    hd_reconstruction = settings.get('hd_reconstruction', False)
     master_finishing = settings.get('master_finishing')
+    preserve_decoded = master_finishing == NO_MASTER_FINISHING
+    status('running', 'Unwrapping decoded mesh and baking native materials' if preserve_decoded
+           else 'Finishing mesh and baking textures', 83)
+    hd_reconstruction = settings.get('hd_reconstruction', False)
     validate_hd_reconstruction(hd_reconstruction, preset=settings.get('preset'), resolution=int(source['resolution']),
                                repair_surface=settings.get('repair_surface', False),
                                refinish=settings.get('source_kind') == 'refinish',
@@ -158,14 +160,18 @@ def finish_mesh(torch, source, source_id=None):
     refinish = settings.get('source_kind') == 'refinish'
     triangle_ceiling = settings['triangles']
     source_resolution = int(source['resolution'])
-    if master_finishing is not None and (
+    if preserve_decoded and (refinish or source_id or wtivo or hd_reconstruction
+            or any(settings.get(key) for key in ('adaptive_finishing', 'repair_surface', 'bake_normals'))):
+        raise ValueError('Exporting decoded geometry is a Create option and cannot be combined with mesh finishing.')
+    if master_finishing is not None and not preserve_decoded and (
             master_finishing not in MASTER_FINISHING_METHODS
             or (not hi3d_resolution and source_resolution < 1024)
             or not TRIANGLE_MIN <= triangle_ceiling <= MASTER_FINISHING_TRIANGLES
             or wtivo != (master_finishing == 'wtivo_1024') or hd_reconstruction != (master_finishing == 'studio_768')
             or any(settings.get(key) for key in ('adaptive_finishing', 'repair_surface', 'bake_normals'))):
         raise ValueError('Invalid HD Master Finishing recipe.')
-    validate_wtivo_recipe(wtivo, int(source['resolution']), refinish=refinish, inline_master=bool(master_finishing),
+    validate_wtivo_recipe(wtivo, int(source['resolution']), refinish=refinish,
+                          inline_master=bool(master_finishing) and not preserve_decoded,
                           hd_reconstruction=hd_reconstruction, repair_surface=settings.get('repair_surface', False),
                           adaptive=settings.get('adaptive_finishing', False), budget_preset=settings.get('budget_preset'))
     wtivo_report = None
@@ -203,7 +209,8 @@ def finish_mesh(torch, source, source_id=None):
         status('running', 'Finishing the WTiVo master' if master_finishing else 'Reducing and baking the WTiVo mesh', 84)
     import cumesh
     import o_voxel
-    configure_simplifier(cumesh, options)
+    if not preserve_decoded:
+        configure_simplifier(cumesh, options)
     # All paths use the same bundled exporter, including installations with older
     # engines. This keeps validated finishing controls and provenance consistent.
     from importlib.util import module_from_spec, spec_from_file_location
@@ -213,7 +220,9 @@ def finish_mesh(torch, source, source_id=None):
     spec.loader.exec_module(module)
     export = module.to_glb
     export_kwargs = export_options(options)
-    if master_finishing:
+    if preserve_decoded:
+        export_kwargs.update(remesh=False, repair_holes=False, preserve_decoded_mesh=True)
+    elif master_finishing:
         export_kwargs['master_finishing'] = True
     if wtivo or hi3d_report:
         replacement_vertices = torch.from_numpy(rebuilt_vertices)
@@ -269,7 +278,9 @@ def finish_mesh(torch, source, source_id=None):
         result.metadata['finishing'].update(method=master_finishing, hi3d_refinement=hi3d_report)
         trim_report = dict(method='Hi3D', output_triangles=len(result.faces),
                            triangle_target=hi3d_report['triangle_target'])
-    if master_finishing:
+    if preserve_decoded:
+        result.metadata['finishing']['master_finishing'] = dict(method=NO_MASTER_FINISHING)
+    elif master_finishing:
         result.metadata['finishing']['master_finishing'] = dict(
             method=master_finishing,
             triangle_ceiling=hi3d_report['triangle_target'] if hi3d_report else triangle_ceiling,
@@ -476,7 +487,10 @@ if __name__ == '__main__':
         message = str(error)
         finishing = settings.get('source_kind') == 'refinish'
         if 'out of memory' in message.lower():
-            if settings.get('master_finishing'):
+            if settings.get('master_finishing') == NO_MASTER_FINISHING:
+                message = ('Insufficient GPU memory to unwrap and bake the complete decoded mesh. '
+                           'Try a smaller atlas or generation resolution, or enable mesh finishing.')
+            elif settings.get('master_finishing'):
                 message = 'Insufficient GPU memory for HD Master Finishing. Try a smaller texture size or Studio 768.'
             else:
                 message = ('Insufficient GPU memory. Reduce the triangle budget or texture size, then try again.'

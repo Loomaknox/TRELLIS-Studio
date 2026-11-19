@@ -16,7 +16,8 @@ from generation_options import (normalize_options, options_for_job, schema as ge
                                 DEFAULT_PROFILE, DEFAULT_GENERATION, GENERATION_PRESETS, GAME_D_ADVANCED, PROFILE_ADVANCED,
                                 DENSE_MASTER, DENSE_MASTER_NAME, DENSE_MASTER_TRIANGLES, DENSE_MASTER_FINISHING,
                                 HUMANOID_EXPERIMENTAL, TRIANGLE_MIN, TRIANGLE_MAX, validate_hd_reconstruction,
-                                HI3D_FINISHING_METHODS, master_finishing_options, validate_create_master_finishing,
+                                HI3D_FINISHING_METHODS, NO_MASTER_FINISHING, master_finishing_options,
+                                validate_create_master_finishing,
                                 validate_post_refinement_texturing)
 from asset_taxonomy import ASSET_TYPES, SYSTEM_TYPES, schema as taxonomy_schema
 from generation_profiles import DETAIL_STUDY, DENSE_MASTER_DESCRIPTION, ProfileStore, builtin_profiles
@@ -242,6 +243,7 @@ def create_master_finishing_capabilities():
     hi3d = hi3d_status(ROOT)
     return dict(studio_768=dict(available=True, reason=''),
                 wtivo_1024=dict(available=available, reason=reason),
+                **{NO_MASTER_FINISHING: dict(available=True, reason='')},
                 **{method: dict(available=hi3d['available'], reason=hi3d['reason']) for method in HI3D_FINISHING_METHODS})
 
 

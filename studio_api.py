@@ -10,7 +10,7 @@ from studio_workspace import Workspace,read,write,name,checkpoint,revisions,ID,S
 from library_actions import validate_ids
 from glb_data import read as read_glb,animation_info
 from generation_options import (DENSE_MASTER, DENSE_MASTER_TRIANGLES, GENERATION_PRESETS,
-                                HD_RECONSTRUCTION_FINISHING, MASTER_FINISHING_METHODS,
+                                HD_RECONSTRUCTION_FINISHING, MASTER_FINISHING_METHODS, CREATE_MASTER_FINISHING_METHODS,
                                 HI3D_FINISHING_METHODS, MASTER_FINISHING_TEXTURE, MASTER_FINISHING_TRIANGLES, TRIANGLE_MAX, TRIANGLE_MIN,
                                 options_for_job, validate_hd_reconstruction, validate_post_refinement_texturing)
 from pixal3d_runtime import validate_views
@@ -768,7 +768,7 @@ class StudioServices:
                     if 'retexture_after_refinement' in spec and type(spec['retexture_after_refinement']) is not bool:
                         raise ValueError('Invalid post-refinement texturing setting.')
                     if spec.get('engine', 'trellis2') not in ('trellis2', 'pixal3d_single'):raise ValueError('Invalid single-image method.')
-                    if spec.get('master_finishing') not in (None, *MASTER_FINISHING_METHODS):raise ValueError('Invalid master finishing method.')
+                    if spec.get('master_finishing') not in (None, *CREATE_MASTER_FINISHING_METHODS):raise ValueError('Invalid master finishing method.')
                     if 'advanced_settings' in spec and not isinstance(spec['advanced_settings'],dict):raise ValueError('Invalid advanced settings.')
                     if 'reference_edits' in spec and not isinstance(spec['reference_edits'],dict):raise ValueError('Invalid reference corrections.')
                     if spec.get('parent_id') and not ID.fullmatch(spec['parent_id']):raise ValueError('Invalid parent model.')

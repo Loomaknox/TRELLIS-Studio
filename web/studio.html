@@ -104,6 +104,7 @@
       <svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#wire"/></svg>
       <select id="denseMasterFinishing" aria-describedby="denseMasterFinishingHint" disabled>
       <option value="">Use Profile Settings</option>
+      <option value="none" disabled>None</option>
       <option value="studio_768">Balanced Reconstruction</option>
       <option value="wtivo_1024">Surface Closure</option>
       <optgroup label="Hi3D detail refinement">
@@ -154,7 +155,7 @@
     <label class="field">Texture<select id="textureSize" name="texture_size"><option value="0">Use profile default</option><option value="1024">1K · 1 024 px</option><option value="2048" selected>2K · 2 048 px</option><option value="4096" disabled>4K · 4 096 px</option></select></label>
   </div>
   <p id="qualityHint" class="hint" hidden></p>
-  <div class="two-fields"><label class="field"><span id="monoTrianglesLabel">Target triangles</span><input id="triangles" name="triangles" type="number" min="0" max="8000000" step="1" value="28000"><small id="monoTrianglesHint">0 uses the profile budget.</small></label><label class="field">3D seed<input id="seed" name="seed" type="number" value="42" min="0" max="2147483647" step="1"></label></div>
+  <div class="two-fields"><label id="monoTrianglesField" class="field"><span id="monoTrianglesLabel">Target triangles</span><input id="triangles" name="triangles" type="number" min="0" max="8000000" step="1" value="28000"><small id="monoTrianglesHint">0 uses the profile budget.</small></label><label class="field">3D seed<input id="seed" name="seed" type="number" value="42" min="0" max="2147483647" step="1"></label></div>
   <label id="advancedMasterField" class="field" hidden>Finishing override<select id="advancedMasterFinishing" disabled><option value="">Use master finishing</option><option value="direct">Direct Export</option><option value="repair">Repair Holes</option></select></label>
   <label id="removeBgField" class="check"><input id="removeBg" name="remove_bg" type="checkbox" checked><span>Remove image background</span></label>
   <div id="faceProjectionField" hidden><label class="check"><input id="reprojectFace" type="checkbox" autocomplete="off" aria-describedby="reprojectFaceHelp" disabled><span>Reproject the reference face</span></label><p class="hint" id="reprojectFaceHelp"></p></div>
@@ -250,7 +251,7 @@
 <dialog id="animationRemoveDialog" aria-labelledby="animationRemoveTitle" aria-describedby="animationRemoveDescription"><form method="dialog"><h2 id="animationRemoveTitle">Remove animation?</h2><p id="animationRemoveDescription">Remove <strong id="animationRemoveName"></strong> from this model?</p><div class="dialog-actions"><button value="cancel" class="secondary" autofocus>Keep clip</button><button value="remove" class="danger has-icon"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#trash"/></svg>Remove clip</button></div></form></dialog>
 <dialog id="imageDialog"><button class="dialog-close" id="closeImage">Close ×</button><img id="largeImage" alt="Full-size texture or UV layout"></dialog>
 <footer><span>TRELLIS STUDIO</span><span>Reference → generation → review → Blender</span><span>UV & PBR · local compute</span></footer>
-<script type="module" src="/web/studio.js?v=option-help"></script><script type="module" src="/web/validation-en.js?v=3.4.0"></script>
+<script type="module" src="/web/studio.js?v=unreduced-mesh"></script><script type="module" src="/web/validation-en.js?v=3.4.0"></script>
 <div id="refinishDialog" class="refinish-popover" popover="auto" role="dialog" aria-labelledby="refinishTitle">
 <form id="refinishForm">
   <header class="refinish-head">

@@ -13,6 +13,8 @@ MASTER_FINISHING_TRIANGLES = 3_000_000
 MASTER_FINISHING_TEXTURE = 4096
 HI3D_FINISHING_METHODS = ('hi3d_512', 'hi3d_1024')
 MASTER_FINISHING_METHODS = ('wtivo_1024', 'studio_768', *HI3D_FINISHING_METHODS)
+NO_MASTER_FINISHING = 'none'
+CREATE_MASTER_FINISHING_METHODS = (*MASTER_FINISHING_METHODS, NO_MASTER_FINISHING)
 DENSE_MASTER_FINISHING = dict(mesh_mode='direct', pre_simplify=False, repair_holes=False)
 SURFACE_REPAIR_FINISHING = dict(mesh_mode='remesh', pre_simplify=False, repair_holes=True,
                                 remesh_project=.45, remesh_band=1.)
@@ -41,17 +43,19 @@ def validate_create_master_finishing(method, *, preset, resolution, triangles,
                                      engine='trellis2'):
     if method is None or method == '':
         return
-    if method not in MASTER_FINISHING_METHODS:
+    if method not in CREATE_MASTER_FINISHING_METHODS:
         raise ValueError('Choose a supported master finishing method.')
     if preset not in GENERATION_PRESETS and not (engine == 'pixal3d' and preset == 'character_pixal'):
         raise ValueError('Choose a supported generation profile.')
+    if repair_surface or hd_reconstruction:
+        raise ValueError('Choose one master finishing method.')
+    if method == NO_MASTER_FINISHING:
+        return
     if method in HI3D_FINISHING_METHODS:
         if resolution not in (512, 1024, 1536) or engine != 'trellis2':
             raise ValueError('Hi3D requires a supported TRELLIS.2 single-image resolution.')
     elif resolution < 1024:
         raise ValueError('This finishing method requires a generation resolution of 1024 or higher.')
-    if repair_surface or hd_reconstruction:
-        raise ValueError('Choose one master finishing method.')
     if not TRIANGLE_MIN <= triangles <= MASTER_FINISHING_TRIANGLES:
         raise ValueError(f'Choose a triangle ceiling between {TRIANGLE_MIN:,} and {MASTER_FINISHING_TRIANGLES:,}.')
 
@@ -61,7 +65,7 @@ def master_finishing_options(method, options):
         return {**options, **HD_RECONSTRUCTION_FINISHING}
     if method == 'wtivo_1024':
         return {**options, **HD_RECONSTRUCTION_FINISHING, 'repair_holes': False, 'remesh_resolution': 1024}
-    if method in HI3D_FINISHING_METHODS:
+    if method == NO_MASTER_FINISHING or method in HI3D_FINISHING_METHODS:
         return {**options, **DENSE_MASTER_FINISHING}
     return options
 

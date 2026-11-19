@@ -3,6 +3,7 @@ import {optionHelp} from './advanced-controls.js?v=option-help';
 
 const PRIORITIES = [['2', 'Highest'], ['1', 'High'], ['0', 'Normal'], ['-1', 'Low'], ['-2', 'Lowest']];
 const STATE_ORDER = {running: 0, queued: 1, error: 2, cancelled: 2, done: 3};
+const fullMeshNote = 'Master finishing · None. Exports the decoded mesh at its original triangle count.';
 const json = (method, data) => ({
   method,
   headers: {'Content-Type': 'application/json'},
@@ -85,7 +86,8 @@ export function createQueueStudio({api, refresh}) {
   async function editDraft(row) {
     const {runtime, schema} = await capabilities();
     const removeBg = checkbox(row.remove_bg);
-    const triangles = triangleInput(row.triangles, schema);
+    const fullMesh = row.master_finishing === 'none';
+    const triangles = fullMesh ? null : triangleInput(row.triangles, schema);
     const texture = select(textureChoices(runtime.texture_sizes), String(row.texture_size));
     const resolution = select(resolutionChoices(runtime.supported_resolutions), String(row.resolution));
     const supportsRetexture = row.master_finishing === 'hi3d_1024';
@@ -101,7 +103,7 @@ export function createQueueStudio({api, refresh}) {
       retextureStatus.hidden = !retextureStatus.textContent;
     };
     const apply = button('Apply settings', 'check', 'primary', () => {
-      if (!triangles.reportValidity()) return;
+      if (triangles && !triangles.reportValidity()) return;
       if (!texture.value || !resolution.value) {
         recipe.notice.textContent = 'Choose a supported texture size and geometry resolution.';
         return;
@@ -110,14 +112,15 @@ export function createQueueStudio({api, refresh}) {
         recipe.notice.textContent = retextureStatus.textContent;
         return;
       }
-      Object.assign(row, {triangles: triangles.valueAsNumber, texture_size: Number(texture.value),
-        resolution: Number(resolution.value), remove_bg: removeBg.checked});
+      Object.assign(row, {texture_size: Number(texture.value), resolution: Number(resolution.value), remove_bg: removeBg.checked});
+      if (triangles) row.triangles = triangles.valueAsNumber;
       if (supportsRetexture) row.retexture_after_refinement = !retexture.disabled && retexture.checked;
       recipe.close();
     });
     const dense = profiles.find(profile => profile.id === row.profile_id)?.settings.preset === 'dense_master';
     recipe.body.replaceChildren(field('Geometry resolution', resolution),
-      field(dense ? 'Maximum triangles' : 'Triangle target', triangles),
+      fullMesh ? el('p', 'hint', fullMeshNote)
+        : field(dense ? 'Maximum triangles' : 'Triangle target', triangles),
       field('Texture size', texture), field('Remove image background', removeBg));
     if (supportsRetexture) {
       recipe.body.append(retextureField, retextureStatus);
@@ -209,7 +212,10 @@ export function createQueueStudio({api, refresh}) {
       return;
     }
     const form = new FormData();
-    form.set('specifications', JSON.stringify(drafts.map(({file, url, ...spec}) => spec)));
+    form.set('specifications', JSON.stringify(drafts.map(({file, url, ...spec}) => {
+      if (spec.master_finishing === 'none') delete spec.triangles;
+      return spec;
+    })));
     for (const row of drafts) form.append('images', row.file);
     await api('/api/queue/batch', {method: 'POST', body: form});
     drafts.forEach(row => URL.revokeObjectURL(row.url));
@@ -230,6 +236,7 @@ export function createQueueStudio({api, refresh}) {
     const pixal = saved.engine === 'pixal3d';
     const refinish = saved.source_kind === 'refinish';
     const master = saved.master_finishing;
+    const fullMesh = master === 'none';
     const adaptiveRefinish = refinish && saved.adaptive_finishing;
     const [{runtime, schema}, components] = await Promise.all([
       capabilities(),
@@ -267,8 +274,9 @@ export function createQueueStudio({api, refresh}) {
     retry.body.replaceChildren(title, failure, el('p', 'hint', context),
       field('Geometry resolution', resolution, refinish ? 'Uses the saved geometry cache.' : pixal ? 'Pixal3D uses 1024³.'
         : saved.retexture_after_refinement ? 'The saved texture pass requires a 1024³ source.' : ''),
-      field(saved.adaptive_finishing || master ? 'Maximum triangles' : 'Triangle target', triangles,
-        master ? 'Fixed by HD Master Finishing.' : ''), field('Texture size', texture), field('Height · m', height),
+      fullMesh ? el('p', 'hint', fullMeshNote)
+        : field(saved.adaptive_finishing || master ? 'Maximum triangles' : 'Triangle target', triangles,
+          master ? 'Fixed by HD Master Finishing.' : ''), field('Texture size', texture), field('Height · m', height),
       field('Priority', priority));
     if (finishingModes.length > 1) {
       retry.body.append(field('Surface treatment', surfaceMode, 'HD Reconstruction requires a 1024 or higher geometry source.'));
@@ -355,7 +363,8 @@ export function createQueueStudio({api, refresh}) {
       generatedMotion && Number.isFinite(item.duration) ? item.duration + ' s' : null,
       generatedMotion && Number.isFinite(item.fps) ? item.fps + ' fps' : null,
       !animation && item.settings.resolution ? item.settings.resolution + '³' : null,
-      !animation && item.settings.triangles ? Number(item.settings.triangles).toLocaleString('en-US') + ' triangles' : null,
+      !animation && (item.settings.master_finishing === 'none' ? 'Full mesh'
+        : item.settings.triangles ? Number(item.settings.triangles).toLocaleString('en-US') + ' triangles' : null),
       !animation && item.settings.texture_size ? item.settings.texture_size / 1024 + 'K' : null,
       progress + '%',
     ].filter(Boolean).join(' · ');

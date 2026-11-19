@@ -37,7 +37,7 @@ def run():
             os.environ['TRELLIS_' + key] = str(private / name)
         import app
         import studio_api
-        from api_contract import Generation, Refinish, FinishingOptions
+        from api_contract import Generation, MultiViewGeneration, Refinish, FinishingOptions
         from generation_options import validate_create_master_finishing
         from studio_workspace import read
 
@@ -203,6 +203,39 @@ def run():
                 settings = read(app.OUTPUT / identifier / 'settings.json')
                 assert settings['preset'] == 'game_d' and settings['profile']['id'] == custom_game['id']
                 assert settings['master_finishing'] == 'hi3d_1024' and settings['retexture_after_refinement'] is True
+                assert methods['none']['available']
+                assert MultiViewGeneration(upload_id=upload, master_finishing='none').master_finishing == 'none'
+                for profile_id in ('game_d', 'dense_master'):
+                    identifier = call('POST', '/api/v1/generations', 202, json=dict(
+                        upload_id=upload, profile_id=profile_id, master_finishing='none',
+                        overrides=dict(resolution=512, keep_finishing_source=False)))['id']
+                    settings = read(app.OUTPUT / identifier / 'settings.json')
+                    assert settings['master_finishing'] == 'none' and settings['keep_finishing_source'] is True
+                    assert not any(settings.get(key) for key in ('adaptive_finishing', 'hd_reconstruction', 'wtivo_reconstruction'))
+                    assert settings['generation_options']['mesh_mode'] == 'direct'
+                    assert not any(settings['generation_options'][key] for key in ('pre_simplify', 'repair_holes'))
+                no_finish = call('POST', '/api/profiles', 201, json=dict(name='Decoded source', settings={
+                    **game['settings'], 'master_finishing': 'none', 'triangles': 4_000_000,
+                }))
+                identifier = call('POST', '/api/v1/generations', 202,
+                                  json=dict(upload_id=upload, profile_id=no_finish['id']))['id']
+                folder = app.OUTPUT / identifier
+                assert read(folder / 'settings.json')['master_finishing'] == 'none'
+                app.write_json(folder / 'status.json', dict(state='error', progress=0))
+                retried = call('POST', f'/api/v1/queue/{identifier}/retry', 202, json={'resolution': 512})['id']
+                assert read(app.OUTPUT / retried / 'settings.json')['master_finishing'] == 'none'
+                app.write_json(folder / 'status.json', dict(state='done', progress=100))
+                (folder / 'prepared.png').write_bytes(png())
+                (folder / 'raw_state.pt').write_bytes(b'decoded mesh fixture')
+                (folder / 'model.glb').write_bytes(b'completed model fixture')
+                variant = call('POST', f'/api/v1/models/{identifier}/refinish', 202,
+                               json={'master_finishing': 'hi3d_1024'})['id']
+                variant_settings = read(app.OUTPUT / variant / 'settings.json')
+                assert variant_settings['master_finishing'] == 'hi3d_1024' and variant_settings['finish_source_id'] == identifier
+                assert read(folder / 'settings.json')['master_finishing'] == 'none'
+                call('POST', '/api/v1/generations', 400, json=dict(upload_id=upload, master_finishing='none',
+                                                                 retexture_after_refinement=True))
+                call('POST', f'/api/v1/models/{identifiers["valid"]}/refinish', 422, json={'master_finishing': 'none'})
             finally:
                 server.should_exit = True
                 thread.join(8)

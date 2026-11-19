@@ -1,4 +1,4 @@
-import {createQueueStudio} from './queue-studio.js?v=option-help';
+import {createQueueStudio} from './queue-studio.js?v=unreduced-mesh';
 import {createWorkspaceLibrary} from './workspace-library.js?v=3.4.0';
 import {createVersionHistory} from './version-history.js?v=3.4.0';
 import {createModelWorkbench} from './model-workbench.js?v=3.4.0';

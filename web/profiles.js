@@ -7,6 +7,7 @@ const steps={game_d:20,high_detail:20,humanoid_experimental:20,dense_master:20,f
 const startupKey='trellis.studio.startup-profile';
 const profileNames={game_d:'Game Asset',dense_master:'HD Master'};
 const finishingNames={
+  none:'None',
   studio_768:'Balanced Reconstruction',
   wtivo_1024:'Surface Closure',
   direct:'Direct Export',
@@ -14,6 +15,7 @@ const finishingNames={
 };
 const finishingDetails={
   '':'Uses the profile’s standard mesh processing.',
+  none:'Exports the decoded mesh at its original triangle count and keeps the source for finishing later.',
   studio_768:'Studio 768 · Rebuilds the surface and retains fine details.',
   wtivo_1024:'WTiVo 1024 · Prioritizes closing surface gaps.',
   direct:'Adaptive reduction within the triangle ceiling.',
@@ -46,9 +48,11 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     const {texture_seed,...options}=advanced.read();
     const preset=$('preset').value;
     const defaults=selected?.settings.preset===preset ? selected.settings : null;
+    const requestedTriangles=Number($('triangles').value);
+    const retainBudget=readFinishing()!=='none'||(Number.isInteger(requestedTriangles)&&requestedTriangles>=1000&&requestedTriangles<=8000000);
     return {
       preset,resolution:Number($('resolution').value),
-      triangles:Number($('triangles').value)||defaults?.triangles||
+      triangles:(retainBudget&&requestedTriangles)||defaults?.triangles||
         ({game_d:28000,high_detail:250000,humanoid_experimental:250000,dense_master:1200000,
           character_pixal:28000,fast:25000,balanced:50000,detail:100000}[preset]),
       texture_size:Number($('textureSize').value)||defaults?.texture_size||(preset==='fast'?1024:2048),
@@ -56,8 +60,12 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     };
   }
   function budget(recipe=read()){
-    const triangles=detailRefinements[readFinishing()]?Math.min(recipe.triangles,detailRefinementLimit):recipe.triangles;
-    return {resolution:usePixal()?1024:recipe.resolution,triangles,texture_size:recipe.texture_size};
+    const finishing=readFinishing();
+    const result={resolution:usePixal()?1024:recipe.resolution,texture_size:recipe.texture_size};
+    if(finishing!=='none'){
+      result.triangles=detailRefinements[finishing]?Math.min(recipe.triangles,detailRefinementLimit):recipe.triangles;
+    }
+    return result;
   }
   function syncRefinementBudget(active){
     const triangles=$('triangles');
@@ -78,6 +86,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     if(isReconstruction(finishing)&&(finishing!=='studio_768'||recipe.resolution>=1024)){
       recipe={...recipe,triangles:budget(recipe).triangles,master_finishing:finishing};
     }
+    if(finishing==='none')recipe={...recipe,master_finishing:finishing};
     if(finishing==='hi3d_1024')recipe={...recipe,retexture_after_refinement:wantsRetexture()};
     return recipe;
   }
@@ -107,7 +116,8 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     const selectedFinish=readFinishing();
     const detail=detailRefinements[selectedFinish];
     const reconstruction=isReconstruction(selectedFinish);
-    const requiresSource=experimental||dense||reconstruction;
+    const fullMesh=selectedFinish==='none';
+    const requiresSource=experimental||dense||reconstruction||fullMesh;
     if(requiresSource!==sourceRequired){
       if(requiresSource){previousKeep=$('keepFinishingSource').checked;$('keepFinishingSource').checked=true;}
       else $('keepFinishingSource').checked=previousKeep;
@@ -151,7 +161,10 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
         continue;
       }
       const info=masterSupport[option.value];
-      if(detailRefinements[option.value]){
+      if(option.value==='none'){
+        option.disabled=info?.available!==true;
+        option.title=option.disabled?info?.reason||'Requires server support for full mesh export.':'';
+      }else if(detailRefinements[option.value]){
         option.disabled=!!detailSourceReason||info?.available!==true;
         option.title=option.disabled
           ? detailSourceReason||info?.reason||'Requires the Hi3D runtime.'
@@ -165,9 +178,13 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     const selectedSupport=masterSupport[selectedFinish];
     const ceiling=detail?detailRefinementLimit:inlineFinishingLimit;
     const requestedTriangles=detail?Number($('triangles').value):recipe.triangles;
+    $('monoTrianglesField').hidden=fullMesh;
+    $('triangles').disabled=fullMesh;
     $('triangles').max=String(reconstruction?ceiling:8000000);
     let hint=detail?.detail||finishingDetails[selectedFinish]||'';
-    if (reconstruction&&finishing.selectedOptions[0]?.disabled) {
+    if (fullMesh&&finishing.selectedOptions[0]?.disabled) {
+      hint=finishing.selectedOptions[0].title;
+    } else if (reconstruction&&finishing.selectedOptions[0]?.disabled) {
       hint=detail ? finishing.selectedOptions[0].title
         : actual.resolution<1024
         ? 'Choose 1024 or higher generation resolution in Advanced.'
@@ -198,7 +215,8 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     $('profileState').textContent=dirty?'MODIFIED':selected.variant?'VARIANT':selected.experimental?'EXPERIMENTAL':'';
     $('profileState').hidden=!$('profileState').textContent;
     $('profileState').classList.toggle('dirty',dirty);
-    $('profileSummary').textContent=`${actual.resolution}³ · ${dense||reconstruction?'Up to ':''}${number.format(actual.triangles)} triangles · ${actual.texture_size/1024}K textures`;
+    const meshSummary=fullMesh?'Full mesh':`${dense||reconstruction?'Up to ':''}${number.format(actual.triangles)} triangles`;
+    $('profileSummary').textContent=`${actual.resolution}³ · ${meshSummary} · ${actual.texture_size/1024}K textures`;
     $('monoTrianglesLabel').textContent=dense||reconstruction?'Maximum triangles':'Target triangles';
     $('monoTrianglesHint').textContent=detail?'0 uses the profile ceiling, capped at 1,000,000.'
       : reconstruction?'Up to 3,000,000. 0 uses the profile ceiling.'
@@ -316,7 +334,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     appendFinishing(form){
       const value=readFinishing();
       if (value==='repair') form.set('repair_surface','true');
-      if (detailRefinements[value]||value==='wtivo_1024'||(value==='studio_768'&&masterSupport.studio_768?.available)) {
+      if (value==='none'||detailRefinements[value]||value==='wtivo_1024'||(value==='studio_768'&&masterSupport.studio_768?.available)) {
         form.set('master_finishing',value);
       } else if (value==='studio_768') form.set('hd_reconstruction','true');
       if(!usePixal()&&(value==='hi3d_1024'||selected?.settings.retexture_after_refinement)){
@@ -339,6 +357,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       const value=readFinishing();
       if (value==='repair') return repairSupported;
       if (!value||value==='direct') return true;
+      if (value==='none') return masterSupport.none?.available===true;
       const withinLimit=detailRefinements[value]?Number($('triangles').value)<=detailRefinementLimit
         : budget().triangles<=inlineFinishingLimit;
       return !$('denseMasterFinishing').selectedOptions[0]?.disabled&&withinLimit

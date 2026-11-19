@@ -15,6 +15,7 @@ ViewRole = Literal['front', 'left', 'back', 'right']
 SingleImageEngine = Literal['trellis2', 'pixal3d_single']
 ReferenceEngine = Literal['trellis2', 'pixal3d_single', 'pixal3d']
 MasterFinishing = Literal['studio_768', 'wtivo_1024', 'hi3d_512', 'hi3d_1024']
+CreateMasterFinishing = MasterFinishing | Literal['none']
 
 
 class ReferenceStroke(Contract):
@@ -63,7 +64,7 @@ class Generation(Contract):
     seed:int=Field(default=42,ge=0,le=2147483647)
     priority:int=Field(default=0,ge=-2,le=2)
     engine: SingleImageEngine = 'trellis2'
-    master_finishing: MasterFinishing | None = None
+    master_finishing: CreateMasterFinishing | None = None
     reproject_face: bool = False
     retexture_after_refinement: bool | None = None
     overrides:dict=Field(default_factory=dict,examples=[{}],description='Optional recipe overrides: triangles, texture_size, resolution, remove_bg, advanced_settings, asset_type, reference_prompt, parent_id, keep_finishing_source, repair_surface or hd_reconstruction (Dense Master only).')
@@ -79,7 +80,7 @@ class MultiViewGeneration(ReferenceUploads):
     triangles: int | None = Field(default=None, ge=TRIANGLE_MIN, le=TRIANGLE_MAX)
     texture_size: Literal[1024, 2048] | None = None
     asset_type: str = Field(default='humanoid', max_length=80)
-    master_finishing: MasterFinishing | None = None
+    master_finishing: CreateMasterFinishing | None = None
     parent_id: Identifier | None = None
     reference_prompt: str = Field(default='', max_length=6000)
     keep_finishing_source: bool = False
