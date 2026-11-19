@@ -175,10 +175,12 @@
 !/web/print-copy.js
 !/web/profiles.js
 !/web/queue-studio.js
+!/web/studio-panels.css
 !/web/studio-tools.css
 !/web/studio-tools.js
 !/web/studio-workbench.js
 !/web/studio.css
+!/web/studio-shell.css
 !/web/studio.html
 !/web/studio.js
 !/web/server.html

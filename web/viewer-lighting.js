@@ -5,6 +5,70 @@ export const DEFAULT_LIGHTING={azimuth:45,elevation:45,intensity:1.4,fill:.9,exp
 const PRESETS={Studio:DEFAULT_LIGHTING,Soft:{...DEFAULT_LIGHTING,azimuth:-25,elevation:65,intensity:.8,fill:1,exposure:1.05},Dramatic:{...DEFAULT_LIGHTING,azimuth:110,elevation:30,intensity:2.1,fill:.2,exposure:1,colour:'#fff0d9'}};
 function normalise(raw){const c={...DEFAULT_LIGHTING};for(const [key,min,max]of [['azimuth',-180,180],['elevation',5,85],['intensity',0,4],['fill',0,2],['exposure',.25,2]])if(typeof raw?.[key]==='number'&&Number.isFinite(raw[key]))c[key]=Math.min(max,Math.max(min,raw[key]));if(/^#[a-f0-9]{6}$/i.test(raw?.colour))c.colour=raw.colour;for(const key of ['shadows','guide'])if(typeof raw?.[key]==='boolean')c[key]=raw[key];return c;}
 export function readLighting(){try{return normalise(JSON.parse(localStorage.getItem(KEY)));}catch{return {...DEFAULT_LIGHTING};}}
+
+// The floor is part of the interactive preview. Presentation captures copy the model and lights separately.
+export function createViewerStage(scene, viewport) {
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    uniforms: {
+      floorTint: {value: new THREE.Color(0x364d46)},
+      ringTint: {value: new THREE.Color(0xd9ff92)},
+    },
+    vertexShader: `
+      varying vec2 floorPosition;
+      void main() {
+        floorPosition = position.xy;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      varying vec2 floorPosition;
+      uniform vec3 floorTint;
+      uniform vec3 ringTint;
+      void main() {
+        float radius = length(floorPosition);
+        float edge = abs(radius - 1.0);
+        float aa = max(fwidth(radius), 0.0005);
+        float ring = 1.0 - smoothstep(0.002, 0.002 + aa, edge);
+        float halo = 1.0 - smoothstep(0.0, 0.073, edge);
+        float falloff = 1.0 - smoothstep(0.35, 3.65, radius);
+        vec2 tile = floorPosition * 4.0;
+        vec2 lineDistance = abs(fract(tile - 0.5) - 0.5) / max(fwidth(tile), vec2(0.001));
+        float seams = 1.0 - smoothstep(0.1, 1.1, min(lineDistance.x, lineDistance.y));
+        vec2 across = normalize(vec2(viewMatrix[0][0], -viewMatrix[2][0]));
+        vec2 forward = vec2(across.y, -across.x);
+        vec2 floorView = vec2(dot(floorPosition, across), dot(floorPosition, forward));
+        vec2 hotspot = floorView - vec2(0.0, 0.13);
+        float core = 1.0 - smoothstep(0.0, 1.0, length(hotspot / vec2(0.34, 0.09)));
+        float reflection = 1.0 - smoothstep(0.0, 1.0, length(hotspot / vec2(0.64, 1.29)));
+        float light = 0.64 * ring + 0.17 * halo + 0.71 * core + 0.35 * reflection;
+        float opacity = min(0.98, (0.12 + 0.13 * seams) * falloff + light);
+        gl_FragColor = vec4(mix(floorTint, ringTint, min(1.0, light * 1.28)), opacity);
+        #include <colorspace_fragment>
+      }`,
+  }));
+  // The optional shadow plane renders over the stage without introducing a second light source.
+  floor.renderOrder = -2;
+  floor.rotation.x = -Math.PI / 2;
+  floor.visible = false;
+  scene.add(floor);
+
+  return {
+    fit(bounds) {
+      const center = bounds.getCenter(new THREE.Vector3());
+      const size = bounds.getSize(new THREE.Vector3());
+      const span = Math.max(size.x, size.y, size.z, 0.01);
+      const radius = span * 0.64;
+      floor.position.set(center.x, Math.min(0, bounds.min.y) - span * 0.0002, center.z);
+      floor.scale.setScalar(radius);
+    },
+    setVisible(visible) {
+      floor.visible = visible;
+      viewport.classList.toggle('viewer-stage-ready', visible);
+    },
+  };
+}
+
 export function createLightingRig(scene,renderer){
  const fill=scene.children.find(x=>x.isHemisphereLight)||new THREE.HemisphereLight(0xffffff,0x394331,.7);if(!fill.parent)scene.add(fill);
  const key=new THREE.DirectionalLight(0xffffff,1.4);key.name='Preview key light';key.shadow.mapSize.set(1024,1024);key.shadow.bias=-.00008;scene.add(key,key.target);
