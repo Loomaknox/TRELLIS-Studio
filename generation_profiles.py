@@ -4,10 +4,12 @@ import json
 import time
 import uuid
 from generation_options import (DENSE_MASTER, DENSE_MASTER_NAME, GENERATION_PRESETS, HUMANOID_EXPERIMENTAL,
-                                PROFILE_ADVANCED, TRIANGLE_MIN, TRIANGLE_MAX, normalize_options)
+                                PROFILE_ADVANCED, TRIANGLE_MIN, TRIANGLE_MAX, normalize_options,
+                                validate_create_master_finishing, validate_post_refinement_texturing)
 
 DENSE_MASTER_DESCRIPTION = ('Keeps the complete decoded geometry and materials before finishing. '
                             'Adapts the working copy to the surface, with a default ceiling of 1.2 million triangles.')
+DETAIL_STUDY = 'detail_study'
 
 
 def profile_options(overrides, steps):
@@ -32,6 +34,14 @@ def builtin_profiles():
         settings = dict(preset=key, resolution=1024, triangles=triangles, texture_size=texture_size,
                         remove_bg=True, advanced=profile_options(PROFILE_ADVANCED[key], steps))
         profiles.append(dict(id=key, name=name, builtin=True, settings=settings, **flags))
+    profiles.append(dict(id=DETAIL_STUDY, name='Detail Study', builtin=True, experimental=True,
+                         keep_finishing_source=True,
+                         description='TRELLIS.2 12 / 24 / 12, Hi3D 1024 and a 4K texture pass after refinement.',
+                         settings=dict(preset=DENSE_MASTER, resolution=1024, triangles=1_000_000, texture_size=4096,
+                                       remove_bg=True, master_finishing='hi3d_1024', retexture_after_refinement=True,
+                                       advanced=profile_options({**PROFILE_ADVANCED[DENSE_MASTER],
+                                           'structure_steps': 12, 'shape_steps': 24, 'texture_steps': 12,
+                                           'texture_guidance': 1}, 12))))
     return profiles
 
 
@@ -43,7 +53,8 @@ def validate_recipe(data):
         raise ValueError('Choose a single-line name of 1–60 characters.')
     s = data['settings']
     keys = {'preset', 'resolution', 'triangles', 'texture_size', 'remove_bg', 'advanced'}
-    if not isinstance(s, dict) or set(s) != keys:
+    optional = {'master_finishing', 'retexture_after_refinement'}
+    if not isinstance(s, dict) or not keys <= set(s) <= keys | optional:
         raise ValueError('Incomplete or unknown profile settings.')
     if not isinstance(s['preset'], str) or s['preset'] not in GENERATION_PRESETS:
         raise ValueError('Unknown base preset.')
@@ -54,6 +65,12 @@ def validate_recipe(data):
         raise ValueError(f'Target must be between {TRIANGLE_MIN:,} and {TRIANGLE_MAX:,} triangles.')
     if type(s['remove_bg']) is not bool:
         raise ValueError('Background removal must be true or false.')
+    finishing = s.get('master_finishing')
+    if finishing is not None and not isinstance(finishing, str):
+        raise ValueError('Choose a supported master finishing method.')
+    validate_create_master_finishing(finishing, preset=s['preset'], resolution=s['resolution'], triangles=s['triangles'])
+    validate_post_refinement_texturing(s.get('retexture_after_refinement', False), preset=s['preset'],
+                                       resolution=s['resolution'], master_finishing=finishing)
     s = dict(s, advanced=profile_options(s['advanced'], GENERATION_PRESETS[s['preset']][0]))
     return dict(name=name.strip(), settings=s)
 

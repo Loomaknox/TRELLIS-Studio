@@ -22,14 +22,15 @@ HD_RECONSTRUCTION_FINISHING = dict(
 )
 
 
-def validate_hd_reconstruction(enabled, *, preset=None, resolution, repair_surface=False, refinish=False):
+def validate_hd_reconstruction(enabled, *, preset=None, resolution, repair_surface=False, refinish=False,
+                               inline_master=False):
     if type(enabled) is not bool:
         raise ValueError('HD Reconstruction must be true or false.')
     if not enabled:
         return
     if repair_surface:
         raise ValueError('Choose either HD Reconstruction or Repair holes.')
-    if not refinish and preset != DENSE_MASTER:
+    if not (refinish or inline_master) and preset != DENSE_MASTER:
         raise ValueError('Choose Dense Master to use HD Reconstruction.')
     if resolution < HD_RECONSTRUCTION_FINISHING['remesh_resolution']:
         raise ValueError('HD Reconstruction requires a 1024 or 1536 geometry source.')
@@ -42,15 +43,17 @@ def validate_create_master_finishing(method, *, preset, resolution, triangles,
         return
     if method not in MASTER_FINISHING_METHODS:
         raise ValueError('Choose a supported master finishing method.')
+    if preset not in GENERATION_PRESETS and not (engine == 'pixal3d' and preset == 'character_pixal'):
+        raise ValueError('Choose a supported generation profile.')
     if method in HI3D_FINISHING_METHODS:
-        if preset != DENSE_MASTER or resolution not in (512, 1024, 1536) or engine != 'trellis2':
-            raise ValueError('Hi3D requires the HD Master profile with a supported TRELLIS.2 single-image resolution.')
-    elif preset != DENSE_MASTER or resolution < 1024:
-        raise ValueError('Master finishing requires the HD Master profile at 1024 or higher.')
+        if resolution not in (512, 1024, 1536) or engine != 'trellis2':
+            raise ValueError('Hi3D requires a supported TRELLIS.2 single-image resolution.')
+    elif resolution < 1024:
+        raise ValueError('This finishing method requires a generation resolution of 1024 or higher.')
     if repair_surface or hd_reconstruction:
         raise ValueError('Choose one master finishing method.')
     if not TRIANGLE_MIN <= triangles <= MASTER_FINISHING_TRIANGLES:
-        raise ValueError(f'Choose an HD Master triangle ceiling between {TRIANGLE_MIN:,} and {MASTER_FINISHING_TRIANGLES:,}.')
+        raise ValueError(f'Choose a triangle ceiling between {TRIANGLE_MIN:,} and {MASTER_FINISHING_TRIANGLES:,}.')
 
 
 def master_finishing_options(method, options):
@@ -63,6 +66,15 @@ def master_finishing_options(method, options):
     return options
 
 
+def validate_post_refinement_texturing(enabled, *, preset, resolution, master_finishing, engine='trellis2',
+                                       view_mode='single', refinish=False):
+    if type(enabled) is not bool:
+        raise ValueError('Post-refinement texturing must be true or false.')
+    if enabled and (preset not in GENERATION_PRESETS or resolution != 1024 or master_finishing != 'hi3d_1024'
+                    or engine != 'trellis2' or view_mode != 'single' or refinish):
+        raise ValueError('Post-refinement texturing requires TRELLIS.2 single image at 1024 with Detail Refinement (1024).')
+
+
 GENERATION_PRESETS = {
     'game_d': (20, 28000, 2048), 'high_detail': (20, 250000, 2048),
     HUMANOID_EXPERIMENTAL: (20, 250000, 2048), DENSE_MASTER: (20, DENSE_MASTER_TRIANGLES, 2048),
@@ -72,6 +84,7 @@ DEFAULT_GENERATION = dict(preset=DEFAULT_PROFILE, resolution=1024, triangles=280
 
 GROUPS = [
     dict(id='geometry',title='3D construction',hint='Zero steps uses the profile. Guidance strengthens the reference; excessive values can cause artifacts.'),
+    dict(id='hi3d',title='Hi3D refinement',hint='These settings apply to Hi3D after TRELLIS.2 generates the source.'),
     dict(id='texture',title='Textures',hint='Material generation settings. A larger texture does not recreate missing geometry detail.'),
     dict(id='mesh',title='Mesh and simplification',hint='Simplification prioritises regions with lower shape error. Final triangle count is approximate.'),
     dict(id='uv',title='UV unwrapping',hint='Smaller angles create more UV islands. Review seams and stretching in Textures & UV.'),
@@ -120,6 +133,30 @@ for field in FIELDS:field['hint']=HELP[field['key']]
 ENGLISH_LABELS={'structure_steps': 'Structure · steps', 'structure_guidance': 'Structure · guidance', 'structure_rescale': 'Structure · rescale', 'structure_rescale_t': 'Structure · timestep distribution', 'shape_steps': 'Shape · steps', 'shape_guidance': 'Shape · guidance', 'shape_rescale': 'Shape · rescale', 'shape_rescale_t': 'Shape · timestep distribution', 'texture_steps': 'Texture · steps', 'texture_guidance': 'Texture · guidance', 'texture_rescale': 'Texture · rescale', 'texture_rescale_t': 'Texture · timestep distribution', 'texture_seed': 'Texture seed', 'mesh_mode': 'Finishing method', 'pre_simplify': 'Pre-simplify dense meshes to 2M', 'repair_holes': 'Fill small holes', 'remesh_project': 'Surface projection', 'remesh_band': 'Remesh band width', 'qem_edge_weight': 'QEM · edge length', 'qem_skinny_weight': 'QEM · skinny triangles', 'uv_angle': 'UV grouping angle', 'uv_refine': 'Island refinement', 'uv_global': 'Global passes', 'uv_smooth': 'Island smoothing'}
 ENGLISH_LABELS.update(texture_sampling='Material voxel interpolation',remesh_resolution='Reconstruction grid ceiling')
 for field in FIELDS:field['label']=ENGLISH_LABELS[field['key']]
+HI3D_FIELDS = [
+    number('hi3d_steps', 'hi3d', 'Steps per pass', 25, 1, 50, 1, True,
+           'Sampling steps in each Hi3D pass. Refinement at 1024 runs two passes.'),
+    number('hi3d_seed', 'hi3d', 'Hi3D seed', 42, 0, 2147483647, 1, True,
+           'Controls the refinement noise independently of the TRELLIS.2 seed.'),
+    dict(key='hi3d_scheduler', group='hi3d', label='Sampler', type='choice', default='heun',
+         choices=[dict(value='heun', label='Heun'), dict(value='euler', label='Euler')],
+         hint='Heun uses a second-order update. Euler generally needs fewer model evaluations per step.'),
+    number('hi3d_guidance_strength', 'hi3d', 'Image guidance', 1, 0, 3, .05,
+           hint='Multiplies the built-in reference guidance. Zero disables image guidance.'),
+    number('hi3d_guidance_cutoff', 'hi3d', 'Guidance cutoff', .7, 0, 1, .05,
+           hint='Guidance runs while model time is at or above this value. A lower cutoff keeps guidance active longer.'),
+    number('hi3d_voxel_budget_scale', 'hi3d', 'Voxel budget multiplier', 1, .25, 1.25, .05,
+           hint='Scales the 90,000-token budget. A larger budget can keep more detail and uses more GPU memory.'),
+    number('hi3d_fill_holes_max_edges', 'hi3d', 'Maximum hole edges', 10000, 0, 10000, 1, True,
+           'Largest boundary loop eligible for filling during extraction, measured in edges. Zero disables filling.'),
+    dict(key='hi3d_remove_floaters', group='hi3d', label='Remove disconnected fragments', type='boolean', default=True,
+         hint='Filters small disconnected pieces before and after simplification. The largest component is kept.'),
+    number('hi3d_floater_face_ratio', 'hi3d', 'Minimum component face ratio', .005, 0, .1, .001,
+           hint='Components below this share of the total face count can be removed when fragment filtering is enabled.'),
+    dict(key='hi3d_tiled_decode', group='hi3d', label='Tiled decoding', type='boolean', default=True,
+         hint='Decodes in tiles to limit GPU memory usage. Turning this off can exceed available VRAM.'),
+]
+FIELDS.extend(HI3D_FIELDS)
 BY_KEY={f['key']:f for f in FIELDS}
 # Keep historical fallback values in FIELDS so old job records are not reinterpreted.
 # The new-game default is explicit both in submitted settings and the UI schema.
@@ -168,6 +205,15 @@ def options_for_job(settings):
         for source,target in [('lambda_edge_length','qem_edge_weight'),('lambda_skinny','qem_skinny_weight')]:
             if source in settings['qem_options']:overrides[target]=settings['qem_options'][source]
     return normalize_options({**overrides,**repair},base)
+
+def hi3d_refinement_options(options=None):
+    if options is None:
+        options = {}
+    if not isinstance(options, dict):
+        raise ValueError('Malformed Hi3D refinement settings.')
+    keys = [field['key'] for field in HI3D_FIELDS]
+    normalized = normalize_options({key: options[key] for key in keys if key in options})
+    return {key: normalized[key] for key in keys}
 
 def sampler_options(options):
     return {name:dict(steps=options[name+'_steps'],guidance_strength=options[name+'_guidance'],

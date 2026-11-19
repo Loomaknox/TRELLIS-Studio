@@ -81,7 +81,8 @@ with isolated_workspace('humanoid_profiles'):
         profiles=client.get('/api/profiles').json()
         assert profiles['default_profile']=='game_d' and profiles['profiles'][0]==before
         assert profiles['startup_profile']==DENSE_MASTER
-        experimental=next(p for p in profiles['profiles'] if p['id']=='humanoid_experimental')
+        assert not any(p['id']=='humanoid_experimental' for p in profiles['profiles'])
+        experimental=next(p for p in app.builtin_profiles() if p['id']=='humanoid_experimental')
         assert experimental['experimental'] and experimental['keep_finishing_source']
         assert experimental['asset_type']=='humanoid'
         assert experimental['settings']['triangles']==250000
@@ -143,7 +144,7 @@ with isolated_workspace('humanoid_profiles'):
 
         cap=app.pixal3d_capabilities()
         assert cap['profile']==standard_profile and cap['default_profile']=='character_pixal'
-        assert [p['id'] for p in cap['profiles']]==['character_pixal','humanoid_experimental',DENSE_MASTER]
+        assert [p['id'] for p in cap['profiles']]==['character_pixal',DENSE_MASTER]
         assert cap['profiles'][-1]['triangles'] == 1_200_000
         files={'image':image(),'left_image':image()}
         for profile in ('character_pixal','humanoid_experimental'):

@@ -10,6 +10,10 @@ const commonHelp={
   "removeBg": "Removes an opaque background. Images that are already transparent keep their cutout.",
   "triangles": "Triangle ceiling for Dense Master. Other profiles use this as a target. Enter zero to use the profile or choose 1,000\u20138,000,000.",
   "seed": "Random seed for geometry generation. Keep it fixed to compare settings; small GPU variations may remain.",
+  "advancedMasterFinishing": "Overrides the selected master finishing for this generation. Direct Export simplifies the generated surface. Repair Holes rebuilds the surface to fill small openings.",
+  "reprojectFace": "Blends the visible face from the front reference into the Pixal3D texture after generation.",
+  "keepFinishingSource": "Keeps the decoded geometry and materials for later finishing variants. The saved source can use substantial disk space.",
+  "profileBase": "Selects the preset used for generation defaults and triangle budgets. Values you have entered in this form remain available when you change it.",
   "referencePrompt": "Context stored with the model and included in the image brief. It is not sent as a text prompt to the image-to-3D engine.",
   "terrainName": "Terrain name in the library and exported files.",
   "terrainStyle": "Procedural terrain family: hills, rocks, basin or plateaus.",
@@ -26,7 +30,41 @@ const commonHelp={
   "tags": "Comma-separated keywords to help find your models.",
   "notes": "Notes and intended changes stored with this model. They do not modify geometry."
 };
-function attachCommonHelp(){for(const[id,hint]of Object.entries(commonHelp)){const input=document.getElementById(id);if(!input)continue;input.title=hint;const label=input.closest('label');if(label)label.title=hint;}}
+export function optionHelp(label, fieldName, hint) {
+  const control = label.querySelector('input, select, textarea');
+  const field = element('div', 'option-with-help');
+  const button = element('button', 'option-help-button', '?');
+  const explanation = element('p', 'hint option-help-text', hint);
+  explanation.id = control.id + 'OptionHelp';
+  explanation.hidden = true;
+  button.type = 'button';
+  button.setAttribute('aria-label', 'Help for ' + fieldName);
+  button.setAttribute('aria-controls', explanation.id);
+  button.setAttribute('aria-expanded', 'false');
+  button.addEventListener('click', () => {
+    explanation.hidden = !explanation.hidden;
+    button.setAttribute('aria-expanded', String(!explanation.hidden));
+  });
+  label.before(field);
+  field.append(label, button, explanation);
+  return field;
+}
+
+function attachCommonHelp() {
+  for (const [id, hint] of Object.entries(commonHelp)) {
+    const input = document.getElementById(id);
+    if (!input) continue;
+    const label = input.closest('label');
+    if (label?.closest('#advancedSettings')) {
+      const fieldName = label.firstChild.textContent.trim() || label.querySelector('span')?.textContent;
+      if (label.firstChild.nodeType === Node.TEXT_NODE) label.firstChild.replaceWith(element('span', '', fieldName));
+      optionHelp(label, fieldName, hint);
+    } else {
+      input.title = hint;
+      if (label) label.title = hint;
+    }
+  }
+}
 
 export async function createAdvancedControls(container){
   attachCommonHelp();
@@ -43,17 +81,28 @@ export async function createAdvancedControls(container){
       details.open=group.id==='geometry';
       details.append(element('summary','',group.title),element('p','hint',group.hint));
       const grid=element('div','option-grid');details.append(grid);
+      let phase;
       for(const field of schema.fields.filter(f=>f.group===group.id)){
+        let fieldName=field.label;
+        if(group.id==='geometry'&&field.label.includes(' · ')){
+          const [phaseName,parameter]=field.label.split(' · ');
+          if(phaseName!==phase){
+            phase=phaseName;
+            grid.append(element('h3','option-phase',phase));
+          }
+          fieldName=parameter[0].toUpperCase()+parameter.slice(1);
+        }
         const label=element('label',field.type==='boolean'?'check option-boolean':'field');
-        label.dataset.option=field.key;
         const input=element(field.type==='choice'?'select':'input');input.id='option_'+field.key;
         if(field.type==='choice')for(const choice of field.choices){const option=element('option','',choice.label);option.value=choice.value;input.append(option);}
         else if(field.type==='boolean')input.type='checkbox';
         else{input.type='number';input.min=field.min;input.max=field.max;input.step=field.step;input.required=true;}
-        if(field.hint){label.title=field.hint;input.title=field.hint;}
-        if(field.type==='boolean'){input.checked=field.default;label.append(input,element('span','',field.label));}
-        else{label.append(element('span','',field.label),input);input.value=field.default;}
+        if(field.type==='boolean'){input.checked=field.default;label.append(input,element('span','',fieldName));}
+        else{label.append(element('span','',fieldName),input);input.value=field.default;}
+        if(fieldName!==field.label)input.setAttribute('aria-label',field.label);
         inputs.set(field.key,input);grid.append(label);
+        const entry=field.hint?optionHelp(label,field.label,field.hint):label;
+        entry.dataset.option=field.key;
       }
       container.append(details);
     }
@@ -65,7 +114,7 @@ export async function createAdvancedControls(container){
   }
   function sync(){
     const remesh=inputs.get('mesh_mode')?.value==='remesh';
-    for(const key of ['remesh_project','remesh_band','remesh_resolution'])if(inputs.has(key))inputs.get(key).closest('label').hidden=!remesh;
+    for(const key of ['remesh_project','remesh_band','remesh_resolution'])if(inputs.has(key))inputs.get(key).closest('[data-option]').hidden=!remesh;
     for(const key of ['structure_steps','shape_steps','texture_steps'])if(inputs.has(key))inputs.get(key).placeholder='0 = profile';
   }
   function apply(values={}){
@@ -75,5 +124,6 @@ export async function createAdvancedControls(container){
   }
   inputs.get('mesh_mode')?.addEventListener('change',sync);sync();
   return {get ready(){return ready;},get defaults(){return schema?.default_generation;},read,apply,reset:()=>apply(),
+    group:id=>container.querySelector(`[data-group="${id}"]`),
     openGroup:id=>{const group=container.querySelector(`[data-group="${id}"]`);if(group)group.open=true;}};
 }

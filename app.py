@@ -16,9 +16,10 @@ from generation_options import (normalize_options, options_for_job, schema as ge
                                 DEFAULT_PROFILE, DEFAULT_GENERATION, GENERATION_PRESETS, GAME_D_ADVANCED, PROFILE_ADVANCED,
                                 DENSE_MASTER, DENSE_MASTER_NAME, DENSE_MASTER_TRIANGLES, DENSE_MASTER_FINISHING,
                                 HUMANOID_EXPERIMENTAL, TRIANGLE_MIN, TRIANGLE_MAX, validate_hd_reconstruction,
-                                HI3D_FINISHING_METHODS, master_finishing_options, validate_create_master_finishing)
+                                HI3D_FINISHING_METHODS, master_finishing_options, validate_create_master_finishing,
+                                validate_post_refinement_texturing)
 from asset_taxonomy import ASSET_TYPES, SYSTEM_TYPES, schema as taxonomy_schema
-from generation_profiles import DENSE_MASTER_DESCRIPTION, ProfileStore, builtin_profiles
+from generation_profiles import DETAIL_STUDY, DENSE_MASTER_DESCRIPTION, ProfileStore, builtin_profiles
 from gpu_runtime import guided_install
 from studio_import import FORMATS, MAX_BYTES, find_blender, validate_glb, copy_version
 from animation_edits import recover as recover_animation
@@ -228,7 +229,8 @@ def pixal3d_capabilities():
     if message := guided_install_failure('pixal3d'):
         runtime.update(ready=False, message=message, single_image=dict(ready=False, message=message))
     return {**runtime, 'profile': PIXAL_CHARACTER_PROFILE,
-            'default_profile': PIXAL_CHARACTER_PROFILE['id'], 'profiles': list(PIXAL_PROFILES),
+            'default_profile': PIXAL_CHARACTER_PROFILE['id'],
+            'profiles': [profile for profile in PIXAL_PROFILES if profile['id'] != HUMANOID_EXPERIMENTAL],
             'texture_sizes': PIXAL_TEXTURE_SIZES}
 
 
@@ -250,6 +252,11 @@ def require_create_master_finishing(method):
             raise HTTPException(503, capability['reason'])
 
 
+def detail_texturing_capability():
+    from retexture_runtime import availability
+    return availability(ROOT)
+
+
 def assign_create_master_finishing(settings, method):
     if not method:
         return
@@ -259,14 +266,11 @@ def assign_create_master_finishing(settings, method):
     flag = flags.get(method)
     if flag:
         settings[flag] = True
-    if method in HI3D_FINISHING_METHODS:
-        settings['keep_finishing_source'] = True
+    settings['keep_finishing_source'] = True
     if snapshot := settings.get('profile_snapshot'):
-        snapshot.update(master_finishing=method, generation_options=settings['generation_options'])
+        snapshot.update(master_finishing=method, generation_options=settings['generation_options'], keep_finishing_source=True)
         if flag:
             snapshot[flag] = True
-        if method in HI3D_FINISHING_METHODS:
-            snapshot['keep_finishing_source'] = True
 
 
 @app.get('/api/status')
@@ -287,6 +291,7 @@ def status():
                 export_active=EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None,
                 resolution=DEFAULT_GENERATION['resolution'], default_profile=DEFAULT_PROFILE, local=True, studio_version=VERSION,source_revision=SOURCE_REVISION,ui_revision=UI_REVISION,multi_view=pixal3d['ready'],pixal3d=pixal3d,
                 generation_methods=generation_methods, create_master_finishing=create_master_finishing_capabilities(),
+                detail_texturing=detail_texturing_capability(),
                 edition='server' if WORKSPACE_CONFIG else 'desktop',
                 features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','hd_reconstruction','hd_master_finishing','pixal3d_multiview','pixal3d_face_projection','texture_projection','baked_game_copy'], texture_sizes=textures,supported_resolutions=resolutions)
 
@@ -655,11 +660,14 @@ def generation_options_schema():
 
 @app.get('/api/profiles')
 def profiles_list():
-    try: return {'default_profile': DEFAULT_PROFILE, 'startup_profile': DENSE_MASTER, 'profiles': PROFILES.list()}
+    try:
+        available = [profile for profile in PROFILES.list() if profile['id'] != HUMANOID_EXPERIMENTAL]
+        return {'default_profile': DEFAULT_PROFILE, 'startup_profile': DENSE_MASTER, 'profiles': available}
     except ValueError as error: raise HTTPException(422, str(error))
 
 async def save_profile(request, identifier=None):
-    if identifier in GENERATION_PRESETS: raise HTTPException(403, 'This built-in profile is protected. Save a custom copy instead.')
+    if identifier in GENERATION_PRESETS or identifier == DETAIL_STUDY:
+        raise HTTPException(403, 'This built-in profile is protected. Save a custom copy instead.')
     async with LOCK:
         try:
             raw = await request.body()
@@ -1122,6 +1130,8 @@ async def generate_multiview(
             raise HTTPException(400, 'Unknown generation profile. Choose a profile advertised by Studio.')
         profile = dict(saved_profile['settings'], id=saved_profile['id'], name=saved_profile['name'],
                        keep_finishing_source=saved_profile.get('keep_finishing_source', False))
+        profile.pop('master_finishing', None)
+        profile.pop('retexture_after_refinement', None)
     preset = preset or profile.get('preset', profile['id'])
     if preset != 'character_pixal' and preset not in GENERATION_PRESETS:
         raise HTTPException(400, 'Unknown generation preset.')
@@ -1233,7 +1243,8 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                    reference_edits: Annotated[str, Form()] = '',
                    engine: Annotated[str, Form()] = 'trellis2',
                    master_finishing: Annotated[str | None, Form()] = None,
-                   reproject_face: Annotated[bool, Form()] = False):
+                   reproject_face: Annotated[bool, Form()] = False,
+                   retexture_after_refinement: Annotated[bool, Form()] = False):
     if WORKSPACE_CONFIG:
         queue_only = True
     if engine not in ('trellis2', 'pixal3d_single'):
@@ -1267,6 +1278,8 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
         validate_create_master_finishing(master_finishing, preset=preset, resolution=resolution,
                                          triangles=triangles, repair_surface=repair_surface,
                                          hd_reconstruction=hd_reconstruction, engine=engine)
+        validate_post_refinement_texturing(retexture_after_refinement, preset=preset, resolution=resolution,
+                                           master_finishing=master_finishing, engine=engine)
         if len(advanced_settings)>12000:raise ValueError('Advanced settings are too large.')
         incoming=json.loads(advanced_settings) if advanced_settings else {}
         if not isinstance(incoming,dict):raise ValueError('Malformed advanced settings.')
@@ -1287,6 +1300,10 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
         except ValueError as error: raise HTTPException(422, str(error))
         if profile is None: raise HTTPException(400, 'Profile not found; reload profiles.')
     require_create_master_finishing(master_finishing)
+    if retexture_after_refinement:
+        texture_runtime = detail_texturing_capability()
+        if not texture_runtime['available']:
+            raise HTTPException(503, texture_runtime['reason'])
     if pixal:
         runtime = pixal3d_capabilities()
         single_image = runtime.get('single_image', {})
@@ -1340,6 +1357,10 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
             if hd_reconstruction:
                 settings['profile_snapshot']['hd_reconstruction'] = True
         assign_create_master_finishing(settings, master_finishing)
+        if retexture_after_refinement:
+            settings['retexture_after_refinement'] = True
+            if snapshot := settings.get('profile_snapshot'):
+                snapshot['retexture_after_refinement'] = True
         if parent_id:settings['parent_id']=parent_id
         with TemporaryDirectory(prefix='.trellis2-', dir=OUTPUT) as staging:
             staged = Path(staging)

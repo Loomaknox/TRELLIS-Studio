@@ -65,6 +65,7 @@ class Generation(Contract):
     engine: SingleImageEngine = 'trellis2'
     master_finishing: MasterFinishing | None = None
     reproject_face: bool = False
+    retexture_after_refinement: bool | None = None
     overrides:dict=Field(default_factory=dict,examples=[{}],description='Optional recipe overrides: triangles, texture_size, resolution, remove_bg, advanced_settings, asset_type, reference_prompt, parent_id, keep_finishing_source, repair_surface or hd_reconstruction (Dense Master only).')
     reference_edits: dict[Literal['front'], ReferenceEdit] | None = None
 

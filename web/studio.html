@@ -4,7 +4,7 @@
 <meta name="trellis-ui-revision" content="<!--studio-ui-revision-->">
 <title>TRELLIS Studio — Local 3D workspace</title>
 <link rel="icon" type="image/svg+xml" href="/web/trellis-mark.svg">
-<link rel="stylesheet" href="/web/studio.css?v=2.3">
+<link rel="stylesheet" href="/web/studio.css?v=detail-study">
 <link rel="stylesheet" href="/web/reference-preview.css?v=3.4.0">
 <link rel="stylesheet" href="/web/generation-wait.css?v=studio-visual-refinement">
 <link rel="stylesheet" href="/web/workspace.css?v=studio-visual-refinement"><link rel="stylesheet" href="/web/polish.css?v=detail-refinement-native">
@@ -103,6 +103,7 @@
     <div class="generation-select">
       <svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#wire"/></svg>
       <select id="denseMasterFinishing" aria-describedby="denseMasterFinishingHint" disabled>
+      <option value="">Use Profile Settings</option>
       <option value="studio_768">Balanced Reconstruction</option>
       <option value="wtivo_1024">Surface Closure</option>
       <optgroup label="Hi3D detail refinement">
@@ -160,8 +161,12 @@
   <label class="check"><input id="keepFinishingSource" name="keep_finishing_source" type="checkbox" value="true"><span>Keep source for finishing variants</span></label>
   <p id="finishingSourceHelp" class="hint">Stores the decoded geometry and materials so finishing can be repeated.</p>
   <fieldset id="generationSampling" class="mode-fields">
-    <label class="field">Base preset<select id="profileBase"><option value="game_d">Game Asset</option><option value="high_detail">High Detail</option><option value="dense_master">HD Master</option><option value="humanoid_experimental">Humanoid · Experimental</option></select></label>
+    <label class="field">Base preset<select id="profileBase"><option value="game_d">Game Asset</option><option value="high_detail">High Detail</option><option value="dense_master">HD Master</option></select></label>
     <div id="advancedControls"></div>
+    <div id="detailTexturingField" class="detail-texturing-field" hidden>
+      <label class="check option-boolean"><input id="retextureAfterRefinement" type="checkbox" aria-describedby="detailTexturingStatus"><span>Retexture after Hi3D</span></label>
+      <p id="detailTexturingStatus" class="hint" role="status" hidden></p>
+    </div>
   </fieldset>
   <label class="field">Reference context / prompt<textarea id="referencePrompt" name="reference_prompt" rows="4" maxlength="6000" placeholder="Object function, setting, materials…"></textarea></label>
   <div class="profile-actions"><button id="saveProfileAs" type="button" disabled>Save a copy</button><button id="updateProfile" type="button" hidden>Edit this profile</button><button id="useProfileAtStartup" type="button" aria-pressed="false" disabled>Use at startup</button><button id="resetAdvanced" type="button" class="quiet">Reset to Game Asset</button></div>
@@ -245,7 +250,7 @@
 <dialog id="animationRemoveDialog" aria-labelledby="animationRemoveTitle" aria-describedby="animationRemoveDescription"><form method="dialog"><h2 id="animationRemoveTitle">Remove animation?</h2><p id="animationRemoveDescription">Remove <strong id="animationRemoveName"></strong> from this model?</p><div class="dialog-actions"><button value="cancel" class="secondary" autofocus>Keep clip</button><button value="remove" class="danger has-icon"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#trash"/></svg>Remove clip</button></div></form></dialog>
 <dialog id="imageDialog"><button class="dialog-close" id="closeImage">Close ×</button><img id="largeImage" alt="Full-size texture or UV layout"></dialog>
 <footer><span>TRELLIS STUDIO</span><span>Reference → generation → review → Blender</span><span>UV & PBR · local compute</span></footer>
-<script type="module" src="/web/studio.js?v=studio-visual-refinement"></script><script type="module" src="/web/validation-en.js?v=3.4.0"></script>
+<script type="module" src="/web/studio.js?v=detail-study"></script><script type="module" src="/web/validation-en.js?v=3.4.0"></script>
 <div id="refinishDialog" class="refinish-popover" popover="auto" role="dialog" aria-labelledby="refinishTitle">
 <form id="refinishForm">
   <header class="refinish-head">

@@ -59,6 +59,8 @@
 !/pixal3d_worker.py
 !/face_projection.py
 !/texture_projection.py
+!/retexture_runtime.py
+!/retexture_worker.py
 !/generation_view_projection.py
 !/wtivo_runtime.py
 !/hi3d_runtime.py

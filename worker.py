@@ -21,8 +21,9 @@ os.environ.update({
 sys.path[:0] = [str(ROOT), str(ROOT / 'engine'), str(ROOT / 'engine' / 'o-voxel')]
 os.chdir(ROOT / 'engine')
 from generation_options import (options_for_job, sampler_options, export_options, configure_simplifier,
-                                DENSE_MASTER, MASTER_FINISHING_METHODS, MASTER_FINISHING_TRIANGLES,
-                                TRIANGLE_MIN, validate_hd_reconstruction)
+                                MASTER_FINISHING_METHODS, MASTER_FINISHING_TRIANGLES,
+                                TRIANGLE_MIN, hi3d_refinement_options, validate_hd_reconstruction,
+                                validate_post_refinement_texturing)
 from gpu_runtime import configure_attention, select_gpu
 from hi3d_runtime import HI3D_METHODS, hi3d_source_status
 from studio_workspace import write
@@ -63,7 +64,7 @@ def generate_source(torch):
     config_folder,pipeline_kind=prepare_pipeline_config(ROOT,JOB,requested_resolution)
     pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(config_folder))
     pipeline.cuda()
-    if settings.get('keep_finishing_source') and not reviewed:
+    if (settings.get('keep_finishing_source') or settings.get('retexture_after_refinement')) and not reviewed:
         prepare_image = pipeline.preprocess_image
         def record_conditioning(image):
             prepared = prepare_image(image)
@@ -146,18 +147,19 @@ def hi3d_reference(source_id, source_resolution):
 def finish_mesh(torch, source, source_id=None):
     status('running', 'Finishing mesh and baking textures', 83)
     hd_reconstruction = settings.get('hd_reconstruction', False)
+    master_finishing = settings.get('master_finishing')
     validate_hd_reconstruction(hd_reconstruction, preset=settings.get('preset'), resolution=int(source['resolution']),
                                repair_surface=settings.get('repair_surface', False),
-                               refinish=settings.get('source_kind') == 'refinish')
+                               refinish=settings.get('source_kind') == 'refinish',
+                               inline_master=master_finishing == 'studio_768')
     from wtivo_runtime import reconstruct, validate_wtivo_recipe
     wtivo = settings.get('wtivo_reconstruction', False)
-    master_finishing = settings.get('master_finishing')
     hi3d_resolution = HI3D_METHODS.get(master_finishing)
     refinish = settings.get('source_kind') == 'refinish'
     triangle_ceiling = settings['triangles']
     source_resolution = int(source['resolution'])
     if master_finishing is not None and (
-            master_finishing not in MASTER_FINISHING_METHODS or not (refinish or settings.get('preset') == DENSE_MASTER)
+            master_finishing not in MASTER_FINISHING_METHODS
             or (not hi3d_resolution and source_resolution < 1024)
             or not TRIANGLE_MIN <= triangle_ceiling <= MASTER_FINISHING_TRIANGLES
             or wtivo != (master_finishing == 'wtivo_1024') or hd_reconstruction != (master_finishing == 'studio_768')
@@ -185,7 +187,8 @@ def finish_mesh(torch, source, source_id=None):
         torch.cuda.empty_cache()
         rebuilt_vertices, rebuilt_faces, hi3d_report = refine_hi3d(
             ROOT, JOB, reference, source['vertices'].numpy(), source['faces'].numpy(),
-            hi3d_resolution, triangle_ceiling, source_resolution=source_resolution)
+            hi3d_resolution, triangle_ceiling, source_resolution=source_resolution,
+            refinement_options=hi3d_refinement_options(options))
         status('running', 'Baking native materials onto the refined mesh', 87)
     if wtivo:
         status('running', 'Reconstructing the surface with WTiVo 1024', 84)
@@ -351,6 +354,42 @@ def project_requested_face():
     return report
 
 
+def validate_retexture_request():
+    requested = settings.get('retexture_after_refinement', False)
+    validate_post_refinement_texturing(
+        requested, preset=settings.get('preset'), resolution=requested_resolution,
+        master_finishing=settings.get('master_finishing'), engine=settings.get('engine', 'trellis2'),
+        view_mode=settings.get('view_mode', 'single'), refinish=settings.get('source_kind') == 'refinish',
+    )
+    if not requested:
+        return
+    from retexture_runtime import availability
+
+    capability = availability(ROOT)
+    if not capability['available']:
+        raise ValueError(capability['reason'])
+
+
+def refine_materials(torch, result):
+    from retexture_runtime import retexture
+
+    status('running', 'Generating TRELLIS.2 materials for the refined surface', 95)
+    gc.collect()
+    torch.cuda.synchronize()
+    torch.cuda.empty_cache()
+    seed = options['texture_seed']
+    if seed < 0:
+        seed = settings['seed']
+    try:
+        report = retexture(ROOT, JOB / 'model.glb', JOB / 'conditioning.png', settings['texture_size'],
+                           seed, sampler_options(options)['texture'])
+    except (OSError, ValueError) as error:
+        traceback.print_exc()
+        report = dict(state='failed', reason=str(error))
+    result.metadata['finishing']['retexture_after_refinement'] = report
+    return report
+
+
 def preserve_master_generation_views(source_id, result):
     if settings.get('engine') != 'pixal3d':
         return
@@ -371,13 +410,14 @@ def preserve_master_generation_views(source_id, result):
 
 
 def main():
+    source_id = settings.get('finish_source_id') if settings.get('source_kind') == 'refinish' else None
+    validate_retexture_request()
     import torch
     torch.set_num_threads(6)
     if not torch.cuda.is_available():
         raise RuntimeError('CUDA is unavailable in this environment.')
     configure_attention(torch)
     torch.cuda.reset_peak_memory_stats()
-    source_id = settings.get('finish_source_id') if settings.get('source_kind') == 'refinish' else None
     if source_id:
         status('running', 'Loading cached geometry and materials', 10)
         from api_spz.core.state_manage import _apply_patches
@@ -390,6 +430,7 @@ def main():
             save_finishing_source(torch, source)
     resolution = source['resolution']
     result = finish_mesh(torch, source, source_id)
+    material_report = refine_materials(torch, result) if settings.get('retexture_after_refinement') else None
     face_report = project_requested_face()
     if source_id and settings.get('master_finishing'):
         preserve_master_generation_views(source_id, result)
@@ -421,7 +462,10 @@ def main():
         stats['normal_bake'] = report
         stats['vertices'] += report['tangent_vertex_splits']
     write(JOB / 'result.json', stats)
-    status('done', 'Finishing variant ready' if source_id else 'Model ready', 100, result=stats)
+    ready = 'Finishing variant ready' if source_id else 'Model ready'
+    if material_report and material_report['state'] == 'failed':
+        ready = 'Model ready · original materials retained'
+    status('done', ready, 100, result=stats)
 
 
 if __name__ == '__main__':

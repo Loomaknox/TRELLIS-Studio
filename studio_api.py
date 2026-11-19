@@ -12,7 +12,7 @@ from glb_data import read as read_glb,animation_info
 from generation_options import (DENSE_MASTER, DENSE_MASTER_TRIANGLES, GENERATION_PRESETS,
                                 HD_RECONSTRUCTION_FINISHING, MASTER_FINISHING_METHODS,
                                 HI3D_FINISHING_METHODS, MASTER_FINISHING_TEXTURE, MASTER_FINISHING_TRIANGLES, TRIANGLE_MAX, TRIANGLE_MIN,
-                                options_for_job, validate_hd_reconstruction)
+                                options_for_job, validate_hd_reconstruction, validate_post_refinement_texturing)
 from pixal3d_runtime import validate_views
 from reference_preparation import PREPARED_VIEWS
 from wtivo_runtime import validate_wtivo_recipe, wtivo_capability
@@ -353,6 +353,7 @@ class StudioServices:
         settings.pop('hd_reconstruction', None)
         settings.pop('wtivo_reconstruction', None)
         settings.pop('master_finishing', None)
+        settings.pop('retexture_after_refinement', None)
         for key in ('normal_source', 'normal_source_id', 'normal_source_model_sha256', 'normal_source_normalization'):
             settings.pop(key, None)
         if adaptive:
@@ -383,6 +384,7 @@ class StudioServices:
             snapshot.pop('hd_reconstruction', None)
             snapshot.pop('wtivo_reconstruction', None)
             snapshot.pop('master_finishing', None)
+            snapshot.pop('retexture_after_refinement', None)
             if repair_surface:
                 snapshot['repair_surface'] = True
             if hd_reconstruction:
@@ -495,6 +497,14 @@ class StudioServices:
 
         settings = dict(saved, created=time.time(), parent_id=folder.name, retry_of=folder.name,
                         resolution=resolution, triangles=triangles, texture_size=texture_size, height_m=height)
+        if settings.get('retexture_after_refinement'):
+            validate_post_refinement_texturing(settings['retexture_after_refinement'], preset=settings.get('preset'),
+                                               resolution=resolution, master_finishing=settings.get('master_finishing'),
+                                               engine=settings.get('engine', 'trellis2'),
+                                               view_mode=settings.get('view_mode', 'single'), refinish=refinish)
+            capability = self.g['detail_texturing_capability']()
+            if not capability['available']:
+                raise HTTPException(503, capability['reason'])
         if triangles != saved.get('triangles'):
             settings.pop('budget_preset', None)
         if 'repair_surface' in changes:
@@ -518,7 +528,8 @@ class StudioServices:
             if not runtime['available']:
                 raise HTTPException(503, runtime['reason'])
         validate_hd_reconstruction(hd_reconstruction, preset=saved.get('preset'), resolution=source_resolution,
-                                   repair_surface=settings.get('repair_surface', False), refinish=refinish)
+                                   repair_surface=settings.get('repair_surface', False), refinish=refinish,
+                                   inline_master=settings.get('master_finishing') == 'studio_768')
         if 'hd_reconstruction' in changes:
             if hd_reconstruction:
                 settings['hd_reconstruction'] = True
@@ -741,7 +752,7 @@ class StudioServices:
                 allowed = {'name', 'profile_id', 'height_m', 'seed', 'priority', 'remove_bg', 'triangles',
                            'texture_size', 'resolution', 'advanced_settings', 'asset_type', 'reference_prompt',
                            'parent_id', 'keep_finishing_source', 'repair_surface', 'hd_reconstruction',
-                           'reference_edits', 'engine', 'master_finishing', 'reproject_face'}
+                           'reference_edits', 'engine', 'master_finishing', 'reproject_face', 'retexture_after_refinement'}
                 if any(not isinstance(s,dict) or set(s)-allowed for s in specs):raise ValueError('Unknown queue settings.')
                 for spec in specs:
                     for key,limit in [('name',80),('profile_id',80),('asset_type',80),('reference_prompt',6000),('parent_id',32)]:
@@ -754,6 +765,8 @@ class StudioServices:
                     if 'repair_surface' in spec and type(spec['repair_surface']) is not bool:raise ValueError('Invalid surface repair setting.')
                     if 'hd_reconstruction' in spec and type(spec['hd_reconstruction']) is not bool:raise ValueError('Invalid HD Reconstruction setting.')
                     if 'reproject_face' in spec and type(spec['reproject_face']) is not bool:raise ValueError('Invalid face reprojection setting.')
+                    if 'retexture_after_refinement' in spec and type(spec['retexture_after_refinement']) is not bool:
+                        raise ValueError('Invalid post-refinement texturing setting.')
                     if spec.get('engine', 'trellis2') not in ('trellis2', 'pixal3d_single'):raise ValueError('Invalid single-image method.')
                     if spec.get('master_finishing') not in (None, *MASTER_FINISHING_METHODS):raise ValueError('Invalid master finishing method.')
                     if 'advanced_settings' in spec and not isinstance(spec['advanced_settings'],dict):raise ValueError('Invalid advanced settings.')
@@ -771,7 +784,9 @@ class StudioServices:
                     params['repair_surface'] = spec.get('repair_surface', False)
                     params['hd_reconstruction'] = spec.get('hd_reconstruction', False)
                     params['engine'] = spec.get('engine', 'trellis2')
-                    params['master_finishing'] = spec.get('master_finishing')
+                    params['master_finishing'] = spec.get('master_finishing', s.get('master_finishing'))
+                    params['retexture_after_refinement'] = spec.get('retexture_after_refinement',
+                        params['master_finishing'] == 'hi3d_1024' and s.get('retexture_after_refinement', False))
                     params['reproject_face'] = spec.get('reproject_face', False)
                     if params['engine'] == 'pixal3d_single':
                         params['resolution'] = spec.get('resolution', 1024)
