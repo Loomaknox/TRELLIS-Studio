@@ -72,6 +72,30 @@ def checked_recipe(texture_size, seed, sampler):
         steps=steps, guidance_strength=guidance, guidance_rescale=rescale, rescale_t=rescale_t))
 
 
+def run_material_worker(command, cwd, timeout=1200):
+    import psutil
+
+    with subprocess.Popen(command, cwd=cwd, stdout=sys.stdout, stderr=subprocess.STDOUT,
+                          creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)) as process:
+        try:
+            return process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # The Windows venv executable can be a launcher for a second process.
+            try:
+                children = psutil.Process(process.pid).children(recursive=True)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                children = []
+            for child in reversed(children):
+                try:
+                    child.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            process.kill()
+            process.wait()
+            psutil.wait_procs(children, timeout=5)
+            raise
+
+
 def retexture(root, model, reference, texture_size, seed, sampler):
     """Replace a finished GLB only after the child verifies its geometry and materials."""
     recipe = checked_recipe(texture_size, seed, sampler)
@@ -83,17 +107,17 @@ def retexture(root, model, reference, texture_size, seed, sampler):
         work = Path(directory)
         (work / 'recipe.json').write_text(json.dumps(recipe), encoding='utf-8')
         try:
-            process = subprocess.run([
+            returncode = run_material_worker([
                 sys.executable, '-I', '-B', '-u', '-X', 'utf8',
                 str(root / 'retexture_worker.py'), str(model), str(reference), str(work),
-            ], cwd=root / 'engine', timeout=1200, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            ], cwd=root / 'engine')
         except subprocess.TimeoutExpired as error:
             raise ValueError('Material refinement timed out.') from error
         except OSError as error:
             raise ValueError('Unable to start the material refinement worker.') from error
-        if process.returncode == 2:
+        if returncode == 2:
             raise ValueError('Material refinement exceeded available GPU memory.')
-        if process.returncode:
+        if returncode:
             raise ValueError('Material refinement failed. See the generation log for details.')
         try:
             report = json.loads((work / 'result.json').read_text(encoding='utf-8'))

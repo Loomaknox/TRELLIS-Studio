@@ -85,10 +85,13 @@ def infer(config, reference, normalized, faces, recipe):
     torch.cuda.empty_cache()
 
     print('Encoding the refined surface for TRELLIS.2 material generation', flush=True)
+    # O-Voxel's native CPU traversal reads packed vertex and index rows.
+    # The NumPy axis permutation used for Y-up to Z-up can return a strided array.
+    vertices_cpu = torch.from_numpy(normalized).contiguous()
+    faces_cpu = torch.from_numpy(faces.astype(np.int32, copy=False)).contiguous()
     coords, dual, intersected = mesh_to_flexible_dual_grid(
-        torch.from_numpy(normalized), torch.from_numpy(faces.astype(np.int64)),
-        grid_size=resolution, aabb=[[-.5, -.5, -.5], [.5, .5, .5]],
-        face_weight=1., boundary_weight=.2, regularization_weight=1e-2)
+        vertices_cpu, faces_cpu, grid_size=resolution, aabb=[[-.5, -.5, -.5], [.5, .5, .5]],
+        face_weight=1., boundary_weight=.2, regularization_weight=1e-2, timing=True)
     values = torch.cat((dual * resolution - coords - .5, intersected.float() - .5), dim=1)
     coords_with_batch = torch.cat((torch.zeros_like(coords[:, :1]), coords), dim=1)
     hidden = SparseTensor(values.cuda(), coords_with_batch.cuda(), shape=torch.Size([1, 6]))
