@@ -8,7 +8,7 @@
 .generation-projection-placeholder{position:absolute;inset:20%;width:60%;height:60%;color:#cbf69a99}.has-reference .generation-projection-placeholder{display:none}
 .generation-projection-scan{position:absolute;z-index:2;left:0;right:0;top:15%;height:1px;background:#e5ffbb;box-shadow:0 0 10px 3px #c9ff9280,0 -12px 25px 6px #c9ff9215;animation:generation-scan 3.6s ease-in-out infinite}
 .generation-projection-corner{position:absolute;width:12px;height:12px;border-color:#dcffb8;border-style:solid;opacity:.8}.generation-projection-corner.c1{left:0;top:0;border-width:1px 0 0 1px}.generation-projection-corner.c2{right:0;top:0;border-width:1px 1px 0 0}.generation-projection-corner.c3{left:0;bottom:0;border-width:0 0 1px 1px}.generation-projection-corner.c4{right:0;bottom:0;border-width:0 1px 1px 0}
-.generation-projection-beams{position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:#d1ffa5;stroke-width:.75;opacity:.23;filter:drop-shadow(0 0 4px #c9ff92);animation:generation-glow 4s ease-in-out infinite}.generation-projection-beams ellipse{stroke-width:.5;opacity:.5}
+.generation-projection-beams{position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:#d1ffa5;stroke-width:.75;opacity:.23;filter:drop-shadow(0 0 4px #c9ff92);animation:generation-glow 4s ease-in-out infinite}
 .generation-projection-label{position:absolute;bottom:0;left:0;right:0;text-align:center;color:#b9cd9b99;font:9px/1.5 var(--mono,monospace);letter-spacing:2px}
 .generation-wait-card{box-sizing:border-box;width:min(440px,100%);padding:23px 25px 20px;border:1px solid #d5efaf20;border-radius:18px;background:linear-gradient(135deg,#263121e8,#19221ce8);box-shadow:0 16px 45px #0002;backdrop-filter:blur(16px)}
 .generation-wait-heading{display:flex;align-items:center;justify-content:space-between;gap:15px}.generation-wait-eyebrow{display:flex;align-items:center;gap:9px;font:10px/1.5 var(--mono,monospace);letter-spacing:1.6px;color:#c0d69f}.generation-wait-eyebrow i{width:5px;height:5px;border-radius:50%;background:#ccf890;box-shadow:0 0 12px #b6f77c66}.generation-wait-percent{font:12px var(--mono,monospace);color:#d3f6ae}
@@ -18,3 +18,75 @@
 @media(max-height:800px){.generation-wait{inset:40px 20px 90px;gap:12px}.generation-projection{max-height:28vh}.generation-wait-card{padding:17px 20px}.generation-wait h3{font-size:20px}.generation-wait.is-compact{inset:auto 20px 100px}}
 @media(max-width:700px){.generation-wait{inset:38px 14px 96px}.generation-projection{width:65%;max-height:24vh}.generation-wait-card{padding:15px 17px}.generation-wait h3{font-size:19px}.generation-wait-hint{font-size:10px!important}.generation-wait.is-compact{inset:auto 14px 98px}}
 @media(prefers-reduced-motion:reduce){.generation-wait *{animation:none!important;transition:none!important}.generation-projection-scan{top:52%}}
+
+
+/* While the mesh is unavailable, the scanner uses a CSS floor under the same backdrop. */
+#viewport.has-generation-wait:not(.viewer-stage-ready, :has(#gridToggle[aria-pressed="true"]))::before {
+  content: "";
+  position: absolute;
+  inset: var(--stage-horizon, 42%) -45% auto;
+  height: 55%;
+  pointer-events: none;
+  transform: perspective(360px) rotateX(53deg);
+  transform-origin: center top;
+  background-image: linear-gradient(#8db69d16 1px, transparent 1px),
+    linear-gradient(90deg, #8db69d16 1px, transparent 1px);
+  background-size: 48px 39px;
+  mask-image: radial-gradient(ellipse at 50% 34%, #000 18%, #000b 55%, transparent 90%);
+}
+
+.generation-projection::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: auto -17% 4%;
+  height: 15%;
+  border: 1px solid #dfff9dd9;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse 29% 12% at 50% 48%, #f1ffb5d9 0%, #d2f890a6 25%, transparent 96%),
+    radial-gradient(ellipse 19% 120% at 50% 73%, #a5d46c76 0%, #93bb5e45 28%, transparent 75%);
+  box-shadow: 0 0 9px #cfff8b5e, inset 0 0 11px #c4f8863c, 0 18px 35px #779e413d;
+}
+
+.generation-projection-halo {
+  inset: 2% -16% -9%;
+  background: radial-gradient(ellipse 36% 45% at 50% 70%, #bceb742e, #bedf8113 49%, transparent 100%);
+}
+
+.generation-projection-plane {
+  background: linear-gradient(145deg, #bbed7e0b, #bbed7e18 54%, #75a74508);
+  border-color: #b7eb794a;
+  box-shadow: 0 0 37px #b8e58219, inset 0 0 27px #b7e87510;
+}
+
+.generation-projection-plane::after {
+  background: repeating-linear-gradient(0deg, transparent 0 3px, #c7ff8d14 3px 4px);
+}
+
+.generation-projection-scan {
+  background: #efffc5;
+  box-shadow: 0 0 10px 3px #d0ff9887, 0 -12px 25px 6px #cdfa761e;
+}
+
+.generation-projection-beams {
+  stroke: #d3fd9b;
+  opacity: .25;
+}
+
+.generation-projection-label {
+  bottom: -8px;
+  color: #b9cba0bd;
+  letter-spacing: 1.5px;
+}
+
+.generation-wait-card {
+  box-shadow: 0 18px 42px #05080773, 0 0 26px #91b35e10;
+}
+
+.generation-wait-stage { color: #dde7db !important; }
+.generation-wait-hint { color: #aab9ac !important; }
+
+@media (max-width: 700px) {
+  .generation-projection::before { inset-inline: -11%; }
+}

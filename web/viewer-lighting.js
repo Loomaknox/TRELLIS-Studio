@@ -12,8 +12,10 @@ export function createViewerStage(scene, viewport) {
     transparent: true,
     depthWrite: false,
     uniforms: {
-      floorTint: {value: new THREE.Color(0x364d46)},
-      ringTint: {value: new THREE.Color(0xd9ff92)},
+      floorTint: {value: new THREE.Color(0x2e473f)},
+      haloTint: {value: new THREE.Color(0xacdf66)},
+      ringTint: {value: new THREE.Color(0xe6ffa6)},
+      showGrid: {value: true},
     },
     vertexShader: `
       varying vec2 floorPosition;
@@ -24,26 +26,44 @@ export function createViewerStage(scene, viewport) {
     fragmentShader: `
       varying vec2 floorPosition;
       uniform vec3 floorTint;
+      uniform vec3 haloTint;
       uniform vec3 ringTint;
+      uniform bool showGrid;
+
+      float glow(vec2 offset, vec2 extent) {
+        vec2 uv = offset / extent;
+        return 1.0 - smoothstep(0.0, 1.0, dot(uv, uv));
+      }
+
       void main() {
         float radius = length(floorPosition);
         float edge = abs(radius - 1.0);
-        float aa = max(fwidth(radius), 0.0005);
+        float aa = clamp(fwidth(radius), 0.0005, 0.015);
         float ring = 1.0 - smoothstep(0.002, 0.002 + aa, edge);
-        float halo = 1.0 - smoothstep(0.0, 0.073, edge);
+        float rim = 1.0 - smoothstep(0.0, 0.092, edge);
         float falloff = 1.0 - smoothstep(0.35, 3.65, radius);
-        vec2 tile = floorPosition * 4.0;
-        vec2 lineDistance = abs(fract(tile - 0.5) - 0.5) / max(fwidth(tile), vec2(0.001));
-        float seams = 1.0 - smoothstep(0.1, 1.1, min(lineDistance.x, lineDistance.y));
+        float seams = 0.0;
+        if (showGrid) {
+          vec2 tile = floorPosition * 4.0;
+          vec2 lineDistance = abs(fract(tile - 0.5) - 0.5) / max(fwidth(tile), vec2(0.001));
+          seams = 1.0 - smoothstep(0.1, 1.1, min(lineDistance.x, lineDistance.y));
+        }
+
+        // The light streak stretches across the feet, while its reflection reaches the front rim.
         vec2 across = normalize(vec2(viewMatrix[0][0], -viewMatrix[2][0]));
         vec2 forward = vec2(across.y, -across.x);
         vec2 floorView = vec2(dot(floorPosition, across), dot(floorPosition, forward));
-        vec2 hotspot = floorView - vec2(0.0, 0.13);
-        float core = 1.0 - smoothstep(0.0, 1.0, length(hotspot / vec2(0.34, 0.09)));
-        float reflection = 1.0 - smoothstep(0.0, 1.0, length(hotspot / vec2(0.64, 1.29)));
-        float light = 0.64 * ring + 0.17 * halo + 0.71 * core + 0.35 * reflection;
-        float opacity = min(0.98, (0.12 + 0.13 * seams) * falloff + light);
-        gl_FragColor = vec4(mix(floorTint, ringTint, min(1.0, light * 1.28)), opacity);
+        float core = glow(floorView - vec2(0.0, -0.05), vec2(0.58, 0.14));
+        float pool = glow(floorView - vec2(0.0, 0.10), vec2(0.48, 0.78));
+        float reflection = glow(floorView - vec2(0.0, 0.48), vec2(0.41, 1.25));
+        float splash = glow(floorView - vec2(0.0, 0.94), vec2(0.31, 0.32));
+
+        float halo = 0.21 * rim + 0.32 * pool + 0.21 * reflection + 0.22 * splash;
+        float highlights = 0.67 * ring + 0.79 * core;
+        float surface = (0.09 + 0.16 * seams) * falloff;
+        vec3 colour = mix(floorTint, haloTint, clamp(halo * 1.35, 0.0, 1.0));
+        colour = mix(colour, ringTint, min(1.0, highlights));
+        gl_FragColor = vec4(colour, min(0.98, surface + halo + highlights));
         #include <colorspace_fragment>
       }`,
   }));
@@ -61,6 +81,9 @@ export function createViewerStage(scene, viewport) {
       const radius = span * 0.64;
       floor.position.set(center.x, Math.min(0, bounds.min.y) - span * 0.0002, center.z);
       floor.scale.setScalar(radius);
+    },
+    setGridVisible(visible) {
+      floor.material.uniforms.showGrid.value = visible;
     },
     setVisible(visible) {
       floor.visible = visible;

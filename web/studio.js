@@ -1,15 +1,15 @@
 import {createStudioWorkbench} from './studio-workbench.js?v=detail-refinement-native';
-import {createViewerLighting,createViewerStage} from './viewer-lighting.js?v=visual-refresh';
-import {createHologramViewer} from './hologram-viewer.js?v=3.4.0-quality2';
-import {createGenerationWait} from './generation-wait.js?v=3.4.0';
+import {createViewerLighting,createViewerStage} from './viewer-lighting.js?v=visual-refresh-2';
+import {createHologramViewer} from './hologram-viewer.js?v=visual-refresh-2';
+import {createGenerationWait} from './generation-wait.js?v=studio-visual-refinement';
 import {createStudioTools} from './studio-tools.js?v=3.4.0';
 import {createAssetDetails,assetTypeName} from './asset-details.js?v=3.4.0';
 import {createPrintCopy} from './print-copy.js?v=3.4.0';
 import {createAnimationStudio} from './animation-studio.js?v=3.4.0-motion2';
 import {createRigSetupViewer} from './rig-setup-viewer.js?v=3.4.0';
 import {createModelImport} from './import-model.js?v=3.4.0';
-import {createMultiviewInputs} from './multiview-inputs.js?v=unified-generation';
-import {createReferencePreview} from './reference-preview.js?v=unified-generation';
+import {createMultiviewInputs} from './multiview-inputs.js?v=studio-visual-refinement';
+import {createReferencePreview} from './reference-preview.js?v=studio-visual-refinement';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -158,7 +158,7 @@ function fit(angle) {
 function materials(){
  const mode=$('materialMode').value;
  hologramViewer?.setModel(model,mode==='hologram');
- viewerStage?.setVisible(!!model && mode !== 'hologram');
+ viewerStage?.setVisible(!!model);
  const badge=viewport.querySelector('.viewport-badge>span:last-child');
  if(badge)badge.textContent=' / '+({pbr:'PBR',clay:'CLAY',normal:'NORMALS',hologram:'HOLOGRAM · PREVIEW'}[mode]||'PBR');
  model?.traverse(mesh=>{
@@ -248,7 +248,12 @@ async function loadModel(job) {
     if (loadingId === id) loadingId = null;
   }
 }
-$('gridToggle').onclick=()=>{if(!grid)return;grid.visible=!grid.visible;$('gridToggle').setAttribute('aria-pressed',grid.visible);};
+$('gridToggle').onclick = () => {
+  if (!grid) return;
+  grid.visible = !grid.visible;
+  viewerStage?.setGridVisible(!grid.visible);
+  $('gridToggle').setAttribute('aria-pressed', grid.visible);
+};
 $('fit').onclick=()=>fit();$('rotate').onclick=()=>{if(rigSetupViewer?.active)return;rotating=!rotating;if(rotating)setViewPreset();$('rotate').setAttribute('aria-pressed',rotating);};$('wireframe').onclick=()=>{wire=!wire;$('wireframe').setAttribute('aria-pressed',wire);materials();};$('materialMode').onchange=materials;
 angleButtons.forEach(b=>b.onclick=()=>{if(rigSetupViewer?.active){rigSetupViewer.frame();return;}rotating=false;$('rotate').setAttribute('aria-pressed','false');if(model)model.rotation.y=0;fit(b.dataset.angle);});
 function downloads(j){
@@ -348,8 +353,6 @@ function openImage(url,alt){$('largeImage').src=url;$('largeImage').alt=alt;$('i
 function setView(textures){textureOpen=textures;viewport.hidden=textures;$('texturePanel').hidden=!textures;$('view3d').classList.toggle('active',!textures);$('viewTextures').classList.toggle('active',textures);if(textures)inspectTextures();}$('view3d').onclick=()=>setView(false);$('viewTextures').onclick=()=>setView(true);
 async function inspectTextures(){const j=jobOf();if(!j||j.state!=='done'||!features)return;const id=j.id;if(inspectId===id)return;inspectId=id;const version=++inspectVersion;$('textureSummary').textContent='Extracting texture maps and UV layouts…';$('textureGallery').replaceChildren();try{const d=await api(`/api/jobs/${id}/inspect`);if(version!==inspectVersion||selectedId!==id)return;$('textureSummary').textContent=`${d.meshes.length} mesh(es) · ${d.has_uv?'UVs present':'UVs missing'} · ${d.has_pbr?'roughness and metalness present':'PBR maps incomplete'} · ${d.normals_map_present?'normal map present':'no normal map in this GLB'}`;const items=[...d.textures.map(t=>({...t,detail:`${t.width} × ${t.height} · ${t.color_space}`})),...d.meshes.filter(m=>m.uv_preview).map(m=>({file:m.uv_preview,label:'UV layout · '+m.name,detail:m.uv_warning||'Painting guide · PNG / SVG included in the package'}))];for(const t of items){const b=node('button','texture-card');b.type='button';const img=node('img');img.src=`/api/jobs/${id}/blender/${t.file}`;img.alt=t.label;b.append(img,node('strong','',t.label),node('small','',t.detail));b.onclick=()=>openImage(img.src,t.label);$('textureGallery').append(b);}if(!items.length)$('textureGallery').append(node('p','hint','This model contains no image textures.'));}catch(e){if(version===inspectVersion){inspectId=null;errorAt('textureSummary',e);}}}
 function updateButtons(){
-  const label=$('generate').querySelector('span');
-  if(label)label.textContent=busy?'Add to queue':'Generate model';
   const budget=profileControls?.budget();
   const textures=multiview.usesPixal?[1024,2048]:availableTextures;
   const resolutions=multiview.usesPixal?[1024]:availableResolutions;

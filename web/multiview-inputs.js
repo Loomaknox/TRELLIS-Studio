@@ -12,6 +12,7 @@ export function createMultiviewInputs({ changed, invalid }) {
   const methodButtons = [...chooser.querySelectorAll('button')];
   const addView = $('addReferenceView');
   const swapSides = $('swapReferenceSides');
+  const pickReference = $('pickReference');
   const reprojectFace = $('reprojectFace');
   const slots = new Map(roles.map(role => {
     const area = document.querySelector(`[data-reference-slot="${role}"]`);
@@ -20,7 +21,7 @@ export function createMultiviewInputs({ changed, invalid }) {
       drop: area.querySelector('label'),
       image: area.querySelector('img'),
       prompt: area.querySelector('[data-slot-prompt]'),
-      remove: area.querySelector('button'),
+      remove: area.querySelector('.reference-slot-remove'),
       file: null,
       url: null,
     }];
@@ -64,7 +65,9 @@ export function createMultiviewInputs({ changed, invalid }) {
   function renderReferences() {
     const count = countViews();
     $('referenceMode').textContent = isMulti() ? `${count} / 4 views` : `${count} ${count === 1 ? 'image' : 'images'}`;
-    $('mainViewBadge').hidden = !isMulti() || !slots.get('front').file;
+    const hasFront = !!slots.get('front').file;
+    pickReference.querySelector('span').textContent = hasFront ? 'Replace image' : 'Add image';
+    $('mainViewBadge').hidden = !isMulti() || !hasFront;
     const help = !slots.get('front').file ? 'Add a front view and at least one additional view.'
       : count < 2 ? 'Add a side or back view.' : '';
     $('viewRequirements').textContent = help;
@@ -172,6 +175,7 @@ export function createMultiviewInputs({ changed, invalid }) {
     chooser.open = false;
     chooser.querySelector('summary').focus();
   });
+  pickReference.addEventListener('click', () => slots.get('front').input.click());
   addView.addEventListener('click', () => {
     selectMethod('pixal3d');
     slots.get('left').input.focus();

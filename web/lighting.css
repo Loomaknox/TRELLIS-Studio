@@ -7,24 +7,42 @@
   --viewport-control-surface: linear-gradient(180deg, #222b28f5, #141b19f5);
   --viewport-control-border: #435148;
   --viewport-control-ink: #d0d9d1;
+  --stage-left: 12%;
+  --stage-right: 88%;
+  --stage-horizon: 58%;
+  --stage-reflection: calc(var(--stage-horizon) + 5%);
+  --stage-shaft-start: 28%;
+  --stage-shaft-height: 42%;
+  --stage-shaft-haze: calc(var(--stage-horizon) - 16%);
   container-type: inline-size;
   background:
     radial-gradient(ellipse at 50% 68%, #243a34 0%, #15211f 40%, transparent 76%),
     radial-gradient(ellipse at 50% 37%, #1a2827 0%, #101819 65%, #0b1112 100%);
 }
 
-#viewport.viewer-stage-ready:not(:has([data-angle=top][aria-pressed=true])) {
+#viewport:is(.viewer-stage-ready, .has-generation-wait):not(:has([data-angle=top][aria-pressed=true])) {
   background:
-    radial-gradient(ellipse 6.3% 1.15% at 12% 58%, #ecffad 0%, #c8f971 12%, #a9de559c 32%, transparent 100%),
-    radial-gradient(ellipse 6.3% 1.15% at 88% 58%, #ecffad 0%, #c8f971 12%, #a9de559c 32%, transparent 100%),
-    radial-gradient(ellipse 11% 10% at 12% 58%, #99d5486e, #7cb34829 43%, transparent 100%),
-    radial-gradient(ellipse 11% 10% at 88% 58%, #99d5486e, #7cb34829 43%, transparent 100%),
-    linear-gradient(0deg, #b1df66a3, #8eaf575c 24%, transparent) 12% 21% / 1px 47% no-repeat,
-    linear-gradient(0deg, #b1df66a3, #8eaf575c 24%, transparent) 88% 21% / 1px 47% no-repeat,
-    radial-gradient(ellipse 5.2% 28% at 12% 44%, #88bb443d, #64983b17 51%, transparent 100%),
-    radial-gradient(ellipse 5.2% 28% at 88% 44%, #88bb443d, #64983b17 51%, transparent 100%),
-    linear-gradient(transparent 57.7%, #89b38c25 58%, #182a286e 58.3%, #15232232 74%, #0b141610 96%),
-    radial-gradient(ellipse at 50% 58%, #2a403b 0%, #1b2a29 36%, #111a1b 68%, #0b1112 96%);
+    radial-gradient(ellipse 7.5% 1.2% at var(--stage-left) var(--stage-horizon), #f1ffcc 0%, #d7ff91 13%, #a6e461c9 35%, transparent 100%),
+    radial-gradient(ellipse 7.5% 1.2% at var(--stage-right) var(--stage-horizon), #f1ffcc 0%, #d7ff91 13%, #a6e461c9 35%, transparent 100%),
+    radial-gradient(ellipse 9% 9% at var(--stage-left) var(--stage-horizon), #c4f47d91, #91ce4863 25%, #7fb8422b 59%, transparent),
+    radial-gradient(ellipse 9% 9% at var(--stage-right) var(--stage-horizon), #c4f47d91, #91ce4863 25%, #7fb8422b 59%, transparent),
+    radial-gradient(ellipse 7% 13% at var(--stage-left) var(--stage-reflection), #a3db6061 0%, #73a84a3b 36%, transparent),
+    radial-gradient(ellipse 7% 13% at var(--stage-right) var(--stage-reflection), #a3db6061 0%, #73a84a3b 36%, transparent),
+    linear-gradient(0deg, #bce67c88, #99b86b45 26%, transparent) var(--stage-left) var(--stage-shaft-start) / 1px var(--stage-shaft-height) no-repeat,
+    linear-gradient(0deg, #bce67c88, #99b86b45 26%, transparent) var(--stage-right) var(--stage-shaft-start) / 1px var(--stage-shaft-height) no-repeat,
+    radial-gradient(ellipse 7% 27% at var(--stage-left) var(--stage-shaft-haze), #90ac6345, #61805021 56%, transparent),
+    radial-gradient(ellipse 7% 27% at var(--stage-right) var(--stage-shaft-haze), #90ac6345, #61805021 56%, transparent),
+    radial-gradient(ellipse 39% 2.8% at 50% var(--stage-horizon), #80aa8526, #6c987414 47%, transparent),
+    radial-gradient(ellipse 34% 29% at 50% 71%, #47645d7a 0%, #32534e57 30%, transparent),
+    radial-gradient(ellipse 58% 48% at 50% 45%, #203638 0%, #162626 37%, transparent 100%),
+    radial-gradient(ellipse at 50% 57%, #172725 0%, #10191a 58%, #0b1112 100%);
+}
+
+/* A shorter projection puts the virtual floor higher than the model stage. */
+#viewport.has-generation-wait:not(.viewer-stage-ready) {
+  --stage-horizon: 42%;
+  --stage-shaft-start: 20%;
+  --stage-shaft-height: 27.5%;
 }
 
 #viewport .viewport-badge {
