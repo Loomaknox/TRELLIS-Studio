@@ -103,6 +103,7 @@
 !/tests/model_finishing_api.py
 !/tests/wtivo_runtime.py
 !/tests/hi3d_api.py
+!/tests/hi3d_weights.py
 !/INSTALLATION.md
 !/THIRD_PARTY_NOTICES.md
 !/SECURITY.md

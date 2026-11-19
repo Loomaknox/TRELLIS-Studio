@@ -49,13 +49,34 @@ available memory affect the result. On a 12 GB RTX 4070 Ti, the checked meshes
 peaked at 4.01 GiB of PyTorch allocation in 512 and 9.85 GiB in 1024.
 
 Setup verifies a sparse convolution and a mesh voxelization on the GPU before
-downloading roughly 10.7 GB of pinned weights. It keeps the model files and
-extra Python packages in an optional runtime directory. Both refinement
-resolutions use the same installation. Use **Repair or resume components**
+downloading roughly 10.7 GB of pinned weights. New installations store the
+model files in `models/hi3d` and the source and Python packages in
+`.tools/hi3d`. Both refinement resolutions use the same installation.
+Use **Repair or resume components**
 from the Start menu for an interrupted installation. Setup reuses verified
 files and preserves an existing configured Hi3D runtime. Clearing the Hi3D
 option in Setup leaves its files installed and removes any pending Hi3D
 request from the Repair list.
+
+### Move an existing default weight store
+
+Stop Studio or Server and exit any running component installers. From the
+installation folder, run:
+
+```powershell
+.\.venv\Scripts\python.exe -B installer\install_hi3d.py --migrate-weights
+```
+
+The command verifies the local files against the pinned manifest, then moves
+`.tools/hi3d/weights` to `models/hi3d` on the same volume. It updates the
+weight path in `config/hi3d-runtime.json`. The operation uses the existing
+files without downloading them again or starting the GPU. Restart Studio or
+Server after verification succeeds.
+
+Setup repair continues to use any existing configured weight path. Finish an
+interrupted legacy installation before moving its store. Custom weight paths
+remain supported. If both default directories already exist, review their files
+before running the migration.
 
 ## Configure a separate runtime manually
 
