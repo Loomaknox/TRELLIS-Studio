@@ -191,6 +191,37 @@ function Get-SetupGpu([string]$RequestedUuid, [switch]$AllowReselect) {
     return $gpus | Sort-Object -Property @{Expression='Supported';Descending=$true},@{Expression='MemoryMiB';Descending=$true},Uuid | Select-Object -First 1
 }
 
+function Get-SetupHi3d([psobject]$Gpu) {
+    $result=[pscustomobject][ordered]@{Supported=$false; Status=''; VramNotice=''}
+    if (-not $Gpu.Supported) {
+        $result.Status=$Gpu.Status
+        return $result
+    }
+    try { $policy=(Read-SetupGpuManifest).hi3d }
+    catch { $result.Status=$_.Exception.Message; return $result }
+    if (-not $policy -or -not $policy.compute_capabilities.Count -or
+        [int]$policy.minimum_vram_mib -le 0 -or [int]$policy.recommended_1024_vram_mib -lt [int]$policy.minimum_vram_mib) {
+        $result.Status='The Hi3D hardware policy is missing or invalid. Run a complete Setup package.'
+        return $result
+    }
+    if ($Gpu.Compute -notin $policy.compute_capabilities) {
+        $result.Status='This Hi3D package supports NVIDIA compute capabilities 8.6 and 8.9. Workshop and compatible engines remain available.'
+        return $result
+    }
+    if ($Gpu.MemoryMiB -lt [int]$policy.minimum_vram_mib) {
+        $result.Status='This Hi3D package requires at least 8 GB of detected VRAM. Other components can still be installed.'
+        return $result
+    }
+    $result.Supported=$true
+    $result.Status='Setup will test Hi3D CUDA kernels on the detected GPU before downloading model weights.'
+    if ($Gpu.MemoryMiB -lt [int]$policy.recommended_1024_vram_mib) {
+        $result.VramNotice='Less than 12 GB VRAM. Use Detail Refinement (512). The 1024 pass may run out of memory.'
+    } else {
+        $result.VramNotice='For 1024, 12 GB VRAM or more is recommended. Memory use varies with mesh detail and other GPU activity.'
+    }
+    return $result
+}
+
 function Test-SetupBlender([string]$Path) {
     $result=[pscustomobject][ordered]@{Path=''; Version=''; Ready=$false; Status='Blender can be configured later.'}
     if (-not $Path) { return $result }
@@ -282,11 +313,17 @@ function Get-SetupInstallPlan([string]$Root) {
             'unirig'
         }
     }
+    $hi3dAccepted=$false
+    if ($state.licenses.hi3d) {
+        try { $hi3dAccepted=$state.licenses.hi3d -ceq (Read-SetupGpuManifest).hi3d.license_sha256 } catch { }
+    }
     return [pscustomobject][ordered]@{
         Saved=$saved
         Trellis='trellis' -in $requested
         Pixal3D='pixal3d' -in $requested
         UniRig='unirig' -in $requested
+        Hi3D='hi3d' -in $requested
+        Hi3DLicenseAccepted=$hi3dAccepted
         Kimodo='kimodo' -in $requested
     }
 }
@@ -299,8 +336,10 @@ function Get-SetupPreflight {
     if ($automaticGpu) { $GpuUuid=[string]$config.gpu_uuid }
     if (-not $WslDistribution) { $WslDistribution=[string]$config.wsl_distribution }
     $blender=if ($PSBoundParameters.ContainsKey('BlenderPath')) { Test-SetupBlender -Path $BlenderPath } else { Find-SetupBlender -SavedPath ([string]$config.blender_path) }
+    $gpu=Get-SetupGpu -RequestedUuid $GpuUuid -AllowReselect:$automaticGpu
     return [pscustomobject][ordered]@{
-        GPU=(Get-SetupGpu -RequestedUuid $GpuUuid -AllowReselect:$automaticGpu)
+        GPU=$gpu
+        Hi3D=(Get-SetupHi3d -Gpu $gpu)
         Blender=$blender
         WSL=(Get-SetupWsl -RequestedDistribution $WslDistribution)
         Disk=(Get-SetupDisk -Root $InstallRoot)

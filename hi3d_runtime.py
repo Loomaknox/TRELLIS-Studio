@@ -94,6 +94,10 @@ def _read_runtime(root):
         )
     except (OSError, ValueError) as error:
         raise ValueError(RUNTIME_HINT) from error
+    return _verify_runtime(runtime)
+
+
+def _verify_runtime(runtime):
     if runtime.python.name.lower() != 'python.exe' or not runtime.python.is_file():
         raise ValueError('Hi3D requires a local Python executable.')
     if not runtime.source.is_dir() or not (runtime.source / 'hi3d_pipeline.py').is_file():

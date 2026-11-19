@@ -28,7 +28,36 @@ samples the cached TRELLIS.2 PBR material volume. Detail, silhouette, intentiona
 openings, and texture alignment can change. Inspect them before choosing a
 master. The finer option can take substantially longer and use more GPU memory.
 
-## Configure the optional runtime
+## Install with Windows Setup
+
+On the optional **Hi3D Detail Refinement** page, select **Install Hi3D Detail
+Refinement** and review the Hi3D, DINOv2 and CLIP model terms. This option is
+off for a fresh installation and is available in Desktop and Server.
+Selecting it also prepares TRELLIS.2 generation with its own DINOv3 license;
+Pixal3D, UniRig and Kimodo remain independent choices.
+
+Setup uses the selected NVIDIA GPU and driver from **Check this PC**. It
+currently supports the Windows CUDA 12.8 package plan for compute capabilities
+8.6 and 8.9 (RTX 30 and 40 series) with NVIDIA driver 570.65 or later. Cards
+outside those profiles and cards below 8,000 MiB of detected VRAM are deferred
+for this component. The rest of Studio remains available.
+
+For 8,000–11,999 MiB of detected VRAM, prefer **Detail Refinement (512)**.
+At least 12,000 MiB is recommended for **1024**. These recommendations allow
+room for the driver and application. The mesh, other GPU activity, and
+available memory affect the result. On a 12 GB RTX 4070 Ti, the checked meshes
+peaked at 4.01 GiB of PyTorch allocation in 512 and 9.85 GiB in 1024.
+
+Setup verifies a sparse convolution and a mesh voxelization on the GPU before
+downloading roughly 10.7 GB of pinned weights. It keeps the model files and
+extra Python packages in an optional runtime directory. Both refinement
+resolutions use the same installation. Use **Repair or resume components**
+from the Start menu for an interrupted installation. Setup reuses verified
+files and preserves an existing configured Hi3D runtime. Clearing the Hi3D
+option in Setup leaves its files installed and removes any pending Hi3D
+request from the Repair list.
+
+## Configure a separate runtime manually
 
 The Studio distribution includes the bridge. Run the refinement with a
 host-provisioned Windows CUDA runtime and local model files. The studio worker loads

@@ -175,10 +175,12 @@
 !/web/print-copy.js
 !/web/profiles.js
 !/web/queue-studio.js
+!/web/studio-panels.css
 !/web/studio-tools.css
 !/web/studio-tools.js
 !/web/studio-workbench.js
 !/web/studio.css
+!/web/studio-shell.css
 !/web/studio.html
 !/web/studio.js
 !/web/server.html
@@ -231,6 +233,9 @@
 # Runtime payloads and public illustrations are selected explicitly too.
 /installer/*
 !/installer/setup.py
+!/installer/install_hi3d.py
+!/installer/hi3d-manifest.json
+!/installer/requirements-hi3d.txt
 !/installer/pixal3d-manifest.json
 !/installer/requirements-pixal3d.txt
 !/installer/manifest.json
@@ -246,6 +251,7 @@
 !/runtime/engine-overrides/o_voxel/postprocess.py
 !/runtime/engine-overrides/o_voxel/uvraster.py
 /licenses/*
+!/licenses/Hi3D-1.0-LICENSE.md
 !/licenses/AssetFurnace-Apache-2.0.txt
 !/licenses/DINOv3-LICENSE.md
 !/licenses/Quaternius-UAL1-CC0.txt
@@ -354,3 +360,4 @@
 !/UniRig/run-skin-inference.py
 !/docs/RELEASE_3.10.0.md
 !/docs/RELEASE_3.10.1.md
+!/docs/RELEASE_3.11.0.md
