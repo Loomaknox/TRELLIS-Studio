@@ -37,6 +37,11 @@ storage estimates above. Kimodo itself requires no NVIDIA GPU or CUDA. See
 [Motion generation](docs/MOTION_GENERATION.md). Previously saved motions remain
 reusable when the optional engine is unavailable.
 
+**Optional Hi3D detail refinement:** Windows Setup can install the pinned Hi3D
+runtime and weights after checking the NVIDIA GPU and prompting for the model
+terms. Follow the [Hi3D guide](docs/HI3D.md) for eligibility, storage and manual
+configuration on a source installation.
+
 The source workflow below uses the pinned Torch 2.5/CUDA 12.4 UniRig
 environment, validated on an Ada GPU. The packaged Windows Setup selects a
 separate experimental profile for GeForce Blackwell. See the

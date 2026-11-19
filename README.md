@@ -27,10 +27,11 @@ One local generation produced two finishes from the same saved source. The high-
 
 Read the [Windows Setup guide](docs/WINDOWS_SETUP.md) for component installation, repair and uninstall. Downloads are resumable and verified with SHA-256. The uninstaller can stop its own idle local services and keeps the library.
 
-**New in 3.10.0** — One Windows Setup detects the GPU, selects pinned packages
-for each component, and can resume a partial installation. The **Create**
-workspace brings together Game Asset and HD Master. See the
-[release notes](docs/RELEASE_3.10.0.md).
+**New in 3.11.0** — The redesigned workspace brings together Create, Collection
+and Animation Studio. Windows Setup checks the GPU and offers optional
+**Hi3D detail refinement** on eligible hardware. The component downloads
+approximately 10.66 GB of additional model weights after license acceptance.
+[Release notes](docs/RELEASE_3.11.0.md) · [Hi3D guide](docs/HI3D.md)
 
 ### Install from source
 
@@ -38,8 +39,9 @@ workspace brings together Game Asset and HD Master. See the
 
 ## What you can do
 
-![Create workspace with a textured desk, Game - Default profile and local collection](docs/screenshots/new/01.jpg)
-*The Create workspace combines the generation profile, reference image card, PBR preview and local collection. The pictured assets are not included in this repository.*
+![Create workspace with Rook, a reference image, generation settings and a two-model collection](docs/screenshots/new/01.jpg)
+
+*Rook in Create with the reference image, output settings and PBR preview. The demonstration collection shows Rook’s game copy and rigged variant.*
 
 | Workspace | Features |
 | --- | --- |
@@ -149,10 +151,13 @@ Each card identifies static or animated content. Its action menu opens details, 
 
 Diagnostics report measured topology, UV presence/collapse, normals, textures, dimensions, bones and clips. These checks support review; they do not certify a final production mesh, physical printability or natural animation.
 
+![Rook in the lime Hologram preview with scan lines and the lit stage](docs/screenshots/workspace.jpg)
+
 ### Rigging and animation
 
-![Animate workspace with an imported character, skeleton overlay and animation library](docs/screenshots/new/02.jpg)
-*An imported character with its skeleton visible, animation timeline and clip library. Studio supports both generated and imported models.*
+![Animation Studio showing Rook in the Walk clip with a skeleton overlay and the Standard motion library](docs/screenshots/new/02.jpg)
+
+*Animation Studio displays Rook’s rig, the Walk clip timeline and the Standard motion library.*
 
 1. Select a completed model and open **Animation**.
 2. Use **Add rig** for an unrigged character. Set its orientation, target height and vertical offset, using the fixed **1.70 m reference silhouette** for scale. Choose **Next · place joints**, then position the chin, shoulders, elbows, wrists, groin, knees and ankles. Drag markers or use the arrow keys (Shift for larger steps); disable **Mirror paired markers** for asymmetrical poses. L/R refer to the character's own sides. Confirm only after checking every point. UniRig runs in its separate WSL environment and produces a linked rigged copy.
@@ -205,7 +210,7 @@ frontal T-pose humanoid. Inspect faces, hands, thin parts and materials in
 
 ### Export
 
-![Export destination menu](docs/screenshots/export.jpg)
+![Export dialog for Rook with the Unity destination and character preflight selected](docs/screenshots/export.jpg)
 
 | Destination | Contents | Convention |
 | --- | --- | --- |

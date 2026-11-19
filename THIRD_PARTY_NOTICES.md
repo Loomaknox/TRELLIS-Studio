@@ -110,6 +110,12 @@ The CPU installer downloads pinned [Zig](https://ziglang.org/) (MIT), [CMake](ht
 
 Generated-motion previews reuse the separately credited Quaternius CC0 mannequin when installed, with a procedural preview fallback. No personal character mesh is bundled for this feature.
 
+## Optional Hi3D refinement
+
+**Powered by Hi3D 1.0.** Hi3D is licensed under the [Hi3D Open License Agreement Version 1.0](licenses/Hi3D-1.0-LICENSE.md). Copyright © 2026 OCEANO HK HOLDING LIMITED. Hi3D trademarks belong to OCEANO HK HOLDING LIMITED or its applicable affiliate(s).
+
+Windows Setup requests license acceptance before obtaining the pinned Hi3D runtime and weights. See [Hi3D detail refinement](docs/HI3D.md) for upstream sources and requirements.
+
 ## Local license copies
 
 The `licenses/` directory preserves the TRELLIS, UniRig, Three.js, U2-Net, Quaternius and DINOv3 notices used by this installation. The exact downloaded files, revisions and SHA-256 hashes are recorded in `installer/manifest.json`.

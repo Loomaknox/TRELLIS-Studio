@@ -32,7 +32,7 @@ function Invoke-GuidedSetupCommand([string]$Executable,[string[]]$Arguments) {
             if ($_ -is [Management.Automation.ErrorRecord] -and $_.FullyQualifiedErrorId -notmatch '^NativeCommandErrorMessage') {
                 $lastError=$line
             }
-            if ($line -match '^(INSTALLATION STOPPED|PIXAL3D SETUP STOPPED|Kimodo installation failed)\s*:') {
+            if ($line -match '^(INSTALLATION STOPPED|PIXAL3D SETUP STOPPED|HI3D SETUP STOPPED|Kimodo installation failed)\s*:') {
                 $lastError=$line
             }
             Write-Host $line
@@ -81,10 +81,12 @@ function Invoke-GuidedSetup {
         [switch]$Retry,
         [switch]$NeedsWorkshop,
         [switch]$WithKimodo,
-        [switch]$AcceptKimodoModelLicenses
+        [switch]$AcceptKimodoModelLicenses,
+        [switch]$AcceptHi3dModelLicenses,
+        [switch]$SkipHi3d
     )
     . (Join-Path $PSScriptRoot 'Setup-Preflight.ps1')
-    $setupOrder=@('trellis','pixal3d','unirig','kimodo')
+    $setupOrder=@('trellis','pixal3d','hi3d','unirig','kimodo')
     $setupStatePath=Join-Path $InstallRoot 'config\component-install.json'
     $setupState=Read-GuidedSetupJson $setupStatePath
     if ($setupState.Count -and $setupState.schema -ne 1) { throw 'Unsupported component setup receipt. Existing settings were preserved.' }
@@ -99,10 +101,14 @@ function Invoke-GuidedSetup {
     $requested=@($RequestedComponents -split ',' | ForEach-Object {$_.Trim().ToLowerInvariant()} | Where-Object {$_})
     if ($Retry -and -not $requested.Count) { $requested=@($setupState.requested | Where-Object {$_}) }
     if ($WithKimodo) { $requested+=@('kimodo') }
+    if ($SkipHi3d) {
+        $requested=@($requested | Where-Object { $_ -ne 'hi3d' })
+        $setupState.requested=@($setupState.requested | Where-Object { $_ -ne 'hi3d' })
+    }
     foreach ($name in $requested) {
         if ($name -notin $setupOrder) { throw "Unknown setup component: $name." }
     }
-    if ('pixal3d' -in $requested) { $requested+=@('trellis') }
+    if ('pixal3d' -in $requested -or 'hi3d' -in $requested) { $requested+=@('trellis') }
     $selected=@($setupOrder | Where-Object {$_ -in $requested})
     $setupState.requested=@($setupOrder | Where-Object {$_ -in $selected -or $_ -in $setupState.requested})
     Save-GuidedSetupJson $setupStatePath $setupState
@@ -119,7 +125,7 @@ function Invoke-GuidedSetup {
     if ($probe.WSL.Ready) { $config.wsl_distribution=$probe.WSL.Distribution }
     if ($probe.Gpu.Supported -and @($selected | Where-Object {$_ -ne 'kimodo'}).Count) {
         if ($config.gpu_uuid -and $config.gpu_uuid -cne $probe.Gpu.Uuid) {
-            foreach ($name in @('trellis','pixal3d','unirig')) {
+            foreach ($name in @('trellis','pixal3d','hi3d','unirig')) {
                 if ($setupState.components.ContainsKey($name)) {
                     Set-GuidedComponentResult $name 'deferred' 'GPU selection changed. Run Repair or resume components to verify it on the new GPU.'
                 }
@@ -177,6 +183,27 @@ function Invoke-GuidedSetup {
         $pixalInstall={Invoke-GuidedSetupCommand $nativePython @('-u',$pixalSetup,'--accept-dinov3-license')}
         $pixalVerify={Invoke-GuidedSetupCommand $nativePython @('-u',$pixalSetup,'--verify-only')}
         Invoke-GuidedComponent 'pixal3d' $pixalInstall $pixalVerify $pixalReason
+    }
+
+    if ('hi3d' -in $selected) {
+        $hi3dReason=if ($probe.Hi3D.Supported) {''} else {$probe.Hi3D.Status}
+        if ($probe.Hi3D.VramNotice) { Write-Host $probe.Hi3D.VramNotice }
+        if (-not $hi3dReason -and $setupState.components.trellis.status -ne 'ready') {
+            $hi3dReason='Verify TRELLIS.2 generation on the selected GPU first.'
+        }
+        $hi3dLicense=Join-Path $InstallRoot 'licenses\Hi3D-1.0-LICENSE.md'
+        $hi3dHash=(Get-FileHash -LiteralPath $hi3dLicense -Algorithm SHA256).Hash
+        if ($AcceptHi3dModelLicenses) {
+            $setupState.licenses.hi3d=$hi3dHash
+            Save-GuidedSetupJson $setupStatePath $setupState
+        }
+        if (-not $hi3dReason -and $setupState.licenses.hi3d -cne $hi3dHash) {
+            $hi3dReason='The Hi3D, DINOv2 and CLIP terms have not been accepted. Run Setup and select Hi3D again.'
+        }
+        $hi3dSetup=Join-Path $InstallRoot 'installer\install_hi3d.py'
+        $hi3dInstall={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$hi3dSetup,'--accept-model-licenses')}
+        $hi3dVerify={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$hi3dSetup,'--verify-only')}
+        Invoke-GuidedComponent 'hi3d' $hi3dInstall $hi3dVerify $hi3dReason
     }
 
     if ('unirig' -in $selected) {

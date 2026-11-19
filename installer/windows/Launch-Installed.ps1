@@ -5,6 +5,8 @@ param(
     [switch]$FullStudio,
     [switch]$WithKimodo,
     [switch]$AcceptKimodoModelLicenses,
+    [switch]$AcceptHi3dModelLicenses,
+    [switch]$SkipHi3d,
     [switch]$Guided,
     [string]$Components='',
     [string]$BlenderPath='',
@@ -91,6 +93,7 @@ if ($Mode -ne 'Workshop' -or $taskNeedsWorkshop -or $WithKimodo) {
                 InstallRoot=$taskRoot; RequestedComponents=$Components; BlenderPath=$BlenderPath; GpuUuid=$GpuUuid
                 WslDistribution=$WslDistribution; Retry=($Mode -eq 'Retry'); NeedsWorkshop=$taskNeedsWorkshop
                 WithKimodo=$WithKimodo; AcceptKimodoModelLicenses=$AcceptKimodoModelLicenses
+                AcceptHi3dModelLicenses=$AcceptHi3dModelLicenses; SkipHi3d=$SkipHi3d
             }
             $taskGuidedStatus=Invoke-GuidedSetup @taskOptions
         } elseif ($Mode -eq 'Generation') {

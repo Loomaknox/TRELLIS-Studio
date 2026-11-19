@@ -1,6 +1,6 @@
 # Windows x64 installer
 
-`TRELLIS-Studio-3.10.0-Setup-x64.exe` is the per-user NSIS installer for Windows x64.
+`TRELLIS-Studio-3.11.0-Setup-x64.exe` is the per-user NSIS installer for Windows x64.
 It copies the application and viewer, adds Start menu entries, and never installs
 GPU drivers, Blender or WSL. The executable is unsigned. Do not
 treat a SHA-256 checksum as an Authenticode signature.
@@ -21,6 +21,11 @@ treat a SHA-256 checksum as an Authenticode signature.
    before the corresponding model downloads. If a component fails, use
    **Repair or resume components** in the Start menu. See
    `logs/component-setup.log` for the failing step.
+   **Hi3D detail refinement** is a separate selection for compatible NVIDIA GPUs.
+   On a new installation it is unchecked. Setup displays the detected GPU, driver
+   and VRAM guidance before downloading the model, and asks you to accept the
+   Hi3D Open License. See [Hi3D](HI3D.md) for storage and compatibility details.
+
    The separate **Optional motion generation** page offers Kimodo for either
    edition and component selection. It is unchecked by default. Selecting it
    requires explicit acceptance of the NVIDIA Open Model License and Meta Llama 3
@@ -121,6 +126,13 @@ GTX 10 can use the Workshop and CPU animation features where their prerequisites
 are met. VRAM below the 12 GB reference triggers an advisory, with TRELLIS.2 at
 512 as a starting point. GPU and export tests on a target card remain the basis
 for support claims.
+
+The Hi3D option checks for CUDA capability 8.6 or 8.9 and at least 8,000 MiB of
+detected VRAM, using the driver's existing native CUDA 12.8 requirement.
+Setup recommends Detail Refinement (512) below 12,000 MiB. The 1024 pass can
+need more memory on complex assets or when other applications are using the
+GPU. The Setup can continue with the other supported components on GPUs
+outside Hi3D's supported range.
 
 ## Build and qualify
 

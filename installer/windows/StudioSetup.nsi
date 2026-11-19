@@ -78,6 +78,12 @@ Var InstallServer
 Var ServerRadio
 Var CreateDesktopShortcut
 Var DesktopCheckbox
+Var InstallHi3d
+Var Hi3dSupported
+Var SkipHi3d
+Var Hi3dCheckbox
+Var AcceptHi3dLicenses
+Var Hi3dLicenseCheckbox
 Var InstallKimodo
 Var KimodoCheckbox
 Var AcceptKimodoLicenses
@@ -93,6 +99,7 @@ Var KimodoArguments
 Page custom ShowInstallMode SaveInstallMode
 Page custom ShowHardware SaveHardware
 Page custom ShowComponentMode SaveComponentMode
+Page custom ShowHi3dOptions SaveHi3dOptions
 Page custom ShowKimodoOptions SaveKimodoOptions
 Page custom ShowShortcutOptions SaveShortcutOptions
 !insertmacro MUI_PAGE_INSTFILES
@@ -160,6 +167,9 @@ Function .onInit
   IfFileExists "$INSTDIR\config\server.json" 0 +2
   StrCpy $InstallServer "1"
   StrCpy $CreateDesktopShortcut "0"
+  StrCpy $InstallHi3d "0"
+  StrCpy $SkipHi3d "0"
+  StrCpy $AcceptHi3dLicenses "0"
   StrCpy $InstallKimodo "0"
   StrCpy $AcceptKimodoLicenses "0"
   ${IfNot} ${IsNativeAMD64}
@@ -265,6 +275,14 @@ Function ShowHardware
     ReadINIStr $InstallTrellis "$PLUGINSDIR\preflight.ini" "Plan" "Trellis"
     ReadINIStr $InstallPixal3D "$PLUGINSDIR\preflight.ini" "Plan" "Pixal3D"
     ReadINIStr $InstallUniRig "$PLUGINSDIR\preflight.ini" "Plan" "UniRig"
+    ReadINIStr $InstallHi3d "$PLUGINSDIR\preflight.ini" "Plan" "Hi3D"
+    ReadINIStr $AcceptHi3dLicenses "$PLUGINSDIR\preflight.ini" "Plan" "Hi3DLicenseAccepted"
+    ${If} $InstallHi3d != "1"
+      StrCpy $InstallHi3d "0"
+    ${EndIf}
+    ${If} $AcceptHi3dLicenses != "1"
+      StrCpy $AcceptHi3dLicenses "0"
+    ${EndIf}
     ${If} $InstallTrellis != "1"
       StrCpy $InstallTrellis "0"
     ${EndIf}
@@ -466,6 +484,81 @@ Function SaveComponentMode
   ${NSD_GetState} $UniRigCheckbox $InstallUniRig
   ${If} $InstallPixal3D == "1"
     StrCpy $InstallTrellis "1"
+  ${EndIf}
+FunctionEnd
+
+Function Hi3dChoiceChanged
+  ${NSD_GetState} $Hi3dCheckbox $InstallHi3d
+  EnableWindow $Hi3dLicenseCheckbox $InstallHi3d
+FunctionEnd
+
+Function OpenHi3dLicense
+  ExecShell "open" "https://github.com/visualbruno/ComfyUI-Hi3D/blob/03dea7e366ba951d7475f3f1c8a71596a87f913c/LICENSE"
+FunctionEnd
+
+Function OpenHi3dDinoTerms
+  ExecShell "open" "https://huggingface.co/facebook/dinov2-large/tree/47b73eefe95e8d44ec3623f8890bd894b6ea2d6c"
+FunctionEnd
+
+Function OpenHi3dClipTerms
+  ExecShell "open" "https://huggingface.co/openai/clip-vit-large-patch14/tree/32bd64288804d66eefd0ccbe215aa642df71cc41"
+FunctionEnd
+
+Function ShowHi3dOptions
+  !insertmacro MUI_HEADER_TEXT "Optional Hi3D Detail Refinement" "Available with Desktop or Server on supported NVIDIA hardware."
+  nsDialogs::Create 1018
+  Pop $0
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+  ${NSD_CreateCheckbox} 0 3u 100% 15u "Install Hi3D Detail Refinement (optional)"
+  Pop $Hi3dCheckbox
+  ${NSD_OnClick} $Hi3dCheckbox Hi3dChoiceChanged
+  ${NSD_CreateLabel} 13u 20u -13u 24u "Refine native TRELLIS.2 meshes in 512 or 1024. Requires TRELLIS.2 generation and downloads about 10.7 GB of weights."
+  Pop $0
+  ReadINIStr $1 "$PLUGINSDIR\preflight.ini" "Hi3D" "Status"
+  ReadINIStr $2 "$PLUGINSDIR\preflight.ini" "Hi3D" "VramNotice"
+  ReadINIStr $Hi3dSupported "$PLUGINSDIR\preflight.ini" "Hi3D" "Supported"
+  ${If} $1 == ""
+    StrCpy $1 "NVIDIA hardware could not be checked. You can continue with the other components."
+  ${EndIf}
+  ${NSD_CreateLabel} 13u 44u -13u 22u "$1"
+  Pop $0
+  ${NSD_CreateLabel} 13u 66u -13u 25u "$2"
+  Pop $0
+  ${NSD_CreateLink} 13u 94u 30% 11u "Hi3D license"
+  Pop $0
+  ${NSD_OnClick} $0 OpenHi3dLicense
+  ${NSD_CreateLink} 34% 94u 29% 11u "DINOv2 terms"
+  Pop $0
+  ${NSD_OnClick} $0 OpenHi3dDinoTerms
+  ${NSD_CreateLink} 66% 94u 28% 11u "CLIP terms"
+  Pop $0
+  ${NSD_OnClick} $0 OpenHi3dClipTerms
+  ${NSD_CreateCheckbox} 0 108u 100% 20u "I have read and accept the Hi3D, DINOv2 and CLIP terms."
+  Pop $Hi3dLicenseCheckbox
+  ${If} $Hi3dSupported != "1"
+    StrCpy $InstallHi3d "0"
+    EnableWindow $Hi3dCheckbox 0
+  ${EndIf}
+  ${NSD_SetState} $Hi3dCheckbox $InstallHi3d
+  ${NSD_SetState} $Hi3dLicenseCheckbox $AcceptHi3dLicenses
+  EnableWindow $Hi3dLicenseCheckbox $InstallHi3d
+  nsDialogs::Show
+FunctionEnd
+
+Function SaveHi3dOptions
+  ${NSD_GetState} $Hi3dCheckbox $InstallHi3d
+  ${NSD_GetState} $Hi3dLicenseCheckbox $AcceptHi3dLicenses
+  StrCpy $SkipHi3d "0"
+  ${If} $Hi3dSupported == "1"
+  ${AndIf} $InstallHi3d == "0"
+    StrCpy $SkipHi3d "1"
+  ${EndIf}
+  ${If} $InstallHi3d == "1"
+  ${AndIf} $AcceptHi3dLicenses != "1"
+    MessageBox MB_ICONEXCLAMATION "Accept all three model terms, or clear the optional Hi3D selection." /SD IDOK
+    Abort
   ${EndIf}
 FunctionEnd
 
@@ -673,6 +766,13 @@ Section "${SETUP_NAME}"
       StrCpy $ComponentsArgument "$ComponentsArgument,unirig"
     ${EndIf}
   ${EndIf}
+  ${If} $InstallHi3d == "1"
+    ${If} $ComponentsArgument == ""
+      StrCpy $ComponentsArgument "hi3d"
+    ${Else}
+      StrCpy $ComponentsArgument "$ComponentsArgument,hi3d"
+    ${EndIf}
+  ${EndIf}
   ${If} $ComponentsArgument != ""
     StrCpy $HardwareArguments '-Components "$ComponentsArgument"'
     ${If} $GpuUuid != ""
@@ -682,6 +782,12 @@ Section "${SETUP_NAME}"
     ${AndIf} $WslDistribution != ""
       StrCpy $HardwareArguments '$HardwareArguments -WslDistribution "$WslDistribution"'
     ${EndIf}
+  ${EndIf}
+  ${If} $InstallHi3d == "1"
+  ${AndIf} $AcceptHi3dLicenses == "1"
+    StrCpy $HardwareArguments "$HardwareArguments -AcceptHi3dModelLicenses"
+  ${ElseIf} $SkipHi3d == "1"
+    StrCpy $HardwareArguments "$HardwareArguments -SkipHi3d"
   ${EndIf}
   ${If} $BlenderReady == "1"
   ${AndIf} $BlenderPath != ""
