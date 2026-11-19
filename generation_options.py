@@ -11,7 +11,8 @@ DENSE_MASTER_NAME = 'Dense Master'
 DENSE_MASTER_TRIANGLES = 1_200_000
 MASTER_FINISHING_TRIANGLES = 3_000_000
 MASTER_FINISHING_TEXTURE = 4096
-MASTER_FINISHING_METHODS = ('wtivo_1024', 'studio_768')
+HI3D_FINISHING_METHODS = ('hi3d_512', 'hi3d_1024')
+MASTER_FINISHING_METHODS = ('wtivo_1024', 'studio_768', *HI3D_FINISHING_METHODS)
 DENSE_MASTER_FINISHING = dict(mesh_mode='direct', pre_simplify=False, repair_holes=False)
 SURFACE_REPAIR_FINISHING = dict(mesh_mode='remesh', pre_simplify=False, repair_holes=True,
                                 remesh_project=.45, remesh_band=1.)
@@ -35,12 +36,16 @@ def validate_hd_reconstruction(enabled, *, preset=None, resolution, repair_surfa
 
 
 def validate_create_master_finishing(method, *, preset, resolution, triangles,
-                                     repair_surface=False, hd_reconstruction=False):
+                                     repair_surface=False, hd_reconstruction=False,
+                                     engine='trellis2'):
     if method is None or method == '':
         return
     if method not in MASTER_FINISHING_METHODS:
         raise ValueError('Choose a supported master finishing method.')
-    if preset != DENSE_MASTER or resolution < 1024:
+    if method in HI3D_FINISHING_METHODS:
+        if preset != DENSE_MASTER or resolution not in (512, 1024, 1536) or engine != 'trellis2':
+            raise ValueError('Hi3D requires the HD Master profile with a supported TRELLIS.2 single-image resolution.')
+    elif preset != DENSE_MASTER or resolution < 1024:
         raise ValueError('Master finishing requires the HD Master profile at 1024 or higher.')
     if repair_surface or hd_reconstruction:
         raise ValueError('Choose one master finishing method.')
@@ -53,6 +58,8 @@ def master_finishing_options(method, options):
         return {**options, **HD_RECONSTRUCTION_FINISHING}
     if method == 'wtivo_1024':
         return {**options, **HD_RECONSTRUCTION_FINISHING, 'repair_holes': False, 'remesh_resolution': 1024}
+    if method in HI3D_FINISHING_METHODS:
+        return {**options, **DENSE_MASTER_FINISHING}
     return options
 
 

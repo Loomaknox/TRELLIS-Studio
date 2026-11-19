@@ -61,6 +61,9 @@
 !/texture_projection.py
 !/generation_view_projection.py
 !/wtivo_runtime.py
+!/hi3d_runtime.py
+!/hi3d_worker.py
+!/hi3d_attention.py
 !/master_mesh.py
 !/master_mesh_blender.py
 !/third_party/
@@ -99,6 +102,7 @@
 !/tests/game_copy_installer.py
 !/tests/model_finishing_api.py
 !/tests/wtivo_runtime.py
+!/tests/hi3d_api.py
 !/INSTALLATION.md
 !/THIRD_PARTY_NOTICES.md
 !/SECURITY.md
@@ -270,6 +274,7 @@
 !/web/hd-master-finishing.js
 !/docs/WINDOWS_SETUP.md
 !/docs/WTIVO.md
+!/docs/HI3D.md
 !/docs/SERVER.md
 !/installer/windows/
 /installer/windows/*

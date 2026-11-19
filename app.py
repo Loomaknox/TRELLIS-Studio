@@ -16,7 +16,7 @@ from generation_options import (normalize_options, options_for_job, schema as ge
                                 DEFAULT_PROFILE, DEFAULT_GENERATION, GENERATION_PRESETS, GAME_D_ADVANCED, PROFILE_ADVANCED,
                                 DENSE_MASTER, DENSE_MASTER_NAME, DENSE_MASTER_TRIANGLES, DENSE_MASTER_FINISHING,
                                 HUMANOID_EXPERIMENTAL, TRIANGLE_MIN, TRIANGLE_MAX, validate_hd_reconstruction,
-                                master_finishing_options, validate_create_master_finishing)
+                                HI3D_FINISHING_METHODS, master_finishing_options, validate_create_master_finishing)
 from asset_taxonomy import ASSET_TYPES, SYSTEM_TYPES, schema as taxonomy_schema
 from generation_profiles import DENSE_MASTER_DESCRIPTION, ProfileStore, builtin_profiles
 from gpu_runtime import guided_install
@@ -28,6 +28,7 @@ from pixal3d_runtime import VIEW_FILES, runtime_status as pixal3d_runtime_status
 from reference_preparation import (BackgroundRemovalError, PREPARED_VIEWS, parse_reference_edits,
                                    prepare_references, premultiplied_rgb)
 from wtivo_runtime import wtivo_capability
+from hi3d_runtime import hi3d_status
 
 ROOT = Path(__file__).resolve().parent
 PIXAL_CHARACTER_PROFILE = dict(id='character_pixal', name='Character · Pixal3D',
@@ -236,12 +237,14 @@ def create_master_finishing_capabilities():
     if available and not find_blender():
         available = False
         reason = 'Install Blender to use Surface Closure.'
+    hi3d = hi3d_status(ROOT)
     return dict(studio_768=dict(available=True, reason=''),
-                wtivo_1024=dict(available=available, reason=reason))
+                wtivo_1024=dict(available=available, reason=reason),
+                **{method: dict(available=hi3d['available'], reason=hi3d['reason']) for method in HI3D_FINISHING_METHODS})
 
 
 def require_create_master_finishing(method):
-    if method == 'wtivo_1024':
+    if method == 'wtivo_1024' or method in HI3D_FINISHING_METHODS:
         capability = create_master_finishing_capabilities()[method]
         if not capability['available']:
             raise HTTPException(503, capability['reason'])
@@ -252,10 +255,18 @@ def assign_create_master_finishing(settings, method):
         return
     settings.update(master_finishing=method,
                     generation_options=master_finishing_options(method, settings['generation_options']))
-    flag = 'hd_reconstruction' if method == 'studio_768' else 'wtivo_reconstruction'
-    settings[flag] = True
+    flags = {'studio_768': 'hd_reconstruction', 'wtivo_1024': 'wtivo_reconstruction'}
+    flag = flags.get(method)
+    if flag:
+        settings[flag] = True
+    if method in HI3D_FINISHING_METHODS:
+        settings['keep_finishing_source'] = True
     if snapshot := settings.get('profile_snapshot'):
-        snapshot.update(master_finishing=method, generation_options=settings['generation_options'], **{flag: True})
+        snapshot.update(master_finishing=method, generation_options=settings['generation_options'])
+        if flag:
+            snapshot[flag] = True
+        if method in HI3D_FINISHING_METHODS:
+            snapshot['keep_finishing_source'] = True
 
 
 @app.get('/api/status')
@@ -1125,7 +1136,7 @@ async def generate_multiview(
                                    repair_surface=repair_surface)
         validate_create_master_finishing(master_finishing, preset=preset, resolution=1024,
                                          triangles=triangles, repair_surface=repair_surface,
-                                         hd_reconstruction=hd_reconstruction)
+                                         hd_reconstruction=hd_reconstruction, engine='pixal3d')
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
     keep_finishing_source = keep_finishing_source or preset in (DENSE_MASTER, HUMANOID_EXPERIMENTAL) or profile.get('keep_finishing_source', False)
@@ -1255,7 +1266,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                                    repair_surface=repair_surface)
         validate_create_master_finishing(master_finishing, preset=preset, resolution=resolution,
                                          triangles=triangles, repair_surface=repair_surface,
-                                         hd_reconstruction=hd_reconstruction)
+                                         hd_reconstruction=hd_reconstruction, engine=engine)
         if len(advanced_settings)>12000:raise ValueError('Advanced settings are too large.')
         incoming=json.loads(advanced_settings) if advanced_settings else {}
         if not isinstance(incoming,dict):raise ValueError('Malformed advanced settings.')

@@ -24,6 +24,7 @@ from generation_options import (options_for_job, sampler_options, export_options
                                 DENSE_MASTER, MASTER_FINISHING_METHODS, MASTER_FINISHING_TRIANGLES,
                                 TRIANGLE_MIN, validate_hd_reconstruction)
 from gpu_runtime import configure_attention, select_gpu
+from hi3d_runtime import HI3D_METHODS, hi3d_source_status
 from studio_workspace import write
 
 select_gpu(ROOT)
@@ -127,7 +128,22 @@ def load_finishing_source(torch, identifier):
         return torch.load(folder / 'raw_state.pt', map_location='cpu', weights_only=True)
 
 
-def finish_mesh(torch, source):
+def hi3d_reference(source_id, source_resolution):
+    folder = JOB
+    if source_id:
+        from studio_workspace import ID
+        if not isinstance(source_id, str) or not ID.fullmatch(source_id):
+            raise ValueError('Invalid Hi3D finishing source.')
+        folder = JOB.parent / source_id
+        if folder.resolve() != folder:
+            raise ValueError('Invalid Hi3D finishing source directory.')
+    capability = hi3d_source_status(folder, source_resolution, require_cache=bool(source_id))
+    if not capability['available']:
+        raise ValueError(capability['reason'])
+    return folder / 'prepared.png'
+
+
+def finish_mesh(torch, source, source_id=None):
     status('running', 'Finishing mesh and baking textures', 83)
     hd_reconstruction = settings.get('hd_reconstruction', False)
     validate_hd_reconstruction(hd_reconstruction, preset=settings.get('preset'), resolution=int(source['resolution']),
@@ -136,11 +152,14 @@ def finish_mesh(torch, source):
     from wtivo_runtime import reconstruct, validate_wtivo_recipe
     wtivo = settings.get('wtivo_reconstruction', False)
     master_finishing = settings.get('master_finishing')
+    hi3d_resolution = HI3D_METHODS.get(master_finishing)
     refinish = settings.get('source_kind') == 'refinish'
     triangle_ceiling = settings['triangles']
+    source_resolution = int(source['resolution'])
     if master_finishing is not None and (
             master_finishing not in MASTER_FINISHING_METHODS or not (refinish or settings.get('preset') == DENSE_MASTER)
-            or int(source['resolution']) < 1024 or not TRIANGLE_MIN <= triangle_ceiling <= MASTER_FINISHING_TRIANGLES
+            or (not hi3d_resolution and source_resolution < 1024)
+            or not TRIANGLE_MIN <= triangle_ceiling <= MASTER_FINISHING_TRIANGLES
             or wtivo != (master_finishing == 'wtivo_1024') or hd_reconstruction != (master_finishing == 'studio_768')
             or any(settings.get(key) for key in ('adaptive_finishing', 'repair_surface', 'bake_normals'))):
         raise ValueError('Invalid HD Master Finishing recipe.')
@@ -149,6 +168,25 @@ def finish_mesh(torch, source):
                           adaptive=settings.get('adaptive_finishing', False), budget_preset=settings.get('budget_preset'))
     wtivo_report = None
     trim_report = None
+    hi3d_report = None
+    if hi3d_resolution:
+        from hi3d_runtime import reconstruct as refine_hi3d
+
+        if (settings.get('engine', 'trellis2') != 'trellis2'
+                or settings.get('view_mode', 'single') != 'single'
+                or source.get('coordinate_system', 'z_up') != 'z_up'):
+            raise ValueError('Hi3D requires a native TRELLIS.2 single-image source.')
+        reference = hi3d_reference(source_id, source_resolution)
+        status('running', f'Refining the decoded surface with Hi3D {hi3d_resolution}', 84)
+        for key in ('vertices', 'faces'):
+            source[key] = source[key].detach().cpu()
+        gc.collect()
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        rebuilt_vertices, rebuilt_faces, hi3d_report = refine_hi3d(
+            ROOT, JOB, reference, source['vertices'].numpy(), source['faces'].numpy(),
+            hi3d_resolution, triangle_ceiling, source_resolution=source_resolution)
+        status('running', 'Baking native materials onto the refined mesh', 87)
     if wtivo:
         status('running', 'Reconstructing the surface with WTiVo 1024', 84)
         torch.cuda.empty_cache()
@@ -174,9 +212,17 @@ def finish_mesh(torch, source):
     export_kwargs = export_options(options)
     if master_finishing:
         export_kwargs['master_finishing'] = True
-    if wtivo:
+    if wtivo or hi3d_report:
+        replacement_vertices = torch.from_numpy(rebuilt_vertices)
+        replacement_faces = torch.from_numpy(rebuilt_faces)
+        if hi3d_report and len(replacement_faces) > hi3d_report['triangle_target']:
+            replacement_mesh = cumesh.CuMesh()
+            replacement_mesh.init(replacement_vertices.cuda(), replacement_faces.cuda())
+            replacement_mesh.simplify(hi3d_report['triangle_target'], verbose=True)
+            replacement_vertices, replacement_faces = replacement_mesh.read()
+            del replacement_mesh
         export_kwargs.update(remesh=False, repair_holes=False,
-                             reconstructed_mesh=(torch.from_numpy(rebuilt_vertices), torch.from_numpy(rebuilt_faces)))
+                             reconstructed_mesh=(replacement_vertices, replacement_faces))
     adaptive = settings.get('adaptive_finishing') is True and not hd_reconstruction
     adaptive_master = adaptive and settings.get('source_kind') != 'refinish'
     repair_surface = settings.get('repair_surface') is True
@@ -216,9 +262,14 @@ def finish_mesh(torch, source):
         result.metadata['finishing']['hd_reconstruction'] = True
     if wtivo_report is not None:
         result.metadata['finishing']['wtivo_reconstruction'] = wtivo_report
+    if hi3d_report is not None:
+        result.metadata['finishing'].update(method=master_finishing, hi3d_refinement=hi3d_report)
+        trim_report = dict(method='Hi3D', output_triangles=len(result.faces),
+                           triangle_target=hi3d_report['triangle_target'])
     if master_finishing:
         result.metadata['finishing']['master_finishing'] = dict(
-            method=master_finishing, triangle_ceiling=triangle_ceiling,
+            method=master_finishing,
+            triangle_ceiling=hi3d_report['triangle_target'] if hi3d_report else triangle_ceiling,
             trim=trim_report or dict(method='CuMesh', output_triangles=len(result.faces)))
     if source.get('coordinate_system') == 'y_up':
         # Pixal3D is already Y-up. Undo O-Voxel's Z-up to Y-up export conversion.
@@ -229,12 +280,28 @@ def finish_mesh(torch, source):
     scale = settings['height_m'] / height
     # Record the exact final transform for later high-to-low donor alignment.
     # It maps the unscaled Y-up finishing mesh to the exported world coordinates.
-    result.metadata['finishing']['normalization'] = dict(
+    normalization = dict(
         scale=float(scale), translation=[float(-coordinate * scale) for coordinate in center],
         coordinate_system='y_up',
     )
-    result.vertices -= center
-    result.vertices *= scale
+    if hi3d_report and source_id:
+        from normal_bake import checked_normalization
+        from studio_workspace import read
+
+        try:
+            original = read(JOB.parent / source_id / 'result.json', {})
+            if original.get('height_m') == settings['height_m']:
+                normalization = checked_normalization(original['finishing']['normalization'])
+        except (AttributeError, KeyError, OSError, TypeError, ValueError):
+            # Early cached generations may predate saved world transforms.
+            pass
+    result.metadata['finishing']['normalization'] = normalization
+    if hi3d_report:
+        result.vertices *= normalization['scale']
+        result.vertices += normalization['translation']
+    else:
+        result.vertices -= center
+        result.vertices *= scale
     pending = JOB / 'model.pending.glb'
     try:
         result.export(pending)
@@ -322,7 +389,7 @@ def main():
         if settings.get('keep_finishing_source'):
             save_finishing_source(torch, source)
     resolution = source['resolution']
-    result = finish_mesh(torch, source)
+    result = finish_mesh(torch, source, source_id)
     face_report = project_requested_face()
     if source_id and settings.get('master_finishing'):
         preserve_master_generation_views(source_id, result)

@@ -14,7 +14,7 @@ Coordinate = Annotated[float, Field(ge=0, le=1)]
 ViewRole = Literal['front', 'left', 'back', 'right']
 SingleImageEngine = Literal['trellis2', 'pixal3d_single']
 ReferenceEngine = Literal['trellis2', 'pixal3d_single', 'pixal3d']
-MasterFinishing = Literal['studio_768', 'wtivo_1024']
+MasterFinishing = Literal['studio_768', 'wtivo_1024', 'hi3d_512', 'hi3d_1024']
 
 
 class ReferenceStroke(Contract):
@@ -267,7 +267,7 @@ class JobRetry(Contract):
 
 
 class Refinish(Contract):
-    master_finishing: Literal['wtivo_1024', 'studio_768'] | None = Field(default=None,
+    master_finishing: MasterFinishing | None = Field(default=None,
         description='Create an HD Master Finishing variant. Choose the reconstruction method and optionally the texture size.')
     triangles: int | None = Field(default=None, ge=TRIANGLE_MIN, le=TRIANGLE_MAX)
     budget_preset: Literal['low', 'medium', 'high', 'ultra'] | None = None
@@ -314,8 +314,8 @@ class MasterFinishingMethod(Contract):
 
 class MasterFinishingOptions(Contract):
     source_resolution: int
-    default_method: Literal['wtivo_1024', 'studio_768'] | None
-    methods: dict[Literal['wtivo_1024', 'studio_768'], MasterFinishingMethod]
+    default_method: MasterFinishing | None
+    methods: dict[MasterFinishing, MasterFinishingMethod]
     triangle_ceiling: int
     default_texture_size: int
 

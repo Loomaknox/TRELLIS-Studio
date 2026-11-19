@@ -154,7 +154,7 @@ async def upload_source(file_path:str)->dict[str,Any]:
 
 @tool()
 async def queue_generation(recipe:Generation)->dict[str,Any]:
-    """Queue an uploaded image with TRELLIS.2 or engine='pixal3d_single' (MoGe camera estimation). With profile_id='dense_master', select studio_768 or wtivo_1024 using master_finishing. Check studio_status for availability and poll get_model after submission."""
+    """Queue an uploaded image with TRELLIS.2 or engine='pixal3d_single' (MoGe camera estimation). With profile_id='dense_master', select studio_768, wtivo_1024 or optional hi3d_512/hi3d_1024 using master_finishing. Hi3D refines the chosen TRELLIS.2 single-image resolution using its prepared transparent cutout. The Hi3D output resolution is independent of the generation resolution. Check studio_status and poll get_model."""
     return await api('POST','/generations',recipe.model_dump())
 
 @tool()
@@ -174,7 +174,7 @@ async def get_finishing_options(model_id: Identifier) -> dict[str, Any]:
 
 @tool()
 async def queue_refinish(model_id: Identifier, recipe: Refinish) -> dict[str, Any]:
-    """Create a linked variant from the saved cache. For a dense PBR master, pass master_finishing='wtivo_1024' or 'studio_768' and optionally texture_size. Read get_finishing_options for availability. The advanced reconstruction and game preparation routes remain available. Poll get_model."""
+    """Create a linked variant from the saved cache. For a dense PBR master, pass master_finishing='wtivo_1024', 'studio_768', 'hi3d_512' or 'hi3d_1024' and optionally texture_size. Hi3D refines a saved TRELLIS.2 single-image source at its original resolution using the prepared cutout. Read get_finishing_options for eligibility and runtime availability, then poll get_model."""
     return await api('POST', f'/models/{model_id}/refinish', recipe.model_dump(exclude_none=True))
 
 @tool(read=True)

@@ -49,6 +49,14 @@ input[type=checkbox]{appearance:none;-webkit-appearance:none;display:inline-grid
 #form .master-choice{margin-top:12px;padding-top:12px;border-top:1px solid #52614949}
 #form .master-choice select{margin-top:6px}
 #form .master-choice small{font-size:10px;line-height:1.5}
+#form .detail-refinement-source{display:flex;align-items:center;flex-wrap:wrap;gap:5px 6px;margin-top:2px;font-size:10px;line-height:1.45}
+#form .detail-refinement-source[hidden]{display:none}
+.detail-refinement-source span{color:#cbe4b4;background:#bdec8613;border:1px solid #83a7664d;border-radius:5px;padding:2px 6px}
+.detail-refinement-source b{font-weight:650}
+.detail-refinement-source a{flex-basis:100%}
+.detail-refinement-source a,.finishing-refinement a{color:#b9cda9;text-underline-offset:3px}
+.detail-refinement-source a:hover,.finishing-refinement a:hover{color:var(--accent)}
+#detailRefinementUnavailable{color:#adb8a4}
 #masterFinishingOverride{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;padding:6px 8px;border:1px solid #4b5941;border-radius:7px;background:#242b22}
 #masterFinishingOverride strong{color:#d7efbf;font-size:11px;font-weight:550}
 #masterFinishingOverride button{font-size:10px;padding:3px 0;color:#bcd5a9;white-space:nowrap}

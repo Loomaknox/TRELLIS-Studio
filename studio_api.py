@@ -11,11 +11,12 @@ from library_actions import validate_ids
 from glb_data import read as read_glb,animation_info
 from generation_options import (DENSE_MASTER, DENSE_MASTER_TRIANGLES, GENERATION_PRESETS,
                                 HD_RECONSTRUCTION_FINISHING, MASTER_FINISHING_METHODS,
-                                MASTER_FINISHING_TEXTURE, MASTER_FINISHING_TRIANGLES, TRIANGLE_MAX, TRIANGLE_MIN,
+                                HI3D_FINISHING_METHODS, MASTER_FINISHING_TEXTURE, MASTER_FINISHING_TRIANGLES, TRIANGLE_MAX, TRIANGLE_MIN,
                                 options_for_job, validate_hd_reconstruction)
 from pixal3d_runtime import validate_views
 from reference_preparation import PREPARED_VIEWS
 from wtivo_runtime import validate_wtivo_recipe, wtivo_capability
+from hi3d_runtime import HI3D_TRIANGLE_CAP, hi3d_source_status, hi3d_status
 
 RETRY_STATES = {'error', 'cancelled'}
 RETRY_FIELDS = {'resolution', 'texture_size', 'triangles', 'height_m', 'priority',
@@ -101,7 +102,7 @@ def cached_source_resolution(source):
     return 512
 
 
-def master_finishing_capability(resolution, textures, wtivo, wtivo_reason, blender):
+def master_finishing_capability(resolution, textures, wtivo, wtivo_reason, blender, hi3d=None):
     studio = resolution >= 1024
     if wtivo and not blender:
         wtivo = False
@@ -110,9 +111,11 @@ def master_finishing_capability(resolution, textures, wtivo, wtivo_reason, blend
         'wtivo_1024': dict(available=wtivo, reason=wtivo_reason),
         'studio_768': dict(available=studio, reason='' if studio else 'Use a saved 1024 or 1536 source.'),
     }
+    hi3d = hi3d or dict(available=False, reason='Use a saved TRELLIS.2 single-image source with its cutout.')
+    methods.update({method: dict(available=hi3d['available'], reason=hi3d['reason']) for method in HI3D_FINISHING_METHODS})
     return dict(source_resolution=resolution, methods=methods,
                 default_method=next((method for method in MASTER_FINISHING_METHODS if methods[method]['available']), None),
-                triangle_ceiling=MASTER_FINISHING_TRIANGLES,
+                triangle_ceiling=HI3D_TRIANGLE_CAP if hi3d['available'] and not studio else MASTER_FINISHING_TRIANGLES,
                 default_texture_size=min(MASTER_FINISHING_TEXTURE, max(textures)))
 
 
@@ -234,7 +237,8 @@ class StudioServices:
             method = data['master_finishing']
             if method not in MASTER_FINISHING_METHODS or set(data) - {'master_finishing', 'texture_size'}:
                 raise ValueError('Choose an HD Master Finishing method and texture size.')
-            if source_resolution < 1024:
+            hi3d = method in HI3D_FINISHING_METHODS
+            if not hi3d and source_resolution < 1024:
                 raise ValueError('HD Master Finishing requires a saved 1024 or 1536 source.')
             textures = self.g['generation_capabilities']()[1]
             texture_size = data.get('texture_size', min(MASTER_FINISHING_TEXTURE, max(textures)))
@@ -246,9 +250,22 @@ class StudioServices:
                     raise HTTPException(503, reason)
                 if not self.g['find_blender']():
                     raise HTTPException(503, 'Install Blender for WTiVo HD Master Finishing or choose Studio 768.')
-            return FinishingRecipe(MASTER_FINISHING_TRIANGLES, texture_size, 'remesh', method == 'studio_768',
+            if hi3d:
+                folder = self.output / record['id']
+                source_id = finishing_source(folder, record['settings'])
+                if not source_id:
+                    raise ValueError('Restore the original model and its finishing cache before using Hi3D.')
+                source = hi3d_source_status(self.output / source_id, source_resolution)
+                if not source['available']:
+                    raise ValueError(source['reason'])
+                runtime = hi3d_status(self.root)
+                if not runtime['available']:
+                    raise HTTPException(503, runtime['reason'])
+            grid = {'studio_768': 768, 'wtivo_1024': 1024, 'hi3d_512': 512, 'hi3d_1024': 1024}[method]
+            ceiling = HI3D_TRIANGLE_CAP if hi3d else MASTER_FINISHING_TRIANGLES
+            return FinishingRecipe(ceiling, texture_size, 'direct' if hi3d else 'remesh', method == 'studio_768',
                                    False, False, None, False, False,
-                                   768 if method == 'studio_768' else 1024, 'trilinear', 'decoded',
+                                   grid, 'trilinear', 'decoded',
                                    method == 'studio_768', method == 'wtivo_1024', method)
         if not isinstance(data, dict) or set(data) - {'triangles', 'texture_size', 'mesh_mode', 'repair_holes',
                                                         'pre_simplify', 'adaptive_finishing',
@@ -395,7 +412,8 @@ class StudioServices:
         if wtivo:
             mode_label = 'WTiVo 1024 ≤'
         if master_finishing:
-            mode_label = 'HD Master ' + mode_label
+            mode_label = ('Hi3D ' + master_finishing.rsplit('_', 1)[-1] + ' ≤' if master_finishing in HI3D_FINISHING_METHODS
+                          else 'HD Master ' + mode_label)
         normal_label = ' + normal map' if bake_normals else ''
         suffix = f' · {mode_label} {triangles / 1000:g}k · {texture_size // 1024}K{normal_label}'
         metadata.update(display_name=label[:80-len(suffix)] + suffix, review_state='review', favorite=False)
@@ -489,6 +507,16 @@ class StudioServices:
                 settings.pop('repair_surface', None)
         hd_reconstruction = changes.get('hd_reconstruction', saved.get('hd_reconstruction', False))
         source_resolution = cached_source_resolution(self.output / source_id) if refinish else resolution
+        if saved.get('master_finishing') in HI3D_FINISHING_METHODS:
+            if refinish:
+                eligible = hi3d_source_status(self.output / source_id, source_resolution)
+                if not eligible['available']:
+                    raise ValueError(eligible['reason'])
+            elif resolution not in (512, 1024, 1536) or pixal or saved.get('view_mode') not in (None, 'single'):
+                raise ValueError('Hi3D requires supported TRELLIS.2 single-image generation with a cutout.')
+            runtime = hi3d_status(self.root)
+            if not runtime['available']:
+                raise HTTPException(503, runtime['reason'])
         validate_hd_reconstruction(hd_reconstruction, preset=saved.get('preset'), resolution=source_resolution,
                                    repair_surface=settings.get('repair_surface', False), refinish=refinish)
         if 'hd_reconstruction' in changes:
@@ -802,6 +830,9 @@ class StudioServices:
             source_resolution = cached_source_resolution(source)
             wtivo, wtivo_reason = wtivo_capability(self.root, source_resolution)
             textures = self.g['generation_capabilities']()[1]
+            hi3d = hi3d_source_status(source, source_resolution)
+            if hi3d['available']:
+                hi3d = hi3d_status(self.root)
             return dict(source_id=source_id, source_triangles=finishing_source_triangles(source), cache_bytes=cache_bytes,
                         texture_sizes=textures,
                         triangle_limits=dict(min=TRIANGLE_MIN, max=TRIANGLE_MAX),
@@ -811,7 +842,7 @@ class StudioServices:
                         hd_reconstruction=source_resolution >= HD_RECONSTRUCTION_FINISHING['remesh_resolution'],
                         wtivo_reconstruction=wtivo, wtivo_reason=wtivo_reason,
                         master_finishing=master_finishing_capability(source_resolution, textures, wtivo, wtivo_reason,
-                                                                     normal_bake),
+                                                                     normal_bake, hi3d),
                         remesh_resolutions=[512, 768, 1024], texture_sampling_modes=['trilinear', 'nearest'],
                         normal_sources=normal_sources,
                         parent_normal_source=parent_normal_source,
