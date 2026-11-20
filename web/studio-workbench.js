@@ -1,4 +1,5 @@
 import {t} from './i18n.js';
+import {isCreatureRigDraft} from './creature-rig-editor.js';
 import {createQueueStudio} from './queue-studio.js?v=3.9.0';
 import {createWorkspaceLibrary} from './workspace-library.js?v=3.4.0';
 import {createVersionHistory} from './version-history.js?v=3.4.0';
@@ -33,6 +34,7 @@ export async function createStudioWorkbench(context){
   },
   update(job){
    for(const b of[prepareButton,historyButton,capture])b.disabled=!job||job.state!=='done';
+   if(isCreatureRigDraft(job))prepareButton.disabled=capture.disabled=true;
    finishButton.hidden=!job?.can_refinish;
    masterButton.disabled=!job?.can_refinish;
    masterHint.textContent=job?.can_refinish?t('Reconstruct a dense master from the generation cache'):t('Requires a reusable generation cache');

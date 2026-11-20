@@ -58,6 +58,10 @@ $taskRequired+=@('hi3d_runtime.py','hi3d_worker.py','hi3d_attention.py','docs/HI
 $taskRequired+=@('studio_release.py','web/release-notification.css','web/release-notification.js')
 $taskRequired+=@('README.fr.md','web/i18n.js','web/fr-static.js','web/fr-animation.js','web/fr-studio.js','web/fr-controls.js','web/fr-server.js',
     'web/language-selector.css','web/language-selector.js')
+$taskRequired+=@('rig_profiles_blender.py','rig_expert_blender.py')
+$taskRequired+=@('creature_rig.py','creature_motion.py','creature_verification.py','UniRig/apply-creature.py',
+    'creature_api.py','creature_tentacles.py','creature_swim.py','creature_swim_skin.py',
+    'web/creature-rig-editor.js','web/creature-rig-viewer.js')
 $taskRequired+=@('generation_view_projection.py','licenses/AssetFurnace-Apache-2.0.txt',
     'third_party/assetfurnace/image_to_3dlab/__init__.py',
     'third_party/assetfurnace/image_to_3dlab/photo_paint.py',

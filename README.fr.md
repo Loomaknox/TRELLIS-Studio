@@ -63,6 +63,20 @@ Pour une installation empaquetée, le projet d’origine documente les modes Des
 3. Ajoute plusieurs des **84 animations humanoïdes standard** de Quaternius au même modèle ou utilise des mouvements enregistrés dans ta bibliothèque si tu as configuré Kimodo. L’atelier permet de raccourcir les clips, de travailler les boucles et de choisir entre un mouvement sur place et un déplacement de la racine.
 4. Vérifie les déformations, les appuis des pieds et les contacts avec les objets sur le personnage final. Le contrôleur qui enchaîne les clips en jeu se règle dans le projet Unity ou Unreal.
 
+Lorsque les **profils de squelette** sont activés, **Auto** utilise le parcours UniRig actuel. **Simple** garde 22 os corporels et des mains rigides. **Standard** utilise 52 os sur un maillage aux doigts séparés. **Avancé** ajoute deux os de torsion des avant-bras et propose de choisir le type de mains, pour un total de 24 ou 54 os. Les repères restent ajustables. Chaque profil crée une variante liée à sa source vérifiée et peut recalculer les clips standard du modèle sélectionné.
+
+Le profil expérimental **Expert** ajoute 25 os pondérés aux jambes et au bassin, aux bras et aux épaules, ainsi qu’au tronc. Il utilise 49 os avec mains rigides ou 79 avec doigts articulés. Les auxiliaires suivent une partie des rotations des articulations dans les clips standard.
+
+Le profil expérimental **Expressif** ajoute 16 os corporels à Expert, pour 65 os avec mains rigides ou 95 avec doigts articulés. Il répartit la torsion à un tiers et deux tiers des bras, avant-bras, cuisses et tibias. Il ajoute des correctifs près des omoplates, de la cage thoracique, des hanches et de la voûte plantaire. Les positions sont calculées à partir des proportions et des axes du personnage. La même hiérarchie avec les mêmes options s’applique aux différentes morphologies. [Placement des correctifs corporels](https://dev.epicgames.com/documentation/metahuman/metahuman-stylized-character-body-rig-editing)
+
+Dans Studio Desktop, ouvre **Animation → Ajouter un squelette → Créature** sur un maillage sans squelette. UniRig propose des os adaptés au maillage. L’aperçu 3D permet de déplacer leurs extrémités, de scinder un os et d’ajouter ou retirer des chaînes avant le calcul des poids. Les boucles de test couvrent la déformation, la foulée quadrupède, l’ondulation serpentine et le battement d’ailes. La variante finale reprend la hiérarchie éditée et s’exporte en GLB ou FBX animé.
+
+Pour une méduse, choisis **Adapter les tentacules** dans l’éditeur du squelette. TRELLIS mesure les courbes dans le maillage, puis propose un nombre d’os par tentacule selon l’espacement choisi. Le tableau indique les longueurs et le nombre d’os par chaîne. Tu peux ajuster le résultat avant de lancer le calcul des poids. Lorsque le maillage rend certains tentacules difficiles à suivre, l’éditeur signale les estimations à vérifier.
+
+Le panneau **Nage de méduse** règle la durée de la boucle, le nombre de pulsations, l’amplitude de l’ombrelle, l’ondulation des tentacules, le retard de propagation et le déplacement vertical. **Appliquer et lire la nage** génère et joue le clip directement dans TRELLIS. Tu peux le réappliquer sur le même modèle. Les réglages sont enregistrés dans le GLB avec le clip et les autres animations sont conservées.
+
+Pour une validation locale, démarre le service Desktop avec la liste `TRELLIS_RIG_PROFILES`, par exemple `simple,standard,advanced,expert,expressive`. Le mode Serveur utilise `TRELLIS_SERVER_RIG_PROFILES`. Arrête puis redémarre le service après chaque changement de liste. Une liste vide masque les nouveaux profils. Les variantes existantes restent consultables et exportables.
+
 ### Exporter
 
 | Destination | Contenu |

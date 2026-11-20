@@ -67,6 +67,9 @@ def children(folder):
 
 
 def reserve_bytes(settings, script, folder):
+    if script == 'rig_worker.py' and settings.get('rig_profile_version'):
+        # Profiled rig jobs also stage an oriented mesh, skin and authored clips.
+        return 32 * MIB + 4 * (folder / 'source.glb').stat().st_size
     if script == 'model_finishing_worker.py':
         source_bytes = (folder / 'source.glb').stat().st_size
         return 128 * MIB + 2 * source_bytes

@@ -69,8 +69,8 @@ def animation_info(data,binary):
         result.append(dict(name=clip.get('name',f'Animation {index+1}'),duration=round(max((float(t.max()) for t in times if len(t)),default=0),5),channels=len(clip.get('channels',[]))))
     return result
 
-def posed_bounds(data,binary):
-    """Evaluate stored glTF node transforms and linear skinning in world metres."""
+def node_transforms(data):
+    """Return the parent index and a cached world transform lookup."""
     nodes=data.get('nodes',[]);parents={child:i for i,n in enumerate(nodes) for child in n.get('children',[])};world={}
     def matrix(i):
         if i in world:return world[i]
@@ -80,6 +80,12 @@ def posed_bounds(data,binary):
             x,y,z,w=n.get('rotation',[0,0,0,1]);m=np.eye(4)
             m[:3,:3]=np.array([[1-2*(y*y+z*z),2*(x*y-z*w),2*(x*z+y*w)],[2*(x*y+z*w),1-2*(x*x+z*z),2*(y*z-x*w)],[2*(x*z-y*w),2*(y*z+x*w),1-2*(x*x+y*y)]])@np.diag(n.get('scale',[1,1,1]));m[:3,3]=n.get('translation',[0,0,0])
         world[i]=matrix(parents[i])@m if i in parents else m;return world[i]
+    return parents,matrix
+
+
+def posed_bounds(data,binary):
+    """Evaluate stored glTF node transforms and linear skinning in world metres."""
+    _,matrix=node_transforms(data);nodes=data.get('nodes',[])
     low=np.full(3,np.inf);high=np.full(3,-np.inf)
     for i,node in enumerate(nodes):
         if 'mesh' not in node:continue

@@ -221,10 +221,13 @@ class AnimationRemoval(Contract):
         return self
 
 class Rig(Contract):
+    mode:Literal['humanoid','creature']=Field(default='humanoid',description='Desktop Creature mode predicts an editable draft using the source orientation and scale. Send only mode to start a creature draft.')
     rotation:tuple[float,float,float]=(0,0,0)
     height_m:float=Field(default=1.7,ge=.2,le=3)
     offset_m:float=Field(default=0,ge=-1,le=1)
     landmarks:dict[str,list[float]]|None=Field(default=None,description='Optional complete set of 12 frontal joint markers [x/height,y/height], centre/ground origin before offset. +X is anatomical left. Requires an unrigged humanoid A/T pose; depth is predicted by UniRig.')
+    profile:Literal['auto','simple','standard','advanced','expert','expressive']=Field(default='auto',description='Optional humanoid profile listed in Studio status. Auto uses the existing UniRig workflow. Expressive has 65 bones with rigid hands or 95 with articulated fingers.')
+    articulated_fingers:bool|None=Field(default=None,description='Hand module for Advanced, Expert, and Expressive, enabled by default. Simple uses rigid hands and Standard requires articulated fingers.')
     @model_validator(mode='before')
     @classmethod
     def validate_setup(cls,value):
@@ -233,6 +236,47 @@ class Rig(Contract):
             raw={k:v for k,v in value.items() if k!='landmarks' or v is not None}
             validate_rig_options(raw)
         return value
+
+
+class CreatureBone(Contract):
+    name: str
+    parent: str | None
+    head: tuple[float, float, float]
+    tail: tuple[float, float, float]
+
+
+class CreatureTentacles(Contract):
+    revision: Annotated[str, Field(pattern=r'^[a-f0-9]{64}$')]
+    spacing_m: float = Field(default=.19, ge=.05, le=.50)
+
+
+class CreatureSwim(Contract):
+    duration_s: float = Field(default=5.2, ge=2, le=12)
+    pulses: int = Field(default=2, ge=1, le=4)
+    bell_amplitude: float = Field(default=16, ge=0, le=26)
+    tentacle_amplitude: float = Field(default=12, ge=0, le=22)
+    phase_lag: float = Field(default=.45, ge=0, le=1.2)
+    body_travel_m: float = Field(default=.17, ge=0, le=.35)
+
+    @model_validator(mode='before')
+    @classmethod
+    def validate_swim(cls, value):
+        from creature_swim import validate_swim_options
+        return validate_swim_options(value)
+
+
+class CreatureRigCompletion(Contract):
+    revision: Annotated[str, Field(pattern=r'^[a-f0-9]{64}$')]
+    bones: list[CreatureBone] = Field(min_length=1, max_length=512)
+    motion: Literal['none', 'test', 'quadruped', 'serpentine', 'winged', 'swim'] = 'test'
+    swim: CreatureSwim | None = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def validate_edit(cls, value):
+        from creature_rig import validate_creature_edit
+        return validate_creature_edit(value)
+
 
 class PrintCopy(Contract):
     height_mm:float=Field(default=150,ge=20,le=500)

@@ -3,6 +3,7 @@ import asyncio
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
 from api_contract import GeneratedAnimationCreate, GeneratedAnimationApply
+from creature_rig import is_creature_rig
 from generated_animations import SOURCE_FILES, create_entry, library_path, list_records, record
 from generated_animation_runtime import public_status
 from studio_import import validate_glb
@@ -69,6 +70,8 @@ def install(app,g):
             library=path(data.animation_id);motion=record(library)
             if motion['state']!='done':raise HTTPException(409,'Choose a completed generated animation.')
             source,previous=g['STUDIO'].available(identifier)
+            if is_creature_rig(previous['settings']):
+                raise HTTPException(422, 'Generated humanoid motions cannot be retargeted to Creature rigs.')
             model=validate_glb(source/'model.glb')
             if not model.get('skins'):raise HTTPException(409,'Add a humanoid rig to the model first.')
             if any(clip.get('name')==motion['clip_name'] for clip in model.get('animations',[])):

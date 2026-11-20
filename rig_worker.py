@@ -1,6 +1,6 @@
-"""Studio rig worker: WSL inference, then local humanoid animation authoring."""
+"""Studio rig worker: WSL inference, followed by local Blender export."""
 from pathlib import Path
-import json, math, shutil, subprocess, sys, time, traceback
+import hashlib, json, math, shutil, subprocess, sys, time, traceback
 from studio_import import find_blender, validate_glb
 from rig_landmarks import validate_rig_options
 from studio_workspace import write
@@ -26,6 +26,13 @@ def read_landmark_verification():
 
 
 def failure_status(phase, error):
+    if creature_phase == 'final' and phase == 'UniRig':
+        try:
+            message = json.loads((work / 'creature-error.json').read_text(encoding='utf-8'))['message']
+            if isinstance(message, str) and message.strip():
+                return 'Creature skeleton could not be applied', dict(error=message, error_code='creature_skeleton_invalid')
+        except (OSError, ValueError, TypeError, KeyError):
+            pass
     verification = read_landmark_verification() if phase == 'UniRig' else {}
     if verification.get('passed') is False:
         message = verification.get('error')
@@ -43,6 +50,14 @@ def failure_status(phase, error):
             }
         return 'Joint landmark verification failed', dict(
             error=message, error_code='rig_landmark_verification_failed', error_details=details)
+    if phase == 'Preparing standard animations':
+        try:
+            rejection = json.loads((work/'rig-profile-error.json').read_text(encoding='utf-8'))
+            message = rejection.get('message')
+            if isinstance(message, str) and message:
+                return 'Rig profile could not be applied', dict(error=message, error_code='rig_profile_incompatible')
+        except (OSError, ValueError, AttributeError):
+            pass
     if isinstance(error, subprocess.TimeoutExpired):
         message = f'{phase} timed out. See the generation log for details.'
     elif isinstance(error, subprocess.CalledProcessError):
@@ -53,6 +68,7 @@ def failure_status(phase, error):
 
 
 phase = 'Rig setup'
+creature_phase = None
 try:
     config_path=ROOT/'config'/'runtime.json'
     config=json.loads(config_path.read_text(encoding='utf-8-sig')) if config_path.exists() else {}
@@ -60,12 +76,23 @@ try:
     settings=json.loads((JOB/'settings.json').read_text(encoding='utf-8'))
     if settings.get('rig_options'):
         settings['rig_options']=validate_rig_options(settings['rig_options'])
-    data=validate_glb(JOB/'source.glb');work.mkdir(exist_ok=True)
+    if settings.get('rig_options', {}).get('mode') == 'creature':
+        creature_phase = settings.get('creature_phase')
+        if creature_phase not in ('draft', 'final'):
+            raise ValueError('The creature rig phase is missing or invalid.')
+    source = JOB/'source.glb'
+    if expected := settings.get('rig_source_sha256'):
+        with source.open('rb') as stream:
+            if hashlib.file_digest(stream, 'sha256').hexdigest() != expected:
+                raise ValueError('The rig source changed. Create a new variant from the source model.')
+    data=validate_glb(source);work.mkdir(exist_ok=True)
+    if creature_phase and data.get('skins'):
+        raise ValueError('Creature skeleton prediction requires an unrigged mesh.')
     blender = find_blender()
     if not blender:
         raise RuntimeError('Blender is unavailable. Configure Blender before rigging a model.')
-    rig_input=JOB/'source.glb'
-    if settings.get('rig_options'):
+    rig_input=source
+    if settings.get('rig_options') and not creature_phase:
         phase = 'Character orientation and height'
         status('running','Character orientation and height',4)
         subprocess.run([str(blender),'--background','--factory-startup','--disable-autoexec','--python-exit-code','1','--python',str(ROOT/'prepare_rig.py'),'--',str(JOB)],stdout=sys.stdout,stderr=subprocess.STDOUT,check=True,timeout=180,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
@@ -79,21 +106,66 @@ try:
     else:
         phase = 'UniRig'
         status('running','Starting UniRig',5)
-        command=['wsl.exe','-d',distro,'--exec','setsid','--wait','bash',linux_path(ROOT/'UniRig'/'run-model.sh'),linux_path(JOB)]
+        (work / 'creature-error.json').unlink(missing_ok=True)
+        runtime_script = (ROOT/'UniRig'/'run-model.sh').resolve()
+        command=['wsl.exe','-d',distro,'--exec','setsid','--wait','bash',linux_path(runtime_script),linux_path(JOB)]
         subprocess.run(command,stdout=sys.stdout,stderr=subprocess.STDOUT,check=True,timeout=2400,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        if creature_phase == 'draft':
+            preview = json.loads((JOB / 'rig-preview.json').read_text(encoding='utf-8'))
+            if not preview.get('bones') or not (work / 'skeleton.fbx').is_file():
+                raise ValueError('UniRig did not produce a creature skeleton to edit.')
+            status('done', 'Creature skeleton ready to edit', 100, rig_phase='draft')
+            sys.exit(0)
         if settings.get('rig_options', {}).get('landmarks') and read_landmark_verification().get('passed') is not True:
             raise RuntimeError('UniRig did not complete joint landmark verification.')
         rig_engine='UniRig'
     phase = 'Preparing standard animations'
     status('running','Preparing standard animations',88)
-    subprocess.run([str(blender),'--background','--factory-startup','--disable-autoexec','--python-exit-code','1','--python',str(ROOT/'standard_animations.py'),'--',str(JOB)],stdout=sys.stdout,stderr=subprocess.STDOUT,check=True,timeout=240,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+    timeout = 240 + 20 * max(0, len(settings.get('animation_clips', [])) - 1)
+    subprocess.run([str(blender),'--background','--factory-startup','--disable-autoexec','--python-exit-code','1','--python',str(ROOT/'standard_animations.py'),'--',str(JOB)],stdout=sys.stdout,stderr=subprocess.STDOUT,check=True,timeout=timeout,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
     data=validate_glb(JOB/'model.glb')
     if not data.get('skins'): raise RuntimeError('The result does not contain a skinned skeleton.')
     result=json.loads((JOB/'result.json').read_text(encoding='utf-8'));result['rig_engine']=rig_engine
+    if creature_phase == 'final':
+        from creature_verification import verify_creature
+
+        phase = 'Checking the creature rig'
+        edit = json.loads((JOB / 'creature-edit.json').read_text(encoding='utf-8'))
+        model = JOB / 'model.glb'
+        if (JOB / 'creature-tentacles.json').is_file():
+            from creature_swim import swim_compatible
+
+            if swim_compatible(data):
+                from creature_swim_skin import stabilize_swim_skin
+
+                result['creature_swim_skin'] = stabilize_swim_skin(model, model)
+        result['creature_verification'] = verify_creature(model, edit['bones'])
+        if edit['motion'] == 'swim':
+            from creature_api import swim_result
+            from creature_swim import write_swim
+
+            phase = 'Generating the swim clip'
+            status('running', 'Generating the swim clip', 96)
+            report = write_swim(model, model, edit['swim'])
+            result = swim_result(result, report)
+            result['animations'] = len(validate_glb(model).get('animations', []))
+    profile = result.get('rig_profile')
+    if profile:
+        skins = data['skins']
+        if len(skins) != 1 or len(skins[0]['joints']) != profile['joint_count']:
+            raise ValueError('The exported skeleton does not match the selected profile.')
+        exported_names = {clip.get('name') for clip in data.get('animations', [])}
+        authored = result['animation_set']
+        if ({clip['id'] for clip in authored} != {clip['id'] for clip in settings.get('animation_clips', [])}
+                or any(clip.get('clip') not in exported_names for clip in authored)):
+            raise ValueError('The rig profile export is missing a retargeted animation.')
     landmarks_report=work/'landmarks-report.json'
     if landmarks_report.is_file():result['rig_landmarks']=json.loads(landmarks_report.read_text(encoding='utf-8'))
     (JOB/'result.json').write_text(json.dumps(result,indent=2,ensure_ascii=False),encoding='utf-8')
-    status('done','Rig and animations ready' if result.get('animation_set') else 'Rig ready' if result.get('humanoid_mapping') else 'Rig ready · character mapping needs adjustment',100,result=result)
+    if creature_phase == 'final':
+        status('done', 'Creature rig ready', 100, result=result, rig_phase='final')
+    else:
+        status('done','Rig and animations ready' if result.get('animation_set') else 'Rig ready' if result.get('humanoid_mapping') else 'Rig ready · character mapping needs adjustment',100,result=result)
 except Exception as error:
     stage, details = failure_status(phase, error)
     pid_path=work/'runtime.pid'
@@ -103,4 +175,6 @@ except Exception as error:
             if pid>1:subprocess.run(['wsl.exe','-d',distro,'--exec','kill','-TERM','--','-'+str(pid)],capture_output=True,timeout=8,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         except (OSError,ValueError,subprocess.TimeoutExpired):pass
     traceback.print_exc()
+    if creature_phase:
+        details['rig_phase'] = creature_phase
     status('error', stage, 0, **details)

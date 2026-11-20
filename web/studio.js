@@ -7,8 +7,10 @@ import {createGenerationWait} from './generation-wait.js?v=studio-visual-refinem
 import {createStudioTools} from './studio-tools.js?v=3.4.0';
 import {createAssetDetails,assetTypeName} from './asset-details.js?v=3.4.0';
 import {createPrintCopy} from './print-copy.js?v=3.4.0';
-import {createAnimationStudio} from './animation-studio.js?v=3.4.0-motion2';
-import {createRigSetupViewer} from './rig-setup-viewer.js?v=3.4.0';
+import {createAnimationStudio} from './animation-studio.js?v=creature-swim';
+import {createRigSetupViewer} from './rig-setup-viewer.js?v=rig-expressive';
+import {isCreatureRigDraft} from './creature-rig-editor.js?v=creature-swim';
+import {createCreatureRigViewer} from './creature-rig-viewer.js';
 import {createModelImport} from './import-model.js?v=3.4.0';
 import {createMultiviewInputs} from './multiview-inputs.js?v=studio-visual-refinement';
 import {createReferencePreview} from './reference-preview.js?v=studio-visual-refinement';
@@ -25,7 +27,7 @@ const cardTurntables=createCardTurntables($('libraryGrid'));
 let cardTurntablesAvailable=false;
 const cardMenu=createCardMenu({version:reuseJob,remove:requestDelete,details:openDetails,print:j=>printCopy.open(j),compare:j=>studioTools.compare.open(j),diagnostics:j=>studioTools.diagnostics.open(j),export:j=>studioTools.exports.open(j),history:j=>workbench.history.open(j),folder:j=>workbench.workspace.move(j),lod:j=>workbench.prepare.open(j,'lod'),game:j=>workbench.prepare.open(j,'game'),refinish:openRefinish,finishingBoard:j=>workbench.finishingBoard.open(j)});
 const labels={done:t('Completed'),running:t('Generating'),error:t('Failed'),cancelled:t('Cancelled'),queued:t('Queued')},reviews={review:t('To review'),retouch:t('Needs changes'),retained:t('Retained'),rejected:t('Rejected')};
-let studioTools,viewerLighting,viewerStage,hologramViewer,workbench,rigSetupViewer;
+let studioTools,viewerLighting,viewerStage,hologramViewer,workbench,rigSetupViewer,creatureRigViewer;
 let selectedId=null,loadedId=null,loadingId=null,activeId=null,records=[],busy=false,ready=false,shutDown=false,features=false;
 let page=0,trashMode=false,trashRecords=[],metadataId=null,inspectId=null,inspectVersion=0,textureOpen=false,refreshing=false;
 let submittingGeneration=false,restoringReferences=false;
@@ -110,10 +112,13 @@ try{
   viewerLighting=createViewerLighting({scene,renderer,getModel:()=>model});
   viewerStage=createViewerStage(scene,viewport);
   hologramViewer=createHologramViewer(viewport,{camera});
-  rigSetupViewer=createRigSetupViewer({scene,camera,controls,viewport,getModel:()=>model,stopRotation(){rotating=false;$('rotate').setAttribute('aria-pressed','false');}});
-  controls.addEventListener('start',()=>setViewPreset());
+  const stopRotation=()=>{rotating=false;$('rotate').setAttribute('aria-pressed','false');};
+  rigSetupViewer=createRigSetupViewer({scene,camera,controls,viewport,getModel:()=>model,onViewChange:setViewPreset,stopRotation});
+  creatureRigViewer=createCreatureRigViewer({scene,camera,controls,viewport,stopRotation,showViewport:()=>setView(false),
+    getModel:()=>loadedId===selectedId&&previewRevision(loadedRevision)?model:null});
+  controls.addEventListener('start',()=>{if(!rigSetupViewer?.active)setViewPreset();});
   new ResizeObserver(()=>{const w=Math.max(1,viewport.clientWidth),h=Math.max(1,viewport.clientHeight);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}).observe(viewport);
-  renderer.setAnimationLoop(()=>{if(document.hidden||textureOpen||document.getElementById('compareDialog')?.open||document.getElementById('textureProjection')?.open||document.body.classList.contains('library-mode'))return;if(rotating&&model)model.rotation.y+=.004;if(mixer&&clipPlaying){mixer.update(Math.min(clock.getDelta(),.1));if(clipAction){$('clipTime').value=clipAction.time;$('clipTimeValue').value=clipAction.time.toFixed(1)+' s';}}else clock.getDelta();if(skeletonHelper&&boneDots){boneDots.visible=skeletonHelper.visible;model?.updateMatrixWorld(true);skeletonHelper.bones.forEach((bone,index)=>{boneDotPosition.setFromMatrixPosition(bone.matrixWorld);boneDotMatrix.makeTranslation(boneDotPosition.x,boneDotPosition.y,boneDotPosition.z);boneDots.setMatrixAt(index,boneDotMatrix);});boneDots.instanceMatrix.needsUpdate=true;}controls.update();rigSetupViewer?.update();hologramViewer?.update(performance.now());renderer.render(scene,camera);});
+  renderer.setAnimationLoop(()=>{if(document.hidden||textureOpen||document.getElementById('compareDialog')?.open||document.getElementById('textureProjection')?.open||document.body.classList.contains('library-mode'))return;if(rotating&&model)model.rotation.y+=.004;if(mixer&&clipPlaying){mixer.update(Math.min(clock.getDelta(),.1));if(clipAction){$('clipTime').value=clipAction.time;$('clipTimeValue').value=clipAction.time.toFixed(1)+' s';}}else clock.getDelta();if(skeletonHelper&&boneDots){boneDots.visible=skeletonHelper.visible;model?.updateMatrixWorld(true);skeletonHelper.bones.forEach((bone,index)=>{boneDotPosition.setFromMatrixPosition(bone.matrixWorld);boneDotMatrix.makeTranslation(boneDotPosition.x,boneDotPosition.y,boneDotPosition.z);boneDots.setMatrixAt(index,boneDotMatrix);});boneDots.instanceMatrix.needsUpdate=true;}controls.update();rigSetupViewer?.update();creatureRigViewer?.update();hologramViewer?.update(performance.now());renderer.render(scene,camera);});
 }catch(e){$('viewerError').hidden=false;errorAt('viewerError',e);}
 function disposeModel(root){if(!root)return;const mats=new Set(),textures=new Set();root.traverse(x=>{x.geometry?.dispose();for(const m of [...(Array.isArray(x.material)?x.material:[x.material]),...(x.userData.baseMaterials||[])]){if(!m)continue;mats.add(m);for(const v of Object.values(m))if(v?.isTexture)textures.add(v);}});textures.forEach(x=>x.dispose());mats.forEach(x=>x.dispose());}
 const angleButtons = [...viewport.querySelectorAll('[data-angle]')];
@@ -180,7 +185,7 @@ function materials(){
 }
 function usesRigPreview(job) {
   return job?.settings.asset_type === 'rigged' && job.settings.source_kind === 'unirig'
-    && job.operation !== 'animation' && job.state !== 'done';
+    && job.operation !== 'animation' && (job.state !== 'done' || isCreatureRigDraft(job));
 }
 
 function isStoppedRig(job) {
@@ -195,7 +200,7 @@ function rigJobError(job) {
   const error = typeof job.error === 'string' ? job.error.trim() : '';
   const exitStatus = /^Command [\s\S]* returned non-zero exit status (-?\d+)\.?$/.exec(error)?.[1];
   if (exitStatus) return `UniRig exited with status ${exitStatus}. See the job log for details.`;
-  return error || (job.state === 'cancelled' ? t('No rig was produced.') : t('See the job log for details.'));
+  return error ? t(error) : job.state === 'cancelled' ? t('No rig was produced.') : t('See the job log for details.');
 }
 
 async function loadModel(job) {
@@ -206,6 +211,7 @@ async function loadModel(job) {
   const retainedPreview = stopped && loadedId === id && previewRevision(loadedRevision);
   let revision = job.result?.revision || 0;
   if (preview) revision = stopped ? 'rig-preview-stopped' : `rig-preview-${job.progress >= 8}`;
+  if (isCreatureRigDraft(job)) revision = 'rig-preview-creature';
   if (retainedPreview) revision = loadedRevision;
   if (!renderer || (loadedId === id && loadedRevision === revision) || loadingId === id
     || (stopped && missingRigPreview === id)) return;
@@ -237,7 +243,8 @@ async function loadModel(job) {
     if (preview) {
       $('stats').textContent = t('Source preview');
       refreshRigPreview();
-    } else animationStudio?.modelLoaded();
+    }
+    if (!preview || isCreatureRigDraft(job)) animationStudio?.modelLoaded();
   } catch (error) {
     if (version !== loadVersion || selectedId !== id) return;
     if (preview && isStoppedRig(jobOf())) {
@@ -256,10 +263,10 @@ $('gridToggle').onclick = () => {
   viewerStage?.setGridVisible(!grid.visible);
   $('gridToggle').setAttribute('aria-pressed', grid.visible);
 };
-$('fit').onclick=()=>fit();$('rotate').onclick=()=>{if(rigSetupViewer?.active)return;rotating=!rotating;if(rotating)setViewPreset();$('rotate').setAttribute('aria-pressed',rotating);};$('wireframe').onclick=()=>{wire=!wire;$('wireframe').setAttribute('aria-pressed',wire);materials();};$('materialMode').onchange=materials;
-angleButtons.forEach(b=>b.onclick=()=>{if(rigSetupViewer?.active){rigSetupViewer.frame();return;}rotating=false;$('rotate').setAttribute('aria-pressed','false');if(model)model.rotation.y=0;fit(b.dataset.angle);});
+$('fit').onclick=()=>fit();$('rotate').onclick=()=>{if(rigSetupViewer?.active||creatureRigViewer?.active)return;rotating=!rotating;if(rotating)setViewPreset();$('rotate').setAttribute('aria-pressed',rotating);};$('wireframe').onclick=()=>{wire=!wire;$('wireframe').setAttribute('aria-pressed',wire);materials();};$('materialMode').onchange=materials;
+angleButtons.forEach(b=>b.onclick=()=>{if(rigSetupViewer?.active){rigSetupViewer.frame(b.dataset.angle);return;}rotating=false;$('rotate').setAttribute('aria-pressed','false');if(model)model.rotation.y=0;fit(b.dataset.angle);});
 function downloads(j){
- const done=j?.state==='done',terrain=j?.settings.asset_type==='terrain_unity';
+ const done=j?.state==='done'&&!isCreatureRigDraft(j),terrain=j?.settings.asset_type==='terrain_unity';
  for(const[id,file,enabled]of[['downloadBlender','Blender.zip',features],['downloadGlb','model.glb',true],['downloadUnity','Unity.zip',true]]){
   const el=$(id),ok=done&&enabled;
   el.classList.toggle('disabled',!ok);el.setAttribute('aria-disabled',!ok);
@@ -275,7 +282,7 @@ function downloads(j){
 }
 $('downloadUnity').onclick=e=>{
  const j=jobOf();
- if(j?.state!=='done'){e.preventDefault();return;}
+ if(j?.state!=='done'||isCreatureRigDraft(j)){e.preventDefault();return;}
  if(j.settings.asset_type!=='terrain_unity'){
   e.preventDefault();studioTools.exports.open(j,'unity');
  }
@@ -299,7 +306,7 @@ function renderRigJobNotice(job) {
   button.onclick = source ? () => selectJob(source.id) : null;
 }
 
-function renderSelected(){const j=jobOf();generationWait.update(j,{hasModel:!!model&&loadedId===j?.id,referenceUrl:j?`/api/jobs/${j.id}/files/prepared.png`:''});studioTools?.update(j,records,trashMode);workbench?.update(j);detailControls.update(j);animationStudio?.update();$('animateModel').disabled=!j||(j.state!=='done'&&j.operation!=='animation');downloads(j);fillMetadata(j);renderRigJobNotice(j);settingsDownload.hidden=!j;if(j)settingsDownload.href=`/api/jobs/${j.id}/files/settings.json`;$('favorite').disabled=!j||!features;$('favorite').textContent=j?.metadata?.favorite?'★':'☆';$('favorite').setAttribute('aria-pressed',!!j?.metadata?.favorite);$('saveMetadata').disabled=!j||!features;$('viewTextures').disabled=!j||j.state!=='done'||!features;
+function renderSelected(){const j=jobOf();generationWait.update(j,{hasModel:!!model&&loadedId===j?.id,referenceUrl:j?`/api/jobs/${j.id}/files/prepared.png`:''});studioTools?.update(j,records,trashMode);workbench?.update(j);detailControls.update(j);animationStudio?.update();$('animateModel').disabled=!j||(j.state!=='done'&&j.operation!=='animation'&&!isCreatureRigDraft(j));downloads(j);fillMetadata(j);renderRigJobNotice(j);settingsDownload.hidden=!j;if(j)settingsDownload.href=`/api/jobs/${j.id}/files/settings.json`;$('favorite').disabled=!j||!features;$('favorite').textContent=j?.metadata?.favorite?'★':'☆';$('favorite').setAttribute('aria-pressed',!!j?.metadata?.favorite);$('saveMetadata').disabled=!j||!features;$('viewTextures').disabled=!j||j.state!=='done'||!features||isCreatureRigDraft(j);
   if(!j){$('modelTitle').textContent=t('Your next model');$('stats').textContent='';$('sourceThumb').hidden=true;$('assetDetails').replaceChildren(node('dt','',t('Model')),node('dd','',t('No model selected')));$('textureSummary').textContent=t('Select a completed model.');$('textureGallery').replaceChildren();if(model||loadingId){++loadVersion;clearModel();}$('empty').hidden=false;return;}
   $('modelTitle').textContent=nameOf(j);const terrain=j.settings.asset_type==='terrain_unity',external=['imported','rigged','print'].includes(j.settings.asset_type),pixal=j.settings.engine==='pixal3d';
   const pixalSingle=pixal&&(j.settings.view_mode==='single'||j.settings.pipeline_type==='pixal3d_1024_monoview');
@@ -307,7 +314,7 @@ function renderSelected(){const j=jobOf();generationWait.update(j,{hasModel:!!mo
   $('exportHint').textContent=j.settings.asset_type==='print'?t('The STL uses millimetres. The Blender package includes the static source and the topology report.'):terrain?t('The Blender package contains the terrain mesh; the Unity export keeps a native Terrain.'):t('GLB includes UVs and materials. The Blender package also provides separate textures and UV layouts.');const r=j.result;$('stats').textContent=j.state==='done'||(j.operation==='animation'&&r)?(r?(terrain?t('{size} m square · elevation {height} m · {resolution}² map',{size:r.dimensions_m?.[0]||j.settings.size_m,height:r.height_m,resolution:r.resolution}):[t('{count} triangles',{count:Number(r.triangles||0).toLocaleString(formatLocale)}),r.bones?t('{count} bones',{count:r.bones}):null,`${Number(r.height_m||0).toLocaleString(formatLocale,{maximumFractionDigits:2})} m`].filter(Boolean).join(' · ')):t('Completed model · ready to inspect')):'';
   const rigPreview = usesRigPreview(j);
   const previewLoaded = loadedId === j.id && previewRevision(loadedRevision);
-  if (rigPreview && previewLoaded) $('stats').textContent = t('Source preview');
+  if (rigPreview && previewLoaded) $('stats').textContent = t(isCreatureRigDraft(j)&&j.state==='done'?'Creature rig draft':'Source preview');
   if (isStoppedRig(j)) {
     if (!previewLoaded && loadingId !== j.id && (model || loadingId)) {
       ++loadVersion;
@@ -342,7 +349,7 @@ function renderSelected(){const j=jobOf();generationWait.update(j,{hasModel:!!mo
 }
 function renderNavigation(){const select=$('librarySelect'),signature=records.map(j=>j.id+nameOf(j)+j.state).join('|');if(select.dataset.signature!==signature){select.replaceChildren(node('option','',t('Choose from the library…')));select.firstChild.value='';for(const j of records){const o=node('option','',nameOf(j)+' · '+(labels[j.state]||j.state));o.value=j.id;select.append(o);}select.dataset.signature=signature;}select.value=selectedId||'';$('count').textContent=records.length;$('collectionCount').textContent=records.length;const recentKey=JSON.stringify([selectedId,records.slice(0,6).map(j=>[j.id,nameOf(j),j.state])]);if($('history').dataset.signature===recentKey)return;$('history').dataset.signature=recentKey;$('history').replaceChildren();for(const j of records.slice(0,6)){const b=node('button','history-card'+(j.id===selectedId?' selected':''));b.type='button';const image=node('img');image.src=`/api/jobs/${j.id}/files/${j.settings.asset_type==='terrain_unity'?'heightmap.png':'input.png'}?v=${j.result?.revision||j.state}`;image.alt='';image.loading='lazy';image.onerror=()=>image.style.visibility='hidden';const t=node('span');t.append(node('strong','',nameOf(j)),node('small','',labels[j.state]||j.state));b.append(image,t);b.onclick=()=>selectJob(j.id);$('history').append(b);}if(!records.length)$('history').append(node('p','history-empty',t('No models yet.')));}
 function setMode(terrain){animationStudio?.closeRig();animationMode=false;document.body.classList.remove('animation-mode');document.body.classList.remove('library-mode');$('rigPanel').hidden=true;$('rigTab').setAttribute('aria-pressed','false');showCollection(false);$('openLibrary').setAttribute('aria-pressed','false');$('form').hidden=terrain;$('terrainForm').hidden=!terrain;$('imageTab').setAttribute('aria-pressed',!terrain);$('terrainTab').setAttribute('aria-pressed',terrain);document.querySelector('h1').textContent=terrain?t('Create terrain'):t('Image to 3D');$('workspaceIntro').textContent=terrain?t('Textured procedural terrain, ready to adapt to your scene.'):'';$('workspaceIntro').hidden=!terrain;}
-function selectJob(id){const keepAnimation=animationMode;if(!records.some(j=>j.id===id))return;if(id!==selectedId){selectedId=id;metadataId=null;inspectId=null;++inspectVersion;$('textureGallery').replaceChildren();$('textureSummary').textContent=t('Inspecting textures…');}setMode(jobOf()?.settings.asset_type==='terrain_unity');if(keepAnimation)openAnimationStudio();renderNavigation();renderSelected();renderLibrary();updateButtons();refreshLog();}
+function selectJob(id){const keepAnimation=animationMode;if(!records.some(j=>j.id===id))return;if(id!==selectedId){selectedId=id;metadataId=null;inspectId=null;++inspectVersion;$('textureGallery').replaceChildren();$('textureSummary').textContent=t('Inspecting textures…');}setMode(jobOf()?.settings.asset_type==='terrain_unity');if(keepAnimation||isCreatureRigDraft(jobOf()))openAnimationStudio();renderNavigation();renderSelected();renderLibrary();updateButtons();refreshLog();}
 $('librarySelect').onchange=()=>selectJob($('librarySelect').value);$('imageTab').onclick=()=>{$('parentId').value='';setMode(false);};$('terrainTab').onclick=()=>{$('terrainForm').dataset.parentId='';setMode(true);};$('openLibrary').onclick=()=>{animationStudio?.closeRig();document.body.classList.remove('collection-collapsed');document.body.classList.add('library-mode');showCollection(false);for(const id of['imageTab','terrainTab','rigTab'])$(id).setAttribute('aria-pressed','false');$('openLibrary').setAttribute('aria-pressed','true');renderLibrary();};
 function renderLibrary(){studioTools?.selection.sync(records,trashMode);const q=$('librarySearch').value.toLocaleLowerCase('en'),filter=$('libraryFilter').value,list=(trashMode?trashRecords:records).filter(j=>{const m=j.metadata||{},text=[nameOf(j),m.category,assetTypeName(m.asset_type||j.settings.asset_type),...(m.tags||[])].join(' ').toLocaleLowerCase('en');return (!workbench||workbench.workspace.matches(j))&&text.includes(q)&&(filter==='all'||filter==='favorite'&&m.favorite||filter===j.state||filter===j.settings.asset_type||filter===m.review_state||filter==='type:'+(m.asset_type||j.settings.asset_type));}),pages=Math.max(1,Math.ceil(list.length/24));page=Math.max(0,Math.min(page,pages-1));studioTools?.selection.visible(list.slice(page*24,page*24+24),list);const signature=JSON.stringify([q,filter,page,trashMode,features,selectedId,cardTurntablesAvailable,list.map(j=>[j.id,nameOf(j),j.state,j.metadata,j.media,j.presentation?.thumbnail?.revision,j.presentation?.library_turntable?.revision])]);if($('libraryGrid').dataset.signature===signature){for(const card of $('libraryGrid').querySelectorAll('[data-job-id]')){const j=list.find(x=>x.id===card.dataset.jobId);if(j)updateCardStatus(card,j);}return;}cardMenu.close();cardTurntables.stop();$('libraryGrid').dataset.signature=signature;$('pageLabel').textContent=`${page+1} / ${pages}`;$('pagePrev').disabled=page===0;$('pageNext').disabled=page>=pages-1;$('libraryTotal').textContent=t(list.length>1?'{count} models':'{count} model',{count:list.length});$('showTrash').replaceChildren(icon(trashMode?'grid':'trash'));$('showTrash').title=trashMode?t('Back to library'):t('Open trash');$('showTrash').setAttribute('aria-label',$('showTrash').title);$('showTrash').disabled=!features;$('collectionTitle').textContent=trashMode?t('Trash'):t('My models');$('collectionCount').textContent=trashMode?trashRecords.length:records.length;$('libraryGrid').replaceChildren();
   for(const j of list.slice(page*24,page*24+24)){const card=node('article','asset-card'+(j.id===selectedId?' selected':'')),b=node('button','card-open');card.dataset.jobId=j.id;b.type='button';b.disabled=trashMode;const img=node('img');img.src=trashMode?'/web/asset-placeholder.svg':j.presentation?.thumbnail?`/api/jobs/${j.id}/presentation/thumbnail.png?v=${j.presentation.thumbnail.revision}`:`/api/jobs/${j.id}/files/${j.settings.asset_type==='terrain_unity'?'heightmap.png':'input.png'}?v=${j.result?.revision||j.state}`;img.loading='lazy';img.alt=t('Reference for {name}',{name:nameOf(j)});img.onerror=()=>{img.onerror=null;img.src='/web/asset-placeholder.svg';};const body=node('span','card-body');body.append(node('strong','',nameOf(j)),node('small','',(t(categoryName(j.metadata?.category)||'Uncategorised',undefined,'category'))+' · '+(labels[j.state]||j.state)),node('span','badge',(j.metadata?.favorite?'★ · ':'')+(reviews[j.metadata?.review_state]||t('To review'))));b.append(img,body,studioTools.mediaBadge(j));b.onclick=()=>{if(studioTools.selection.mode)studioTools.selection.toggle(j);else selectJob(j.id);};card.append(b);if(trashMode){const restore=node('button','secondary restore',t('Restore'));restore.onclick=async()=>{restore.disabled=true;try{await api(`/api/trash/${j.id}/restore`,{method:'POST'});trashRecords=await api('/api/trash');await refresh();renderLibrary();}catch(e){restore.textContent=e.message;restore.disabled=false;}};card.append(restore);}else{card.append(node('span','reference-caption',j.settings.asset_type==='terrain_unity'?t('HEIGHTMAP'):['imported','rigged','print'].includes(j.settings.asset_type)?(j.settings.asset_type==='print'?'3D PRINT COPY':'3D MODEL'):t('REFERENCE IMAGE')));card.append(cardMenu.button(j,{busy,features,activeId}));studioTools.selection.attach(card,j);if(cardTurntablesAvailable)cardTurntables.attach(card,img,j,nameOf(j));}updateCardStatus(card,j);$('libraryGrid').append(card);}if(!list.length)$('libraryGrid').append(node('div','library-empty',trashMode?t('The trash is empty.'):t('No models match these filters.')));
@@ -691,7 +698,28 @@ document.addEventListener('paste',event=>{
   }
 });
 async function startStudioJob(id,options={}){if(options.rig){selectedId=id;metadataId=null;}busy=true;pendingSelection=id;revealNewCreation();updateButtons();await refresh();}
-animationStudio=await createAnimationStudio({api,getJob:jobOf,isBusy:()=>busy,startJob:startStudioJob,refresh,rigSetup:rigSetupViewer,getClips:loadedAnimationClips,playClip:playAnimationClip});createModelImport({api,startJob:startStudioJob});
+async function loadRigSource(id){
+  const current=model;
+  let source;
+  try{
+    ({scene:source}=await new GLTFLoader().loadAsync(`/api/jobs/${encodeURIComponent(id)}/files/model.glb`));
+  }catch{
+    throw Error(t('Could not load the original unrigged model.'));
+  }
+  if(current!==model){disposeModel(source);return null;}
+  const visibility=[current,skeletonHelper,boneDots].filter(Boolean).map(object=>[object,object.visible]);
+  for(const [object] of visibility)object.visible=false;
+  scene.add(source);
+  return {
+    model:source,
+    close(){
+      scene.remove(source);
+      disposeModel(source);
+      for(const [object,visible] of visibility)object.visible=visible;
+    },
+  };
+}
+animationStudio=await createAnimationStudio({api,getJob:jobOf,isBusy:()=>busy,startJob:startStudioJob,refresh,rigSetup:rigSetupViewer,creatureViewer:creatureRigViewer,getClips:loadedAnimationClips,playClip:playAnimationClip,loadRigSource});createModelImport({api,startJob:startStudioJob});
 workbench=await createStudioWorkbench({api,getRecords:()=>records,getJob:jobOf,refresh,startJob:startStudioJob,renderLibrary,tools:studioTools,canUseCardTurntables:()=>cardTurntablesAvailable,labelAnimation:name=>animationStudio?.label(name)||name,getViewer:()=>({scene,renderer,camera,controls,model,loadedId,lighting:viewerLighting})});
 document.querySelector('.journal').addEventListener('toggle',refreshLog);await refresh();const entry=new URLSearchParams(location.search),entryModel=entry.get('model');if(entryModel&&records.some(j=>j.id===entryModel))selectJob(entryModel);if(entry.get('workspace')==='animation')openAnimationStudio();if(entry.get('workspace')==='details'&&jobOf())openDetails(jobOf());const comparison=records.find(j=>j.id===entry.get('compare')&&j.state==='done');if(comparison&&jobOf()?.state==='done')studioTools.compare.open(jobOf(),comparison);setInterval(refresh,3000);
 
@@ -735,7 +763,7 @@ $('clipTime').oninput=()=>{if(!clipAction)return;clipPlaying=false;clipAction.ti
 $('clipSkeleton').onclick=()=>{if(predictedSkeleton&&(!skeletonHelper||!skeletonHelper.bones.length)){predictedSkeleton.visible=!predictedSkeleton.visible;$('clipSkeleton').setAttribute('aria-pressed',predictedSkeleton.visible);return;}if(skeletonHelper){skeletonHelper.visible=!skeletonHelper.visible;$('clipSkeleton').setAttribute('aria-pressed',skeletonHelper.visible);}};
 async function refreshRigPreview() {
   const job = jobOf();
-  if (!usesRigPreview(job) || loadedId !== job.id || !previewRevision(loadedRevision) || predictedId === job.id) return;
+  if (!usesRigPreview(job) || isCreatureRigDraft(job) || loadedId !== job.id || !previewRevision(loadedRevision) || predictedId === job.id) return;
   const version = loadVersion;
   const stopped = isStoppedRig(job);
   if (rigSkeletonRequest === version || (stopped && stoppedSkeletonChecked === version)) return;

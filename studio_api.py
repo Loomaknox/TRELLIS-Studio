@@ -216,7 +216,9 @@ class StudioServices:
                     break
     def available(self,identifier):
         folder=self.g['job_path'](identifier);record=self.g['job_record'](folder);self.g['refresh_export']()
-        if not record or record['state']!='done' or self.g['active_job'](identifier) or identifier in self.g['EXPORTING']:raise HTTPException(409,'Wait for this model to finish computing or exporting.')
+        if (not record or record['state'] != 'done' or not self.g['prepared_output_ready'](record['settings'], record)
+                or self.g['active_job'](identifier) or identifier in self.g['EXPORTING']):
+            raise HTTPException(409, 'Wait for this model to finish computing or exporting.')
         return folder,record
 
     def finishing_model(self, identifier, available=False):
@@ -1124,6 +1126,13 @@ class StudioServices:
                             settings=read(p);parent=settings.get('parent_id')
                             settings.pop('finish_source_id', None)
                             settings.pop('keep_finishing_source', None)
+                            rig_source = settings.get('rig_source_id')
+                            if isinstance(rig_source, str) and rig_source in mapping:
+                                settings['rig_source_id'] = mapping[rig_source]
+                            elif 'rig_source_id' in settings:
+                                # An archive must not bind to an unrelated local job with the same ID.
+                                settings.pop('rig_source_id', None)
+                                settings.pop('rig_source_sha256', None)
                             if parent:
                                 if parent in mapping:settings['parent_id']=mapping[parent]
                                 else:settings.pop('parent_id',None);settings['external_parent_id']=parent

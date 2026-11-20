@@ -285,8 +285,40 @@ def install(app,g):
     @router.post('/models/{identifier}/print-copy',tags=['Preparation'],status_code=202,response_model=JobAccepted,summary='Create a dedicated printing mesh')
     async def printing(identifier:Identifier,data:PrintCopy):return accepted(await legacy('POST',f'/api/jobs/{identifier}/print-copy',data.model_dump()))
 
-    @router.post('/models/{identifier}/rig',tags=['Animation'],status_code=202,response_model=JobAccepted,summary='Generate a UniRig skeleton on a linked copy')
-    async def rig(identifier:Identifier,data:Rig):return accepted(await legacy('POST',f'/api/jobs/{identifier}/rig',data.model_dump(exclude_none=True)))
+    @router.post('/models/{identifier}/rig',tags=['Animation'],status_code=202,response_model=JobAccepted,summary='Generate a UniRig skeleton on a linked copy',
+                 description='Creature mode on Desktop returns an editable draft. Complete it as a separate step to calculate skin weights.')
+    async def rig(identifier:Identifier,data:Rig):
+        return accepted(await legacy('POST',f'/api/jobs/{identifier}/rig',data.model_dump(exclude_none=True, exclude_unset=True)))
+
+    if not server_mode:
+        @router.get('/models/{identifier}/rig-preview', tags=['Animation'], summary='Read an aligned skeleton preview')
+        def rig_preview(identifier: Identifier):
+            return g['rig_preview'](identifier)
+
+        @router.post('/models/{identifier}/rig-complete', tags=['Animation'], status_code=202,
+                     response_model=JobAccepted, summary='Skin a Desktop creature rig draft',
+                     description='Submit the exact preview revision and the complete edited hierarchy. The final rig uses the same linked model ID.')
+        async def rig_complete(identifier: Identifier, data: CreatureRigCompletion):
+            payload = data.model_dump(mode='json')
+            if payload['swim'] is None:
+                payload.pop('swim')
+            return accepted(await legacy('POST', f'/api/jobs/{identifier}/rig-complete', payload))
+
+        @router.post('/models/{identifier}/rig-tentacles', tags=['Animation'], summary='Adapt tentacle chains to their length')
+        async def rig_tentacles(identifier: Identifier, data: CreatureTentacles):
+            return await legacy('POST', f'/api/jobs/{identifier}/rig-tentacles', data.model_dump())
+
+        @router.get('/models/{identifier}/creature-swim', tags=['Animation'], summary='Read creature swim controls')
+        async def creature_swim_options(identifier: Identifier):
+            return await legacy('GET', f'/api/jobs/{identifier}/creature-swim')
+
+        @router.post('/models/{identifier}/creature-swim', tags=['Animation'], summary='Generate or update a creature swim clip')
+        async def creature_swim(identifier: Identifier, data: CreatureSwim):
+            return await legacy('POST', f'/api/jobs/{identifier}/creature-swim', data.model_dump())
+
+    @router.get('/models/{identifier}/rig-source', tags=['Animation'], summary='Find the verified unrigged source for a rig variant')
+    async def rig_source(identifier:Identifier):
+        return await g['get_rig_source'](identifier)
 
     def animation_accepted(result):
         if 'operation_id' not in result:

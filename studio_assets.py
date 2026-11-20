@@ -100,7 +100,9 @@ def prepare_blender(folder, *, build_archive=True):
     temp=folder/'Blender.zip.tmp'
     with zipfile.ZipFile(temp,'w',zipfile.ZIP_DEFLATED) as archive:
         archive.write(source,'model.glb')
-        if (folder/'model.blend').is_file():archive.write(folder/'model.blend','model.blend')
+        companion=folder/'model.blend'
+        if companion.is_file() and companion.stat().st_mtime_ns >= source.stat().st_mtime_ns:
+            archive.write(companion,'model.blend')
         for name in ('model.stl','print-report.json'):
             if (folder/name).is_file():archive.write(folder/name,name)
         generated={'manifest.json','LIRE-BLENDER.txt'}

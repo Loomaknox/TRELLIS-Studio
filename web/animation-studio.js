@@ -2,12 +2,40 @@ import {formatLocale, language, t} from './i18n.js';
 import {icon} from './card-menu.js?v=2.6.1';
 import {createMotionPreviews} from './authored-previews.js?v=3.4.0';
 import {createPersonalAnimationLibrary} from './personal-animation-library.js?v=3.4.0-motion2';
-export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,rigSetup,getClips,playClip}){
+import {createCreatureRigEditor, createSwimFields, isCreatureRig, isCreatureRigDraft} from './creature-rig-editor.js?v=creature-swim';
+const rigProfileNames={auto:'Auto',simple:'Simple',standard:'Standard',advanced:'Advanced',expert:'Expert',expressive:'Expressive'};
+const rigProfileDescriptions={
+ auto:'Use the skeleton detected by UniRig.',
+ simple:'22 body joints with rigid hands.',
+ standard:'52 joints with articulated fingers. Requires five separate digits on each hand.',
+};
+const rigHandDescriptions={
+ advanced:{
+  rigid:'24 joints with rigid hands and forearm twist.',
+  articulated:'54 joints with articulated fingers and forearm twist. Requires five separate digits on each hand.',
+ },
+ expert:{
+  rigid:'49 joints with rigid hands. Adds 25 joints for the torso, shoulders, arms, pelvis and legs.',
+  articulated:'79 joints, including 25 additional joints for the torso, shoulders, arms, pelvis and legs. Requires five separate digits on each hand.',
+ },
+ expressive:{
+  rigid:'65 joints with rigid hands. Includes 41 body helpers, 16 more than Expert.',
+  articulated:'95 joints with articulated fingers. Includes 41 body helpers, 16 more than Expert. Requires five separate digits on each hand.',
+ },
+};
+const availableRigProfiles=status=>['simple','standard','advanced','expert','expressive'].filter(profile=>Array.isArray(status.rig_profiles)&&status.rig_profiles.includes(profile));
+
+export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,rigSetup,creatureViewer,getClips,playClip,loadRigSource}){
  const $=id=>document.getElementById(id),data=await api('/api/animations');
  let tab='library';const catalog=data.animations,previews=createMotionPreviews();
- let batchAvailable=false,removeAvailable=false;
+ let batchAvailable=false,removeAvailable=false,creatureRigAvailable=false,creatureClipTarget=null,rigProfiles=[];
+ let tentacleAvailable=false,swimAvailable=false;
+ let rigSourceCheck=null,openingRig=null,rigSourcePreview=null;
  let selecting=false,selectionTarget=null,submitting=false;
  let clipNotice=null,removal=null;
+ let swimCheck=null,pendingSwim=null;
+ const swimEditor=$('creatureSwimEditor'),swimStatus=$('creatureSwimStatus');
+ const finalSwim=createSwimFields($('creatureFinalSwimFields'));
  const selectedClips=new Set();
  const batchLimit=Number.isInteger(data.max_batch_clips)?data.max_batch_clips:catalog.length;
  const categories=[...new Set(catalog.map(c=>c.category))];
@@ -16,11 +44,18 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  $('animationDuration').oninput=()=>{$('animationDurationValue').value=Number($('animationDuration').value).toLocaleString(formatLocale)+' s';};
  const hasRig=job=>Boolean(job?.result?.bones||job?.result?.rigged||job?.media?.bones);
  const canEdit=job=>job?.state==='done'&&!isBusy()&&!submitting;
- const canAdd=job=>canEdit(job)&&hasRig(job);
+ const canAdd=job=>canEdit(job)&&hasRig(job)&&!isCreatureRig(job);
  const canRemove=job=>canEdit(job)&&removeAvailable;
+ const canCreateVariant=job=>rigProfiles.length>0||(creatureRigAvailable&&isCreatureRig(job));
+ const rigSourceId=job=>rigSourceCheck?.jobId===job?.id?rigSourceCheck?.sourceId:null;
  const personal=createPersonalAnimationLibrary({api,getJob,canAdd,
   applyMotion:(job,motion)=>editClips(job,'POST',{animation_id:motion.id,in_place:false},t('Animation added.'),false,`/api/jobs/${encodeURIComponent(job.id)}/my-animations`),
   onCount:count=>{$('personalAnimationCount').textContent=count;}});
+ const creatureEditor=createCreatureRigEditor({api,viewer:creatureViewer,startJob,getJob,isBusy,
+  onVisibility(visible){
+   document.body.classList.toggle('creature-rig-editing',visible);
+   $('animationLibraryControls').hidden=visible||Boolean(rigJobId);
+  }});
 
  function authoredMotion(name){
   const match=/^TS_(.+)_([0-9.]+)s$/.exec(name||'');
@@ -39,7 +74,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
    const authored=authoredMotion(name);
    const generated=job.settings?.generated_animation_clips?.find(clip=>clip.clip===name);
    const duration=preview?.duration??generated?.duration??authored?.duration??job.result?.animation_set?.find(clip=>clip.clip===name)?.duration_s;
-   return {index,name,expectedName,duration,recipeId:authored?.id,playable:!!preview,title:generated?.name||authored?.title||name||t('Animation {number}',{number:index+1})};
+   return {index,name,expectedName,duration,recipeId:authored?.id,playable:!!preview,title:generated?.name||authored?.title||(name&&isCreatureRig(job)?t(name):name)||t('Animation {number}',{number:index+1})};
   });
   const duplicates=new Set(entries.filter((entry,index)=>entries.findIndex(other=>other.title===entry.title)!==index).map(entry=>entry.title));
   return entries.map(entry=>duplicates.has(entry.title)?{...entry,title:`${entry.title} (${entry.index+1})`}:entry);
@@ -62,7 +97,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
 
  function updateSelectionControls(job){
   const enabled=canAdd(job),count=selectedClips.size;
-  $('createRig').disabled=!canEdit(job)||!rigSetup?.ready;
+  $('createRig').disabled=!canEdit(job)||!rigSetup?.ready||Boolean(openingRig);
   $('animationSelection').hidden=tab!=='library'||!batchAvailable||!batchLimit;
   $('selectAnimations').disabled=!enabled;
   $('selectAnimations').setAttribute('aria-pressed',String(selecting));
@@ -82,6 +117,126 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
    input.nextElementSibling.textContent=input.checked?t('Selected'):t('Select');
   }
  }
+
+ function renderRigTarget(job){
+  const rigged=hasRig(job),done=job?.state==='done';
+  const result=job?.result;
+  const profile=result?.rig_profile;
+  const bones=result?.bones||job?.media?.bones||profile?.joint_count;
+  let state=rigged?(bones?t(bones===1?'{count} bone · ready to animate':'{count} bones · ready to animate',{count:bones}):t('Rigged · ready to animate')):done?t('Add a rig to use the motion library.'):t('Open a completed model from the collection.');
+  if(profile&&Object.hasOwn(rigProfileNames,profile.profile)){
+   const hands=t(profile.articulated_fingers?'Articulated fingers':'Rigid hands');
+   const modules=[];
+   if(Object.keys(profile.twists||{}).length)modules.push(t('Forearm twist'));
+   const bodyJoints=Object.keys(profile.body_helpers||{}).length;
+   if(bodyJoints)modules.push(t('{count} additional body joints',{count:bodyJoints}));
+   state=[state,t(rigProfileNames[profile.profile]),hands,...modules].join(' · ');
+  }
+  if(isCreatureRigDraft(job))state=t('Check the proposed skeleton before calculating skin weights.');
+  else if(isCreatureRig(job)&&result?.creature_motion?.warning){
+   state+=' · '+result.creature_motion.warning.split(/(?<=\.)\s+/).map(message=>t(message)).join(' ');
+  }
+  $('animationRigState').textContent=state;
+  const skipped=Array.isArray(result?.rig_skipped_clips)?result.rig_skipped_clips.filter(name=>typeof name==='string'):[];
+  $('animationRigSkipped').hidden=!skipped.length;
+  $('animationRigSkipped').textContent=skipped.length?t('Clips to retarget separately · {clips}',{clips:skipped.join(', ')}):'';
+  const sourceNotice=rigged&&canCreateVariant(job)&&rigSourceCheck?.jobId===job?.id?rigSourceCheck?.notice:'';
+  $('animationRigSourceNotice').hidden=!sourceNotice;
+  $('animationRigSourceNotice').textContent=sourceNotice||'';
+  const create=$('createRig');
+  create.hidden=isCreatureRigDraft(job)||(rigged&&!rigSourceId(job));
+  create.querySelector('span').textContent=t(rigged?'Create rig variant':'Add rig');
+  create.disabled=!canEdit(job)||!rigSetup?.ready||Boolean(openingRig);
+ }
+
+ async function checkRigSource(job){
+  if(!canCreateVariant(job)||!loadRigSource||$('rigPanel').hidden||job?.state!=='done'||!hasRig(job)){
+   rigSourceCheck=null;
+   return;
+  }
+  if(rigSourceCheck?.jobId===job.id)return;
+  const check={jobId:job.id,notice:t('Checking for the original rig source…')};
+  rigSourceCheck=check;
+  try{
+   const source=await api(`/api/jobs/${encodeURIComponent(job.id)}/rig-source`);
+   if(!/^[0-9a-f]{32}$/.test(source?.id))throw Error(t('The original unrigged model is unavailable.'));
+   check.sourceId=source.id;
+   check.options=source.rig_options;
+   check.notice='';
+  }catch(error){check.notice=t(error.message);}
+  if(rigSourceCheck===check&&getJob()?.id===job.id)renderRigTarget(getJob());
+ }
+
+ function updateSwimControls(job){
+  const enabled=Boolean(swimCheck?.compatible&&swimCheck.id===job?.id&&canEdit(job));
+  $('creatureApplySwim').disabled=!enabled;
+  finalSwim.enable(enabled);
+ }
+
+ function syncSwimEditor(job,editing){
+  if(swimCheck?.id!==job?.id){
+   swimCheck=null;
+   swimEditor.open=false;
+   swimStatus.textContent='';
+  }
+  if(pendingSwim&&pendingSwim.id!==job?.id)pendingSwim=null;
+  const visible=swimAvailable&&!editing&&!rigJobId&&!$('rigPanel').hidden
+   &&isCreatureRig(job)&&!isCreatureRigDraft(job)&&job.state==='done';
+  swimEditor.hidden=!visible||!swimCheck?.compatible;
+  updateSwimControls(job);
+  if(!visible)return;
+  const revision=job.media?.animation_revision;
+  if(swimCheck&&swimCheck.revision===revision)return;
+  const check={id:job.id,revision,compatible:swimCheck?.compatible===true};
+  swimCheck=check;
+  api(`/api/jobs/${encodeURIComponent(job.id)}/creature-swim`,{cache:'no-store'}).then(summary=>{
+   if(check!==swimCheck||getJob()?.id!==check.id)return;
+   check.compatible=summary.compatible===true;
+   if(check.compatible)finalSwim.set(summary.options);
+   swimEditor.hidden=!check.compatible||$('rigPanel').hidden||Boolean(rigJobId);
+   updateSwimControls(getJob());
+  }).catch(()=>{
+   if(check===swimCheck){check.compatible=false;swimEditor.hidden=true;}
+  });
+ }
+
+ function playUpdatedSwim(){
+  const job=getJob();
+  if(!pendingSwim||pendingSwim.id!==job?.id||pendingSwim.previous===job.result?.revision)return;
+  const loaded=getClips(job);
+  const index=loaded?.findIndex(clip=>clip.name===pendingSwim.clip);
+  if(index>=0){
+   playClip(index,pendingSwim.clip);
+   pendingSwim=null;
+  }
+ }
+
+ $('creatureSwimForm').onsubmit=async event=>{
+  event.preventDefault();
+  const job=getJob();
+  if(swimEditor.hidden||!swimCheck?.compatible||swimCheck.id!==job?.id||!canEdit(job))return;
+  const options=finalSwim.get();
+  if(!options)return;
+  swimStatus.textContent=t('Updating swim…');
+  submitting=true;
+  updateSwimControls(job);
+  try{
+   const revised=await api(`/api/jobs/${encodeURIComponent(job.id)}/creature-swim`,{
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(options),
+   });
+   if(getJob()?.id===job.id){
+    pendingSwim={id:job.id,clip:revised.clip_name,previous:job.result?.revision};
+    setAnimationTab('Added');
+    swimStatus.textContent=t('Swim updated.');
+   }
+  }catch(error){
+   if(getJob()?.id===job.id)swimStatus.textContent=t(error.message);
+  }finally{
+   submitting=false;
+   try{await refresh();}
+   finally{render();playUpdatedSwim();}
+  }
+ };
 
  async function editClips(job,method,body,success,batch=false,path=`/api/v1/models/${job.id}/animations`){
   setClipNotice(job.id,method==='DELETE'?t('Removing clip…'):t('Saving animations…'));
@@ -146,18 +301,133 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  const rotation=[];let rigStep=0,rigJobId=null,savedLandmarks=null;
  for(const axis of ['X','Y','Z']){const label=document.createElement('label');label.className='rig-rotation';const caption=document.createElement('span');caption.textContent=t('Rotation {axis}',{axis});const slider=document.createElement('input');slider.type='range';slider.min=-180;slider.max=180;slider.step=1;slider.value=0;slider.setAttribute('aria-label',t('Rotation {axis}',{axis}));const value=document.createElement('output');value.value='0°';const reset=document.createElement('button');reset.type='button';reset.className='quiet';reset.append(icon('rotate'));reset.setAttribute('aria-label',t('Reset rotation {axis}',{axis}));reset.onclick=()=>{slider.value=0;changeRig();};slider.oninput=changeRig;label.append(caption,slider,value,reset);rotation.push(slider);$('rigRotationControls').append(label);}
  function rigOptions(){return {rotation:rotation.map(s=>Number(s.value)),height_m:Number($('rigHeight').value),offset_m:Number($('rigOffset').value)};}
- function changeRig(){rotation.forEach(s=>s.nextElementSibling.value=s.value+'°');$('rigHeightValue').value=Number($('rigHeight').value).toLocaleString(formatLocale,{minimumFractionDigits:2})+' m';$('rigHeightNumber').value=$('rigHeight').value;$('rigOffsetValue').value=Number($('rigOffset').value).toLocaleString(formatLocale)+' m';rigSetup?.preview(rigOptions());}
- function showRigStep(step){rigStep=step;$('rigTransformStep').hidden=step!==0;$('rigLandmarkStep').hidden=step!==1;$('rigStepLabel').textContent=step===0?t('01 / Size & orientation'):t('02 / Joint placement');$('confirmRigSetup').textContent=step===0?t('Next · place joints'):t('Confirm & create rig');$('cancelRigSetup').textContent=step===0?t('Cancel'):t('Back', undefined, 'navigation');}
- function closeRig(){document.body.classList.remove('rig-preparing');rigSetup?.close();rigJobId=null;savedLandmarks=null;$('rigSetup').hidden=true;$('animationLibraryControls').hidden=false;}
- $('createRig').onclick=()=>{if(!rigSetup?.ready)return;document.body.classList.add('rig-preparing');rigJobId=getJob()?.id;savedLandmarks=null;$('rigSetup').hidden=false;$('animationLibraryControls').hidden=true;showRigStep(0);rotation.forEach(s=>s.value=0);$('rigHeight').value=Math.min(3,Math.max(.2,getJob()?.result?.height_m||1.7));$('rigOffset').value=0;$('rigSymmetry').checked=true;changeRig();};
+ function changeRig(){rotation.forEach(s=>s.nextElementSibling.value=s.value+'°');$('rigHeightValue').value=Number($('rigHeight').value).toLocaleString(formatLocale,{minimumFractionDigits:2})+' m';$('rigHeightNumber').value=$('rigHeight').value;$('rigOffsetValue').value=Number($('rigOffset').value).toLocaleString(formatLocale)+' m';rigSetup?.preview(rigOptions(),rigSourcePreview?.model);}
+ function showRigStep(step){
+  rigStep=step;
+  const creature=step===0&&$('rigMode').value==='creature';
+  document.body.classList.toggle('rig-orienting',step===0&&!creature);
+  $('rigModeField').hidden=step!==0||!creatureRigAvailable||Boolean(rigSourcePreview&&!rigProfiles.length);
+  $('rigTransformStep').hidden=step!==0||creature;
+  $('rigLandmarkStep').hidden=step!==1;
+  $('rigCreatureStep').hidden=!creature;
+  $('resetRigSetup').hidden=creature;
+  $('rigStepLabel').textContent=t(creature?'Skeleton prediction':step===0?'01 / Size & orientation':'02 / Joint placement');
+  $('confirmRigSetup').textContent=t(creature?'Predict skeleton':step===0?'Next · place joints':'Confirm & create rig');
+  $('cancelRigSetup').textContent=step===0?t('Cancel'):t('Back',undefined,'navigation');
+ }
+ function closeRig(){
+  document.body.classList.remove('rig-preparing','rig-orienting','rig-source-preview');
+  if(openingRig)$('animationNotice').textContent='';
+  rigSetup?.close();
+  rigSourcePreview?.close();
+  rigSourcePreview=null;
+  openingRig=null;
+  rigJobId=null;
+  savedLandmarks=null;
+  creatureEditor.close();
+  $('rigSetup').hidden=true;
+  $('animationLibraryControls').hidden=false;
+ }
+
+ function describeRigProfile(){
+  const profile=$('rigProfile').value;
+  const fingers=$('rigArticulatedFingers').checked;
+  const hands=rigHandDescriptions[profile];
+  $('rigFingerControls').hidden=!hands;
+  $('rigProfileDescription').textContent=t(hands?.[fingers?'articulated':'rigid']||rigProfileDescriptions[profile]||'');
+ }
+ $('rigProfile').onchange=describeRigProfile;
+ $('rigArticulatedFingers').onchange=describeRigProfile;
+ $('rigMode').onchange=()=>{
+  if($('rigMode').value==='creature')rigSetup?.close();
+  showRigStep(0);
+  if($('rigMode').value==='humanoid')changeRig();
+ };
+
+ function beginRig(job){
+  const previous=rigSourcePreview?{...job.settings?.rig_options,...rigSourceCheck?.options}:null;
+  const profiles=rigSourcePreview?rigProfiles:['auto',...rigProfiles];
+  const selected=profiles.includes(previous?.profile)?previous.profile:profiles[0];
+  const select=$('rigProfile');
+  select.replaceChildren(...profiles.map(profile=>{
+   const option=document.createElement('option');
+   option.value=profile;
+   option.textContent=t(rigProfileNames[profile]);
+   return option;
+  }));
+  select.value=selected;
+  $('rigArticulatedFingers').checked=previous?.articulated_fingers!==false||!rigHandDescriptions[previous.profile];
+  $('rigProfileControls').hidden=!rigProfiles.length;
+  $('rigSourcePreviewHint').hidden=!rigSourcePreview;
+  describeRigProfile();
+  document.body.classList.add('rig-preparing');
+  document.body.classList.toggle('rig-source-preview',Boolean(rigSourcePreview));
+  rigJobId=job.id;
+  savedLandmarks=previous?.landmarks||null;
+  $('rigSetup').hidden=false;
+  $('animationLibraryControls').hidden=true;
+  swimEditor.hidden=true;
+  $('rigMode').value=creatureRigAvailable&&isCreatureRig(job)?'creature':'humanoid';
+  showRigStep(0);
+  rotation.forEach((slider,index)=>slider.value=previous?.rotation?.[index]??0);
+  $('rigHeight').value=Math.min(3,Math.max(.2,previous?.height_m||job.result?.height_m||1.7));
+  $('rigOffset').value=previous?.offset_m??0;
+  $('rigSymmetry').checked=true;
+  if($('rigMode').value==='humanoid')changeRig();
+ }
+
+ $('createRig').onclick=async()=>{
+  const job=getJob();
+  if(!canEdit(job)||!rigSetup?.ready||openingRig)return;
+  if(!hasRig(job)){beginRig(job);return;}
+  const source=rigSourceId(job);
+  if(!source||!canCreateVariant(job))return;
+  const request={jobId:job.id};
+  openingRig=request;
+  renderRigTarget(job);
+  $('animationNotice').textContent=t('Loading the original unrigged model…');
+  try{
+   const preview=await loadRigSource(source);
+   if(openingRig!==request||getJob()?.id!==job.id||$('rigPanel').hidden||!canEdit(job)||!canCreateVariant(job)){
+    preview?.close();
+    return;
+   }
+   if(!preview)throw Error(t('The original unrigged model is unavailable.'));
+   rigSourcePreview=preview;
+   $('animationNotice').textContent='';
+   beginRig(job);
+  }catch(error){
+   if(openingRig===request){
+    closeRig();
+    $('animationNotice').textContent=t(error.message);
+   }
+  }finally{
+   if(openingRig===request)openingRig=null;
+   renderRigTarget(getJob());
+  }
+ };
  $('rigHeight').oninput=changeRig;$('rigOffset').oninput=changeRig;
  $('rigHeightNumber').oninput=()=>{const input=$('rigHeightNumber');if(!input.validity.valid||!input.value)return;$('rigHeight').value=input.value;changeRig();};
- $('cancelRigSetup').onclick=()=>{if(rigStep===1){savedLandmarks=rigSetup.getLandmarks();rigSetup.endMarkers();showRigStep(0);}else closeRig();};
+ $('cancelRigSetup').onclick=()=>{if(rigStep===1){savedLandmarks=rigSetup.getLandmarks();rigSetup.endMarkers();showRigStep(0);}else{closeRig();render();}};
  $('resetRigSetup').onclick=()=>{if(rigStep===1){rigSetup.resetMarkers();return;}savedLandmarks=null;rotation.forEach(s=>s.value=0);$('rigHeight').value=1.7;$('rigOffset').value=0;changeRig();};
  $('rigSymmetry').onchange=()=>rigSetup.setSymmetry($('rigSymmetry').checked);
  $('confirmRigSetup').onclick=async()=>{
   const options=rigOptions(),j=getJob(),button=$('confirmRigSetup');
   if(!j||j.id!==rigJobId){closeRig();return;}
+  if(rigStep===0&&$('rigMode').value==='creature'){
+   if(!creatureRigAvailable||isBusy()||button.disabled)return;
+   const source=rigSourcePreview?rigSourceId(j):j.id;
+   if(!source)return;
+   button.disabled=true;
+   $('animationNotice').textContent='';
+   try{
+    const result=await api(`/api/jobs/${source}/rig`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'creature'})});
+    closeRig();
+    await startJob(result.id,{rig:true});
+   }catch(error){$('animationNotice').textContent=t(error.message);}
+   finally{button.disabled=false;render();}
+   return;
+  }
   if(rigStep===0){
    if(!$('rigHeightNumber').reportValidity())return;
    $('animationNotice').textContent='';showRigStep(1);
@@ -166,9 +436,15 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
    }});return;
   }
   options.landmarks=rigSetup.getLandmarks();button.disabled=true;$('animationNotice').textContent='';
+  const profile=$('rigProfile').value;
+  if(rigHandDescriptions[profile])options.articulated_fingers=$('rigArticulatedFingers').checked;
+  if(profile&&profile!=='auto')options.profile=profile;
   try{
    const status=await api('/api/status');
    if(!status.features?.includes('rig_landmarks'))throw Error(t('Restart TRELLIS to enable manual joint placement before creating this rig.'));
+   if((options.profile&&!availableRigProfiles(status).includes(options.profile))||(rigSourcePreview&&!options.profile)){
+    throw Error(t('This skeleton profile is no longer available. Close the setup and select an available profile.'));
+   }
    if(getJob()?.id!==j.id||rigJobId!==j.id)return;
    const result=await api(`/api/jobs/${j.id}/rig`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(options)});
    closeRig();await startJob(result.id,{rig:true});
@@ -213,12 +489,19 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  }
 
  function render(){
-  const job=getJob(),rigged=hasRig(job),done=job?.state==='done';
+  const job=getJob();
   if(selectionTarget!==job?.id||!batchAvailable)resetSelection();
   selectionTarget=job?.id;
-  $('animationModel').textContent=nameOf(job);$('createRig').hidden=rigged;
-  const bones=job?.result?.bones||job?.media?.bones;
-  $('animationRigState').textContent=rigged?(bones?t(bones===1?'{count} bone · ready to animate':'{count} bones · ready to animate',{count:bones}):t('Rigged · ready to animate')):done?t('Add a rig to use the motion library.'):t('Open a completed model from the collection.');
+  $('animationModel').textContent=nameOf(job);
+  checkRigSource(job);
+  renderRigTarget(job);
+  const editing=creatureEditor.sync(job,creatureRigAvailable&&!$('rigPanel').hidden,{tentacles:tentacleAvailable,swim:swimAvailable});
+  syncSwimEditor(job,editing);
+  if(editing)return;
+  if(isCreatureRig(job)&&!isCreatureRigDraft(job)&&creatureClipTarget!==job.id){
+   creatureClipTarget=job.id;
+   setAnimationTab('Added');
+  }
   const q=$('animationSearch').value.toLocaleLowerCase(),added=embeddedClips(job),addedTab=tab==='added',personalTab=tab==='personal';
   $('animationAddedCount').textContent=added.length;
   $('animationDurationControl').hidden=tab!=='library';
@@ -270,9 +553,21 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   updateSelectionControls(job);
  }
  const tabs=['Library','Personal','Added'];
+ function setAnimationTab(name){
+  tab=name.toLowerCase();
+  for(const candidate of tabs){
+   const button=$('animationTab'+candidate);
+   const active=candidate===name;
+   button.classList.toggle('active',active);
+   button.setAttribute('aria-selected',String(active));
+   button.tabIndex=active?0:-1;
+  }
+  resetSelection();
+  $('animationSearch').value='';
+ }
  for(const [index,name] of tabs.entries()){
   const button=$('animationTab'+name);
-  button.onclick=()=>{tab=name.toLowerCase();for(const t of tabs){const active=t===name;$('animationTab'+t).classList.toggle('active',active);$('animationTab'+t).setAttribute('aria-selected',String(active));$('animationTab'+t).tabIndex=active?0:-1;}resetSelection();$('animationSearch').value='';render();};
+  button.onclick=()=>{setAnimationTab(name);render();};
   button.tabIndex=index===0?0:-1;
   button.onkeydown=event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;const target=$('animationTab'+tabs[next]);target.click();target.focus();};
  }
@@ -284,20 +579,26 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
    const generated=getJob()?.settings?.generated_animation_clips?.find(clip=>clip.clip===name)||personal.findClip(name);
    if(generated)return generated.name+(Number.isFinite(generated.duration)?` · ${generated.duration.toLocaleString(formatLocale)} s`:'');
    const clip=authoredMotion(name);
-   return clip?`${clip.title} · ${clip.duration.toLocaleString(formatLocale)} s`:name;
+   return clip?`${clip.title} · ${clip.duration.toLocaleString(formatLocale)} s`:isCreatureRig(getJob())?t(name):name;
   },
   setCapabilities(status){
    batchAvailable=status.features?.includes('animation_batch')===true;
    removeAvailable=status.features?.includes('animation_clip_removal')===true;
+   creatureRigAvailable=status.edition==='desktop'&&status.features?.includes('creature_rig')===true;
+   tentacleAvailable=creatureRigAvailable&&status.features?.includes('creature_tentacles')===true;
+   swimAvailable=creatureRigAvailable&&status.features?.includes('creature_swim')===true;
+   rigProfiles=availableRigProfiles(status);
   },
   modelLoaded(){
-   if(tab==='added'||!Array.isArray(getJob()?.media?.animation_items))render();
+   if(isCreatureRigDraft(getJob())||tab==='added'||!Array.isArray(getJob()?.media?.animation_items))render();
+   playUpdatedSwim();
   },
   update(){
    const job=getJob();
-   if(rigJobId&&rigJobId!==job?.id)closeRig();
-   const key=JSON.stringify([job?.id,job?.state,job?.result?.bones,job?.result?.rigged,job?.result?.revision,
-    job?.media?.bones,job?.media?.animation_items,job?.media?.animation_names,job?.media?.animation_revision,isBusy(),rigSetup?.ready,batchAvailable,removeAvailable]);
+   if((rigJobId&&rigJobId!==job?.id)||(openingRig&&openingRig.jobId!==job?.id))closeRig();
+   const key=JSON.stringify([job?.id,job?.state,job?.media?.available,job?.result?.creature_motion,job?.result?.bones,job?.result?.rigged,job?.result?.revision,
+    job?.result?.rig_profile,job?.result?.rig_skipped_clips,rigProfiles,job?.media?.bones,job?.media?.animation_items,
+    job?.media?.animation_names,job?.media?.animation_revision,isBusy(),rigSetup?.ready,batchAvailable,removeAvailable,creatureRigAvailable,tentacleAvailable,swimAvailable]);
    if(signature!==key){signature=key;render();}
   },
   render,

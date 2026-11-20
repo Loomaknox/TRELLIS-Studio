@@ -12,6 +12,12 @@
 !/animation_worker.py
 !/api_contract.py
 !/app.py
+!/creature_rig.py
+!/creature_api.py
+!/creature_tentacles.py
+!/creature_swim.py
+!/creature_swim_skin.py
+!/creature_motion.py
 !/studio_release.py
 !/asset_taxonomy.py
 !/asset_work.py
@@ -25,6 +31,7 @@
 !/normal_glb.py
 !/generation_profiles.py
 !/glb_data.py
+!/creature_verification.py
 !/humanoid_mapping.py
 !/import_blender.py
 !/import_worker.py
@@ -38,6 +45,8 @@
 !/retarget_catalogue.py
 !/retarget_motions.py
 !/rig_worker.py
+!/rig_profiles_blender.py
+!/rig_expert_blender.py
 !/rig_landmarks.py
 !/rig_joint_placement.py
 !/standard_animations.py
@@ -95,7 +104,12 @@
 !/tests/server_lan.py
 !/tests/rig_landmarks.py
 !/tests/rig_landmarks_api.py
+!/tests/creature_rig_api.py
+!/tests/creature_motion_blender.py
+!/tests/creature_rig_editor.mjs
 !/tests/rig_landmarks_blender.py
+!/tests/rig_profiles_api.py
+!/tests/rig_profiles_blender.py
 !/tests/texture_projection.py
 !/tests/studio_release.py
 !/tests/texture-projection-geometry.mjs
@@ -144,6 +158,8 @@
 !/web/animation-studio.css
 !/web/animation-studio.js
 !/web/rig-setup-viewer.js
+!/web/creature-rig-editor.js
+!/web/creature-rig-viewer.js
 !/web/api-reference.css
 !/web/asset-details.js
 !/web/asset-placeholder.svg
@@ -217,6 +233,7 @@
 !/UniRig/skeleton-preview.py
 !/UniRig/skeleton_alignment.py
 !/UniRig/apply-landmarks.py
+!/UniRig/apply-creature.py
 !/UniRig/verify-landmarks.py
 !/UniRig/restore-skin-frame.py
 !/UniRig/transfer-skin.py
@@ -388,3 +405,5 @@
 !/web/language-selector.js
 !/web/language-selector.css
 !/tests/i18n.mjs
+!/tests/creature_tentacles.py
+!/tests/creature_swim.py

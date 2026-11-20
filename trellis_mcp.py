@@ -246,8 +246,8 @@ async def prepare_print_copy(model_id:Identifier,settings:PrintCopy)->dict[str,A
 
 @tool()
 async def rig_model(model_id:Identifier,settings:Rig)->dict[str,Any]:
-    """Run UniRig on a linked copy with orientation, height, vertical offset and optional frontal joint landmarks. Does not alter the source."""
-    return await api('POST','/models/'+model_id+'/rig',settings.model_dump(exclude_none=True))
+    """Run UniRig on a linked copy with orientation, height, offset, landmarks and an optional enabled humanoid profile."""
+    return await api('POST','/models/'+model_id+'/rig',settings.model_dump(exclude_none=True, exclude_unset=True))
 
 @tool()
 async def add_animation(model_id:Identifier,motion:Animation)->dict[str,Any]:

@@ -12,6 +12,18 @@
 
 .rig-preparing #animationSearch,.rig-preparing .animation-tabs,.rig-preparing .animation-target{display:none}.rig-preparing #sourceThumb,.rig-preparing #viewerTools,.rig-preparing .viewport-docks{visibility:hidden}
 .rig-preparing .view-tabs,.rig-preparing .angle-tools,.rig-preparing #stats,.rig-preparing .orbit-help{visibility:hidden}
+.rig-preparing.rig-orienting .angle-tools{visibility:visible}
+.rig-orienting .angle-tools [data-angle="back"],.rig-orienting .angle-tools [data-angle="top"]{display:none}
+.animation-target #createRig[hidden]{display:none}
+.rig-preparing .animation-player{visibility:hidden}
+.rig-source-preview .hologram-overlay{visibility:hidden}
+#rigProfileControls{margin:14px 0;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--panel-card)}
+#rigProfileControls .field{margin:0}
+#rigProfileDescription{margin:8px 0 0}
+.rig-module{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px}
+.rig-module[hidden]{display:none}
+.rig-module input{width:auto;accent-color:var(--accent)}
+#animationRigSkipped,#animationRigSourceNotice{overflow-wrap:anywhere}
 
 #animationDurationControl[hidden] { display: none; }
 #animationClipNotice { margin: 0 0 12px; color: #cbdcba; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
@@ -62,3 +74,31 @@
 .added-motion-actions button { min-height: 30px; padding: 5px 7px; font-size: 10px; }
 .added-motion-actions button[data-remove-clip]:hover { color: #f1b7a5; }
 #animationRemoveName { overflow-wrap: anywhere; }
+#creatureRigEditor { margin-block: 14px 20px; }
+#creatureRigEditor [hidden] { display: none !important; }
+#creatureRigEditor header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+#creatureRigEditor h2 { margin: 0; font-size: 16px; }
+#creatureBoneCount { color: var(--accent); font-size: 11px; }
+#creatureRigStatus:empty { display: none; }
+#creatureRigEditor input, #creatureRigEditor select { min-width: 0; }
+.creature-bone-vector { border: 0; margin: 10px 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.creature-bone-vector label { min-width: 0; font-size: 10px; }
+.creature-bone-vector legend { font-size: 11px; padding: 0; }
+.creature-bone-vector input { width: 100%; margin-top: 2px; padding: 5px; font-variant-numeric: tabular-nums; }
+.creature-chain { margin: 14px 0; }
+.creature-chain summary { cursor: pointer; margin-bottom: 6px; }
+.creature-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+#creatureTentacleCounts { width: 100%; margin-top: 8px; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
+#creatureTentacleCounts th, #creatureTentacleCounts td { padding: 5px 3px; text-align: right; border-bottom: 1px solid var(--line); }
+#creatureTentacleCounts :is(th, td):first-child { text-align: left; }
+.creature-swim-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.creature-swim-fields .field { min-width: 0; margin: 0; justify-content: space-between; }
+.creature-swim-fields input { min-width: 0; width: 100%; font-variant-numeric: tabular-nums; }
+#creatureTentacleStatus:empty, #creatureSwimStatus:empty, #creatureSwimEditor[hidden], .creature-swim-fields[hidden] { display: none; }
+#creatureSwimEditor summary { margin-bottom: 10px; }
+.creature-swim-fields input:disabled { opacity: .65; }
+.creature-rig-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.creature-rig-actions button { font-size: 11px; }
+.creature-rig-point { --marker-color: #ffc780; width: 17px; height: 17px; }
+.creature-rig-tail { border-style: dashed; }
+.creature-rig-editing #rigPanel > .animation-tabs { display: none; }

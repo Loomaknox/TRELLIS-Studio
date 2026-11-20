@@ -46,7 +46,7 @@ def recover(folder):
     marker.unlink()
 
 
-def publish_operation(folder, operation, state, revision, allow_active=False):
+def publish_operation(folder, operation, state, revision, allow_active=False, *, glb_authoritative=False):
     """Publish an already verified server animation update with a reversible commit."""
     if not ID.fullmatch(operation.name) or not folder.is_dir() or folder.resolve() != folder:
         raise ValueError('The source model is no longer available.')
@@ -79,7 +79,7 @@ def publish_operation(folder, operation, state, revision, allow_active=False):
         if (not isinstance(files, list) or len(files) != len(set(files))
                 or not {'model.glb','result.json','settings.json'} <= set(files) or not set(files) <= allowed):
             raise ValueError('Invalid animation update files.')
-        if (folder/'model.blend').is_file() and 'model.blend' not in files:
+        if not glb_authoritative and (folder/'model.blend').is_file() and 'model.blend' not in files:
             raise ValueError('The model’s Blender companion was not refreshed.')
     result = state.get('result')
     if not isinstance(result, dict) or any(not (operation/name).is_file() for name in files):
@@ -105,7 +105,8 @@ def publish_operation(folder, operation, state, revision, allow_active=False):
                 os.link(target, backup)
             except OSError:
                 shutil.copy2(target, backup)
-        write(marker, dict(stage=stage.name, files=names, missing=missing))
+        write(marker, dict(stage=stage.name, files=names, missing=missing,
+                           glb_authoritative=glb_authoritative))
         for name in removed:
             (folder/name).unlink(missing_ok=True)
         for name, source in replacements.items():

@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="/web/release-notification.css?v=1">
 <script type="importmap">{"imports":{"three":"/vendor/build/three.module.js","three/addons/":"/vendor/examples/jsm/"}}</script>
 <script type="module" src="/web/release-notification.js?v=3.11.0-i18n"></script>
-<link rel="stylesheet" href="/web/animation-studio.css?v=3.4.0"><link rel="stylesheet" href="/web/details.css?v=studio-visual-refresh"><link rel="stylesheet" href="/web/studio-tools.css?v=3.9.0"><link rel="stylesheet" href="/web/lighting.css?v=studio-visual-refinement"><link rel="stylesheet" href="/web/workbench.css?v=detail-refinement-native"><link rel="stylesheet" href="/web/personal-animation.css?v=3.4.0"><link rel="stylesheet" href="/web/texture-projection.css?v=3.9.0">
+<link rel="stylesheet" href="/web/animation-studio.css?v=creature-swim"><link rel="stylesheet" href="/web/details.css?v=studio-visual-refresh"><link rel="stylesheet" href="/web/studio-tools.css?v=3.9.0"><link rel="stylesheet" href="/web/lighting.css?v=studio-visual-refinement"><link rel="stylesheet" href="/web/workbench.css?v=detail-refinement-native"><link rel="stylesheet" href="/web/personal-animation.css?v=3.4.0"><link rel="stylesheet" href="/web/texture-projection.css?v=3.9.0">
 <link rel="stylesheet" href="/web/studio-panels.css?v=studio-visual-refinement">
 <link rel="stylesheet" href="/web/studio-shell.css?v=studio-visual-refresh">
 <link rel="stylesheet" href="/web/language-selector.css?v=1">
@@ -173,10 +173,20 @@
 <form id="terrainForm" hidden><p class="hint">Procedural terrain, independent of the image-to-3D engine.</p><label class="field">Name<input id="terrainName" value="Terrain-Blackwater" maxlength="50" required></label><label class="field">Terrain<select id="terrainStyle"><option value="hills">Hills</option><option value="mountains">Rocky terrain</option><option value="basin">Basin</option><option value="plateau">Plateaus</option></select></label><div class="two-fields"><label class="field">Side length<select id="terrainSize"><option value="64">64 m</option><option value="128">128 m</option><option value="256" selected>256 m</option><option value="512">512 m</option><option value="1024">1 024 m</option></select></label><label class="field">Maximum elevation<input id="terrainHeight" type="number" min="1" max="250" value="32"></label></div><label class="field">Palette<select id="terrainPalette"><option value="blackwater">Blackwater</option><option value="dry">Dry ground</option><option value="ash">Ash</option></select></label><label class="field">Detail <output id="roughnessValue">55 %</output><input id="roughness" type="range" min=".1" max=".9" step=".05" value=".55"></label><label class="field">Flat area <output id="flatValue">15 %</output><input id="flatZone" type="range" min="0" max=".4" step=".05" value=".15"></label><div class="two-fields"><label class="field">Heightmap<select id="terrainResolution"><option>129</option><option selected>257</option><option>513</option></select></label><label class="field">Seed<input id="terrainSeed" type="number" min="0" max="2147483647" value="42"></label></div><p class="hint">No caves, overhangs or roads are generated. Materials remain editable.</p><button id="createTerrain" class="primary generate-button">Create terrain <span>↗</span></button></form>
 <section id="rigPanel" hidden>
 <div class="animation-tabs" role="tablist" aria-label="Animation libraries"><button id="animationTabLibrary" type="button" role="tab" aria-selected="true" class="active">Standard</button><button id="animationTabPersonal" type="button" role="tab" aria-selected="false">My animations <b id="personalAnimationCount">0</b></button><button id="animationTabAdded" type="button" role="tab" aria-selected="false">Added <b id="animationAddedCount">0</b></button></div>
-<div class="animation-target"><strong id="animationModel">Choose a model</strong><p id="animationRigState"></p><button id="createRig" class="secondary" type="button"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#skeleton"/></svg>Add rig</button></div>
+<div class="animation-target"><strong id="animationModel">Choose a model</strong><p id="animationRigState"></p><p id="animationRigSkipped" hidden></p><p id="animationRigSourceNotice" role="status" hidden></p><button id="createRig" class="secondary" type="button"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#skeleton"/></svg><span>Add rig</span></button></div>
 <section id="rigSetup" hidden>
  <span id="rigStepLabel" class="eyebrow">01 / Size &amp; orientation</span><h2>Prepare character rig</h2>
- <div id="rigTransformStep"><p class="hint">Face the character forward, with feet on the ground. Compare its size with the fixed 1.70 m reference.</p><div id="rigRotationControls"></div>
+ <label id="rigModeField" class="field" hidden>Rig type
+  <select id="rigMode"><option value="humanoid">Humanoid</option><option value="creature">Creature</option></select>
+ </label>
+ <div id="rigTransformStep">
+ <div id="rigProfileControls" hidden>
+  <label class="field">Skeleton profile<select id="rigProfile" aria-describedby="rigProfileDescription"></select></label>
+  <p id="rigProfileDescription" class="hint" aria-live="polite"></p>
+  <label id="rigFingerControls" class="rig-module" hidden><input id="rigArticulatedFingers" type="checkbox" checked> Individually articulated fingers</label>
+ </div>
+ <p id="rigSourcePreviewHint" class="hint" hidden>Joint placement uses the original unrigged model.</p>
+ <p class="hint">Face the character forward, with feet on the ground. Compare its size with the fixed 1.70 m reference.</p><p class="hint">Check the left or right view before placing the landmarks from the front.</p><div id="rigRotationControls"></div>
  <label class="field">Target height <span><input id="rigHeight" type="range" min="0.2" max="3" value="1.7" step="0.01"><output id="rigHeightValue">1.70 m</output></span></label>
  <label class="field rig-height-number">Height in metres<input id="rigHeightNumber" type="number" min="0.2" max="3" step="0.01" value="1.7"></label>
  <label class="field">Vertical offset <span><input id="rigOffset" type="range" min="-1" max="1" value="0" step="0.01"><output id="rigOffsetValue">0 m</output></span></label></div>
@@ -184,9 +194,67 @@
  <div class="rig-marker-key"><span style="--marker-color:#6bd7e8">Chin</span><span style="--marker-color:#e6d56a">Shoulders</span><span style="--marker-color:#8fdf83">Elbows</span><span style="--marker-color:#d990d9">Wrists</span><span style="--marker-color:#e2e8db">Groin</span><span style="--marker-color:#e8a365">Knees</span><span style="--marker-color:#b6d76b">Ankles</span></div>
  <label class="rig-symmetry"><input id="rigSymmetry" type="checkbox" checked> Mirror paired markers</label><output id="rigSelectedPoint" class="rig-selected-point" aria-live="polite"></output>
  <p class="hint">Starting markers are a guide. Check every joint before confirming. Depth is estimated from the model.</p></div>
+ <p id="rigCreatureStep" class="hint" hidden>UniRig proposes bones from the 3D mesh. Review the joints and branches before applying skin weights.</p>
  <div class="rig-setup-actions"><button id="resetRigSetup" class="secondary" type="button">Reset</button><button id="cancelRigSetup" class="quiet" type="button">Cancel</button><button id="confirmRigSetup" class="primary" type="button">Next · place joints</button></div>
 </section>
 <p id="animationNotice" role="status" aria-live="polite"></p>
+<section id="creatureRigEditor" hidden aria-labelledby="creatureRigHeading">
+ <header><h2 id="creatureRigHeading">Creature skeleton</h2><output id="creatureBoneCount" aria-live="polite"></output></header>
+ <p id="creatureRigStatus" class="hint" role="status"></p>
+  <details id="creatureTentacles" class="creature-chain" hidden>
+   <summary>Tentacles</summary>
+   <label class="field">Target bone spacing (m)<input id="creatureTentacleSpacing" type="number" min="0.05" max="0.50" step="0.01" value="0.19" required></label>
+   <button type="button" class="secondary" id="creatureAdaptTentacles">Adapt tentacles</button>
+   <p id="creatureTentacleStatus" class="hint" role="status"></p>
+   <table id="creatureTentacleCounts" hidden>
+    <thead><tr><th scope="col">Chain</th><th scope="col">Length</th><th scope="col">Bones</th></tr></thead><tbody></tbody>
+   </table>
+  </details>
+ <form id="creatureRigForm" hidden>
+  <fieldset id="creatureSkeletonEditFields" class="creature-fields">
+  <p class="hint">Select a bone, then drag its endpoints in the 3D view or enter coordinates in metres.</p>
+  <div class="two-fields">
+   <label class="field">Bone<select id="creatureBone"></select></label>
+   <label class="field">Parent bone<select id="creatureBoneParent"></select></label>
+  </div>
+  <label class="field">Bone name<input id="creatureBoneName" type="text" maxlength="63" required></label>
+  <fieldset id="creatureBoneHead" class="creature-bone-vector"><legend>Start</legend></fieldset>
+  <fieldset id="creatureBoneTail" class="creature-bone-vector"><legend>End</legend></fieldset>
+  <label class="rig-module"><input id="creatureMoveJoined" type="checkbox" checked> Move connected endpoints together</label>
+  <details class="creature-chain">
+   <summary>Edit branches</summary>
+   <label class="field">Segments<input id="creatureChainSegments" type="number" min="1" max="64" step="1" value="3" required></label>
+   <div class="creature-rig-actions">
+    <button type="button" class="secondary" id="creatureAddBranch">Add chain</button>
+    <button type="button" class="secondary" id="creatureSplitBone">Split bone</button>
+    <button type="button" class="quiet" id="creatureRemoveBranch">Remove branch</button>
+   </div>
+  </details>
+  </fieldset>
+  <label class="field">Procedural preview motion<select id="creatureMotion" aria-describedby="creatureMotionHint">
+   <option value="test" selected>Deformation test</option>
+   <option value="quadruped">Quadruped stride</option>
+   <option value="serpentine">Serpentine undulation</option>
+   <option value="winged">Wing beat</option>
+   <option value="swim" hidden disabled>Jellyfish swim</option>
+   <option value="none">No preview motion</option>
+  </select></label>
+  <div id="creatureDraftSwimFields" class="creature-swim-fields" hidden></div>
+  <p id="creatureMotionHint" class="hint">If the skeleton does not fit the chosen motion, the deformation test is used.</p>
+  <div class="creature-rig-actions">
+   <button id="creatureResetDraft" type="button" class="quiet">Reset prediction</button>
+   <button id="creatureCompleteRig" type="submit" class="primary">Calculate skin weights</button>
+  </div>
+ </form>
+</section>
+<details id="creatureSwimEditor" class="creature-chain" hidden>
+ <summary>Jellyfish swim</summary>
+ <form id="creatureSwimForm">
+  <div id="creatureFinalSwimFields" class="creature-swim-fields"></div>
+  <button type="submit" class="primary" id="creatureApplySwim">Apply and play swim</button>
+  <p id="creatureSwimStatus" class="hint" role="status"></p>
+ </form>
+</details>
 <div id="animationLibraryControls">
  <details id="personalAnimationComposer" class="personal-motion-composer" hidden aria-labelledby="personalMotionHeading">
   <summary class="personal-motion-summary"><span class="personal-motion-symbol"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#motion"/></svg></span><span class="personal-motion-heading"><span class="eyebrow">TEXT TO MOTION <span class="personal-motion-beta">EXPERIMENTAL</span></span><span id="personalMotionHeading">Generate a motion</span></span><span class="personal-composer-expand" aria-hidden="true">+</span></summary>
@@ -246,7 +314,7 @@
 <dialog id="animationRemoveDialog" aria-labelledby="animationRemoveTitle" aria-describedby="animationRemoveDescription"><form method="dialog"><h2 id="animationRemoveTitle">Remove animation?</h2><p id="animationRemoveDescription">Remove <strong id="animationRemoveName"></strong> from this model?</p><div class="dialog-actions"><button value="cancel" class="secondary" autofocus>Keep clip</button><button value="remove" class="danger has-icon"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#trash"/></svg>Remove clip</button></div></form></dialog>
 <dialog id="imageDialog"><button class="dialog-close" id="closeImage">Close ×</button><img id="largeImage" alt="Full-size texture or UV layout"></dialog>
 <footer><span>TRELLIS STUDIO</span><span>Reference → generation → review → Blender</span><span>UV & PBR · local compute</span></footer>
-<script type="module" src="/web/studio.js?v=3.11.0-i18n"></script><script type="module" src="/web/validation-en.js?v=3.11.0-i18n"></script>
+<script type="module" src="/web/studio.js?v=creature-swim"></script><script type="module" src="/web/validation-en.js?v=3.11.0-i18n"></script>
 <div id="refinishDialog" class="refinish-popover" popover="auto" role="dialog" aria-labelledby="refinishTitle">
 <form id="refinishForm">
   <header class="refinish-head">

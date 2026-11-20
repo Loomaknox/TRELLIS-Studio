@@ -150,6 +150,59 @@ deformations. Existing skinned models reject manual landmarks with HTTP 409;
 omitting `landmarks` preserves the previous rig workflow. Check the
 `rig_landmarks` feature in `/status` before submitting points to a running server.
 
+When `GET /status` advertises `rig_profiles`, `POST /models/{id}/rig` also
+accepts a `profile` of `simple`, `standard`, `advanced`, `expert` or
+`expressive`. An omitted profile and explicit `auto` use the existing route.
+Advanced, Expert and Expressive accept `articulated_fingers: false` for rigid
+hands and default to articulated hands. Expert has 25 body helpers. Expressive
+has 41 body helpers and produces 65 joints with rigid hands or 95 with articulated
+hands. Both profiles report the role-to-joint map in `result.rig_profile.body_helpers`.
+`GET /models/{id}/rig-source` returns the verified static source ID and its rig
+setup options. Profile creation uses a separate linked job in the same
+workspace. The result records the effective profile, joint count and skipped
+clip names. Standard library clips with supported recipes are rebuilt for the
+new skeleton. The legacy UI routes expose the same profile validation.
+
+On Studio Desktop, look for `creature_rig` in `/status`. Start an editable
+creature draft with `POST /models/{id}/rig` and `{"mode":"creature"}` on an
+unrigged mesh. This preserves the source orientation and scale. Poll the
+linked job's `status_url` until `state` is `done` and `rig_phase` is `draft`.
+`GET /models/{draftId}/rig-preview` provides `revision`, `max_bones` and
+the predicted `bones`. Each bone has a unique `name`, a `parent` name or
+`null` for the single root, and three-element `head` and `tail` coordinates
+in the original glTF Y-up model space.
+
+When `/status` lists `creature_tentacles`, send `revision` and `spacing_m`
+to `POST /models/{draftId}/rig-tentacles`. Spacing is 0.05–0.50 metres,
+default 0.19. The response contains `bones`, `chains` with measured length
+and segment count, and any `warnings`. The proposal is also available in the
+draft preview as `adapted_bones`. The proposal remains editable before skinning.
+
+Send the current `revision` and the full edited bone list to
+`POST /models/{draftId}/rig-complete`. Set `motion` to `test` (the default),
+`none`, `quadruped`, `serpentine`, `winged`, or `swim`. For `swim`, optionally
+include a nested `swim` object with the controls below. Completion calculates the
+weights for that hierarchy and keeps the draft ID. The preview also returns
+`edited_bones` and `motion` once a completion has been submitted, so an
+interrupted calculation can be resumed without starting prediction over.
+Inspect the final result for the motion applied and any compatibility
+warning. Creature rigs do not support the humanoid animation libraries.
+
+When `/status` lists `creature_swim`, `GET /models/{id}/creature-swim` returns
+`compatible`, `options`, and `clip_name` for a completed model. POST the options
+to the same route to generate or replace that swim clip in place. Other clips
+are preserved. The request returns the model ID and effective options. The
+swim settings travel with the animation inside the GLB.
+
+| Swim option | Default | Range |
+|---|---:|---:|
+| `duration_s` | 5.2 | 2–12 seconds |
+| `pulses` | 2 | 1–4 per loop |
+| `bell_amplitude` | 16 | 0–26 degrees |
+| `tentacle_amplitude` | 12 | 0–22 degrees |
+| `phase_lag` | 0.45 | 0–1.2 seconds |
+| `body_travel_m` | 0.17 | 0–0.35 metres |
+
 Generation, LOD, game preparation, print preparation and rigging create linked
 versions as described in the reference. Metadata, standard animation updates and
 generated-motion application operate on the selected record. Model deletion moves

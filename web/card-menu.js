@@ -1,4 +1,5 @@
 import {t} from './i18n.js';
+import {isCreatureRigDraft} from './creature-rig-editor.js';
 export function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.classList.add('ui-icon');svg.setAttribute('aria-hidden','true');const use=document.createElementNS(svg.namespaceURI,'use');use.setAttribute('href',`/web/icons.svg#${name}`);svg.append(use);return svg;}
 export function createCardMenu({version,remove,details,print,compare,diagnostics,export:exportModel,history,folder,lod,game,refinish,finishingBoard}){
   const menu=document.getElementById('assetMenu');let trigger=null,job=null;
@@ -39,9 +40,11 @@ export function createCardMenu({version,remove,details,print,compare,diagnostics
   return {close,button(j,{busy,features,activeId}){
     const b=document.createElement('button');b.type='button';b.className='card-more';b.append(icon('more'));b.setAttribute('aria-label',t('Actions for {name}',{name:j.metadata?.display_name||j.settings.name}));b.setAttribute('aria-haspopup','menu');b.setAttribute('aria-controls','assetMenu');b.setAttribute('aria-expanded','false');
     b.onclick=e=>{e.stopPropagation();if(trigger===b&&menu.matches(':popover-open')){close();return;}close();trigger=b;job=j;
-      menu.querySelector('[data-action=version]').disabled=busy;
-      menu.querySelector('[data-action=print]').disabled=busy||j.state!=='done';
+      const draft=isCreatureRigDraft(j);
+      menu.querySelector('[data-action=version]').disabled=busy||draft;
+      menu.querySelector('[data-action=print]').disabled=busy||draft||j.state!=='done';
       for(const action of ['compare','diagnostics','export','history','lod','game'])menu.querySelector(`[data-action=${action}]`).disabled=j.state!=='done';
+      if(draft)for(const action of ['compare','diagnostics','export','lod','game'])menu.querySelector(`[data-action=${action}]`).disabled=true;
       const refinishItem=menu.querySelector('[data-action=refinish]');
       refinishItem.hidden=!j.can_refinish;
       refinishItem.disabled=busy||!j.can_refinish;
