@@ -22,7 +22,8 @@ MAX_METADATA_BYTES = 512 * 1024
 
 
 def render_studio_version(page):
-    return page.replace('<!--studio-current-version-->', escape(VERSION), 1)
+    version = escape(VERSION)
+    return page.replace('<!--studio-current-version-->', version, 1).replace('<!--studio-ui-revision-->', version, 1)
 
 
 def _version(value):

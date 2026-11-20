@@ -11,7 +11,8 @@ DENSE_MASTER_NAME = 'Dense Master'
 DENSE_MASTER_TRIANGLES = 1_200_000
 MASTER_FINISHING_TRIANGLES = 3_000_000
 MASTER_FINISHING_TEXTURE = 4096
-MASTER_FINISHING_METHODS = ('wtivo_1024', 'studio_768')
+HI3D_FINISHING_METHODS = ('hi3d_512', 'hi3d_1024')
+MASTER_FINISHING_METHODS = ('wtivo_1024', 'studio_768', *HI3D_FINISHING_METHODS)
 DENSE_MASTER_FINISHING = dict(mesh_mode='direct', pre_simplify=False, repair_holes=False)
 SURFACE_REPAIR_FINISHING = dict(mesh_mode='remesh', pre_simplify=False, repair_holes=True,
                                 remesh_project=.45, remesh_band=1.)
@@ -32,6 +33,34 @@ def validate_hd_reconstruction(enabled, *, preset=None, resolution, repair_surfa
         raise ValueError('Choose Dense Master to use HD Reconstruction.')
     if resolution < HD_RECONSTRUCTION_FINISHING['remesh_resolution']:
         raise ValueError('HD Reconstruction requires a 1024 or 1536 geometry source.')
+
+
+def validate_create_master_finishing(method, *, preset, resolution, triangles,
+                                     repair_surface=False, hd_reconstruction=False,
+                                     engine='trellis2'):
+    if method is None or method == '':
+        return
+    if method not in MASTER_FINISHING_METHODS:
+        raise ValueError('Choose a supported master finishing method.')
+    if method in HI3D_FINISHING_METHODS:
+        if preset != DENSE_MASTER or resolution not in (512, 1024, 1536) or engine != 'trellis2':
+            raise ValueError('Hi3D requires the HD Master profile with a supported TRELLIS.2 single-image resolution.')
+    elif preset != DENSE_MASTER or resolution < 1024:
+        raise ValueError('Master finishing requires the HD Master profile at 1024 or higher.')
+    if repair_surface or hd_reconstruction:
+        raise ValueError('Choose one master finishing method.')
+    if not TRIANGLE_MIN <= triangles <= MASTER_FINISHING_TRIANGLES:
+        raise ValueError(f'Choose an HD Master triangle ceiling between {TRIANGLE_MIN:,} and {MASTER_FINISHING_TRIANGLES:,}.')
+
+
+def master_finishing_options(method, options):
+    if method == 'studio_768':
+        return {**options, **HD_RECONSTRUCTION_FINISHING}
+    if method == 'wtivo_1024':
+        return {**options, **HD_RECONSTRUCTION_FINISHING, 'repair_holes': False, 'remesh_resolution': 1024}
+    if method in HI3D_FINISHING_METHODS:
+        return {**options, **DENSE_MASTER_FINISHING}
+    return options
 
 
 GENERATION_PRESETS = {
@@ -64,7 +93,7 @@ FIELDS += [
     number('texture_guidance','texture','Texture · guidance',1,0,10,.1),
     number('texture_rescale','texture','Texture · rescale',0,0,1,.05),
     number('texture_rescale_t','texture','Texture · timestep distribution',3,1,6,.1),
-    number('texture_seed','texture','Seed de texture',-1,-1,2147483647,1,True,'-1 continues the generation random sequence; a separate seed allows independent material comparisons.'),
+    number('texture_seed','texture','Texture seed',-1,-1,2147483647,1,True,'-1 continues the generation random sequence; a separate seed allows independent material comparisons.'),
     dict(key='texture_sampling',group='texture',label='Material voxel interpolation',type='choice',default='trilinear',choices=[
         dict(value='trilinear',label='Trilinear (smooth)'),dict(value='nearest',label='Nearest voxel (experimental)')]),
     dict(key='mesh_mode',group='mesh',label='Mesh finishing method',type='choice',default='remesh',choices=[

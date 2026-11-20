@@ -3,6 +3,7 @@ from copy import deepcopy
 import hashlib
 import io
 import json
+import math
 from pathlib import Path
 import struct
 import sys
@@ -17,8 +18,8 @@ from glb_data import read, accessor, image
 from model_finishing_worker import run as run_finishing_worker
 import texture_projection as projection
 from api_contract import TextureProjection
-from generation_view_projection import (digest, generation_reference_name, project_generation_texture,
-                                        PROVENANCE_FILE, save_generation_views)
+from generation_view_projection import (digest, generation_reference_name, inspect_generation_views,
+                                        project_generation_texture, PROVENANCE_FILE, save_generation_views)
 from pixal3d_runtime import CAMERA_FOV, camera_matrix
 from studio_workspace import read as read_record, write as write_record
 
@@ -215,6 +216,37 @@ class TextureProjectionTests(unittest.TestCase):
         self.assertEqual(status['state'], 'error')
         self.assertIn('changed before projection', status['error'])
         self.assertFalse(output.exists())
+
+    def test_estimated_generation_view_is_rebound_to_texture_copy(self):
+        model = self.root / 'model.glb'
+        model.write_bytes(self.source.read_bytes())
+        cutout = Image.new('RGBA', (896, 896))
+        cutout.paste('#cc7766', (100, 100, 796, 796))
+        prepared = self.root / generation_reference_name('front')
+        staged = self.root / generation_reference_name('front', staged=True)
+        cutout.save(prepared)
+        staged.write_bytes(prepared.read_bytes())
+        fov = math.radians(29)
+        camera = camera_matrix(0)
+        camera[1][3] = -.5 / math.tan(fov / 2)
+        view = dict(role='front', azimuth=0, sha256=digest(prepared), camera_angle_x=fov, transform_matrix=camera)
+        save_generation_views(self.root, dict(scale=1, translation=[0, 0, 0], coordinate_system='y_up'),
+                              [view], camera_model='moge')
+        provenance = read_record(self.root / PROVENANCE_FILE)
+        request = dict(operation='texture_projection', result={}, generation_views=provenance,
+                       retained_generation_views=provenance)
+        write_record(self.root / 'finishing-request.json', request)
+        run_finishing_worker(self.root)
+        status = read_record(self.root / 'status.json')
+        self.assertEqual(status['state'], 'done')
+        report = status['result']['texture_projection']
+        self.assertTrue(report['generation_views_retained'])
+        self.assertGreater(report['projected_texels'], 0)
+        capability, retained = inspect_generation_views(self.root, model, {'engine': 'pixal3d'}, True, '')
+        self.assertEqual(capability, dict(supported=True, reason='', views=['front'], camera_model='moge'))
+        self.assertEqual(retained['model_sha256'], digest(model))
+        self.assertNotEqual(retained['model_sha256'], provenance['model_sha256'])
+        self.assertEqual(retained['views'], provenance['views'])
 
     def test_two_views_preserve_geometry_and_paint_separate_front_and_rear_islands(self):
         rear = self.root / 'rear.png'

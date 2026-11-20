@@ -11,6 +11,7 @@ const icon = name => `<svg class="ui-icon" aria-hidden="true"><use href="/web/ic
 
 export function createReferencePreview({api, multiview, removeBackground}) {
   const button = document.getElementById('openReferencePreview');
+  const cropButton = document.getElementById('cropReference');
   const summary = document.getElementById('referenceEditSummary');
   const dialog = document.createElement('dialog');
   dialog.className = 'studio-dialog reference-preview';
@@ -108,14 +109,16 @@ export function createReferencePreview({api, multiview, removeBackground}) {
   const edits = () => draft[role] || {};
   const crop = () => edits().crop || fullCrop;
   const strokes = () => edits().strokes || [];
-  const context = (removeBg = removeBackground.checked) => multiview.active ? 'pixal3d' : `trellis2:${Boolean(removeBg)}`;
+  const context = (removeBg = removeBackground.checked) => multiview.usesPixal
+    ? multiview.method : `trellis2:${Boolean(removeBg)}`;
 
   function selectedEdits(value) {
     return multiview.active ? value : value.front ? {front: value.front} : {};
   }
 
   function sync(disabled) {
-    button.disabled = disabled || !multiview.hasFront;
+    button.disabled = cropButton.disabled = disabled || !multiview.hasFront;
+    cropButton.hidden = !multiview.hasFront;
     const count = Object.keys(selectedEdits(saved)).length;
     const approved = approvedContext === context();
     summary.hidden = (!approved && !count) || !multiview.hasFront;
@@ -236,8 +239,8 @@ export function createReferencePreview({api, multiview, removeBackground}) {
       describeStatus();
       return;
     }
-    form.set('engine', multiview.active ? 'pixal3d' : 'trellis2');
-    form.set('remove_bg', String(removeBackground.checked));
+    form.set('engine', multiview.method);
+    form.set('remove_bg', String(multiview.usesPixal || removeBackground.checked));
     form.set('reference_edits', payload);
     const controller = new AbortController();
     request = controller;
@@ -355,7 +358,7 @@ export function createReferencePreview({api, multiview, removeBackground}) {
     image.removeAttribute('src');
     for (const choice of imageButtons) choice.querySelector('img').removeAttribute('src');
   });
-  button.onclick = () => {
+  async function openPreview(event) {
     draft = structuredClone(selectedEdits(saved));
     reviewed = '';
     role = 'front';
@@ -370,8 +373,12 @@ export function createReferencePreview({api, multiview, removeBackground}) {
     views = originals;
     renderViews();
     dialog.showModal();
-    void refreshPreview(form);
-  };
+    const cropShortcut = event.currentTarget === cropButton;
+    const initialFocus = document.activeElement;
+    await refreshPreview(form);
+    if (cropShortcut && dialog.open && document.activeElement === initialFocus) edgeInputs[0].focus();
+  }
+  button.onclick = cropButton.onclick = openPreview;
 
   return {
     get open() { return dialog.open; },
@@ -383,6 +390,13 @@ export function createReferencePreview({api, multiview, removeBackground}) {
     discard(role) {
       if (dialog.open) dialog.close();
       if (role) delete saved[role];
+      approvedContext = null;
+    },
+    swapSides() {
+      if (dialog.open) dialog.close();
+      [saved.left, saved.right] = [saved.right, saved.left];
+      if (!saved.left) delete saved.left;
+      if (!saved.right) delete saved.right;
       approvedContext = null;
     },
     restore(value, removeBg) {

@@ -37,13 +37,21 @@ storage estimates above. Kimodo itself requires no NVIDIA GPU or CUDA. See
 [Motion generation](docs/MOTION_GENERATION.md). Previously saved motions remain
 reusable when the optional engine is unavailable.
 
-UniRig's legacy Torch 2.5/CUDA 12.4/FlashAttention setup was validated on an Ada GPU.
-For sm_120 Blackwell GPUs, the source installer selects an experimental isolated
-Torch 2.8/CUDA 12.8 profile which requires a CUDA 12.8 compiler inside WSL.
-See [Blackwell prerequisites and validation](docs/BLACKWELL_SETUP.md) before running
-Full Setup on this hardware. Startup now tests real CUDA operators rather than
-GPU detection alone. Full rigging still needs target-device validation.
-`-SkipRig` leaves the Windows workflow available.
+**Optional Hi3D detail refinement:** Windows Setup can install the pinned Hi3D
+runtime and weights after checking the NVIDIA GPU and prompting for the model
+terms. Follow the [Hi3D guide](docs/HI3D.md) for eligibility, storage and manual
+configuration on a source installation.
+
+The source workflow below uses the pinned Torch 2.5/CUDA 12.4 UniRig
+environment, validated on an Ada GPU. The packaged Windows Setup selects a
+separate experimental profile for GeForce Blackwell. See the
+[Windows Setup GPU matrix](docs/WINDOWS_SETUP.md#gpu-profiles).
+`-SkipRig` leaves the native Windows generation workflow available.
+
+For a source installation using this fork's existing `blackwell-ready` marker,
+the previously validated isolated runtime remains selected. The source-build
+fallback is documented in [Blackwell setup](docs/BLACKWELL_SETUP.md); the new
+guided installer uses its own pinned GPU profiles and prebuilt packages.
 
 ## Prepare Windows
 
@@ -228,11 +236,21 @@ describes storage, prerequisites and manual configuration.
 when changing distributions. `TRELLIS_UNIRIG_ENV` can select a different Linux
 runtime directory; set it within the selected WSL user's environment.
 
-## Optional Pixal3D multi-view
+## Optional Pixal3D generation
 
 After installing the standard Studio, double-click **Install Pixal3D.cmd**. The installer downloads pinned ComfyUI source and Pixal3D checkpoints, verifies their sizes and SHA-256 hashes and installs dependencies separately under `models/pixal3d/`. Allow about **8.25 GiB** for those downloads plus the Python dependencies. Read the DINOv3 terms shown by the installer. The existing TRELLIS.2 environment, collection and profiles are used in place.
 
-Open Studio and enable **Multi-view · Pixal3D** in the **Reference image** card in Create. Upload the same character from the front and one to three additional angles. Choose **40°** for three-quarter side views or **90°** for side profiles. Use a consistent pose and show the whole body in each view. Generation runs locally in the usual queue. If GPU memory runs short, retry with fewer views or close other GPU workloads.
+In Create, select the **Pixal3D · Multi-view** generation method. Upload a front
+image and one to three additional views of the same subject. Choose **40°** for
+three-quarter views or **90°** for side profiles. Keep the subject's pose and
+scale consistent across images.
+
+To enable **Pixal3D · Single image**, run `"Install Pixal3D.cmd" --single-image`
+from Command Prompt in the Studio directory. The monoview checkpoint and
+MoGe-2 camera estimator add about **6.4 GiB** of pinned downloads. Select the
+method with one reference in Create. Both methods use the local queue and a
+1024 cascade. If GPU memory runs short, close other GPU workloads or select
+TRELLIS.2.
 
 The full Pixal3D installer also installs the small face detector. To add it to an existing Pixal3D installation, run `"Install Pixal3D.cmd" --face-only` from Command Prompt in the Studio directory. This downloads about 227 KiB. Refresh Studio to use **Reproject the original face photo**.
 

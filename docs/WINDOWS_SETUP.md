@@ -1,6 +1,6 @@
 # Windows x64 installer
 
-`TRELLIS-Studio-3.9.0-Setup-x64.exe` is the per-user NSIS installer for Windows x64.
+`TRELLIS-Studio-3.11.0-Setup-x64.exe` is the per-user NSIS installer for Windows x64.
 It copies the application and viewer, adds Start menu entries, and never installs
 GPU drivers, Blender or WSL. The executable is unsigned. Do not
 treat a SHA-256 checksum as an Authenticode signature.
@@ -9,17 +9,23 @@ treat a SHA-256 checksum as an Authenticode signature.
 
 1. Run Setup. The default folder is `%LOCALAPPDATA%\Programs\TRELLIS Studio`.
    First choose **TRELLIS Desktop (single user)** or **TRELLIS Server (multi-user)**.
-   Then select **Workshop only** or **Full Studio** for either edition. Both
-   Server options include first-time administrator setup and a choice of local,
-   LAN with your own certificate, or Internet with automatically managed HTTPS.
-   See [TRELLIS Server](SERVER.md) for domain, router and firewall settings.
-   Full Studio installs TRELLIS.2,
-   UniRig and Pixal3D during Setup. Allow around 29 GiB for model downloads plus
-   dependencies and roughly 100 GiB of free space for installation and caches.
-   Prepare a supported NVIDIA driver, Blender and Ubuntu 22.04 under WSL2 first.
-   The console displays progress and asks for explicit acceptance of the
-   DINOv3 terms. If a download or component fails, see `logs/full-setup.log`
-   in the installation folder and rerun Setup with **Full Studio** selected.
+   Both Server and Desktop include the Workshop and its standard animation files.
+   Server setup includes initial administrator creation and an access choice
+   covering local use, LAN HTTPS or automatic Internet HTTPS. See
+   [TRELLIS Server](SERVER.md) for network settings.
+   Review the NVIDIA GPU, driver and VRAM on **Check this PC**. Use **Browse**
+   to choose `blender.exe` when needed. Select TRELLIS.2, Pixal3D and UniRig
+   individually as offered. Allow around 29 GiB of model downloads plus
+   packages and roughly 100 GiB free for all three.
+   The installer asks for applicable model licences and tests the GPU packages
+   before the corresponding model downloads. If a component fails, use
+   **Repair or resume components** in the Start menu. See
+   `logs/component-setup.log` for the failing step.
+   **Hi3D detail refinement** is a separate selection for compatible NVIDIA GPUs.
+   On a new installation it is unchecked. Setup displays the detected GPU, driver
+   and VRAM guidance before downloading the model, and asks you to accept the
+   Hi3D Open License. See [Hi3D](HI3D.md) for storage and compatibility details.
+
    The separate **Optional motion generation** page offers Kimodo for either
    edition and component selection. It is unchecked by default. Selecting it
    requires explicit acceptance of the NVIDIA Open Model License and Meta Llama 3
@@ -41,7 +47,7 @@ treat a SHA-256 checksum as an Authenticode signature.
    preparation and export formats. Install Blender separately or set
    `TRELLIS_BLENDER` to its executable.
 
-Workshop and Full Studio both install pinned **PyMeshLab 2025.7.post1** for
+The Workshop installs pinned **PyMeshLab 2025.7.post1** for
 CPU-only HD-to-game reduction (about 55 MB downloaded from PyPI, not bundled in
 the executable). Setup verifies its native reduction filter with a small mesh.
 **Baked game copies** additionally need Blender 5.2 LTS for UVs and PBR/normal
@@ -70,9 +76,12 @@ for source-installation commands and portable Blender configuration.
 
 For local generation, stop the Studio with **Stop TRELLIS Studio** in the Start
 menu. Choose **Install TRELLIS generation** for the NVIDIA build without WSL, or
-**Install generation and UniRig** after setting up Ubuntu 22.04 in WSL. The
+**Install UniRig** after setting up Ubuntu 22.04 in WSL. The
 generation installer shows the DINOv3 terms before downloading the weights.
-**Install Pixal3D** is available once standard generation is installed. The
+**Install Pixal3D** is available once standard generation is installed. To add
+the optional **Pixal3D · Single image** method, run `"Install Pixal3D.cmd" --single-image`
+from the installation folder in Command Prompt. This adds approximately 6.4 GiB
+of checkpoint downloads to the Pixal3D installation. The
 [requirements and troubleshooting guide](../INSTALLATION.md) covers the driver,
 disk space, optional WSL setup and verified downloads.
 
@@ -105,13 +114,34 @@ when permanently retiring that installation; the per-user uninstaller does not e
 The optional Kimodo engine and verified cache in the Linux user's home directory
 are also retained; they are not embedded in the Setup executable or a collection ZIP.
 
+## GPU profiles
+
+The installer selects packages from [the GPU manifest](../installer/gpu-runtime-profiles.json)
+by CUDA compute capability. RTX 30 and 40 use the WSL CUDA 12.4 UniRig profile.
+RTX 50 select a separate experimental CUDA 12.8 profile. The Blackwell profile uses
+matching prebuilt FlashAttention, `cumm` and `spconv` packages, with
+[reproducible builds for the sparse-convolution wheels](https://github.com/fafraob/spconv-wheels).
+RTX 20 generation is experimental and UniRig is unavailable in this profile.
+GTX 10 can use the Workshop and CPU animation features where their prerequisites
+are met. VRAM below the 12 GB reference triggers an advisory, with TRELLIS.2 at
+512 as a starting point. GPU and export tests on a target card remain the basis
+for support claims.
+
+The Hi3D option checks for CUDA capability 8.6 or 8.9 and at least 8,000 MiB of
+detected VRAM, using the driver's existing native CUDA 12.8 requirement.
+Setup recommends Detail Refinement (512) below 12,000 MiB. The 1024 pass can
+need more memory on complex assets or when other applications are using the
+GPU. The Setup can continue with the other supported components on GPUs
+outside Hi3D's supported range.
+
 ## Build and qualify
 
-From a TRELLIS Studio checkout, install Python 3.11 or newer, Node.js and obtain
+Build the public installer from a clean checkout of the merged `main` commit.
+Install Python 3.11 or newer, Node.js and obtain
 [NSIS 3.13](https://nsis.sourceforge.io/Download). Then run:
 
 ```powershell
-.\installer\windows\Build-Setup.ps1 -Compiler 'C:\path\to\makensis.exe'
+.\installer\windows\Build-Setup.ps1 -Compiler 'C:\path\to\makensis.exe' -OutputDirectory 'C:\path\to\release'
 ```
 
 The script compiles the tray using the Windows .NET Framework C# compiler,
@@ -124,11 +154,17 @@ The domain and certificates are created only on the user's own installation.
 The [NSIS license](https://nsis.sourceforge.io/License) applies to the installer
 engine; TRELLIS Studio retains its MIT license.
 
+Use `-Preview` for a private test build with separate installation paths and
+shortcuts. The default build keeps the public installer identity. Update
+`package.json`, `package-lock.json` and the English release notes in the same PR.
+
 Before distributing a binary, test installation from a fresh Windows account
 or VM, no-GPU workshop startup, self-contained GLB import/export, interruption
 and recovery, reinstall with a collection, and removal with data retention.
 Validate generation and rig on supported hardware separately. Publish the
-signature, checksum and actual support matrix with the binary in GitHub Releases.
+checksum and actual support matrix with the binary in GitHub Releases. The tag
+must point to the merged commit used to build the executable. After publication,
+download both public assets and verify that their bytes match the audited build.
 
 For public Authenticode signing, [SignPath Foundation](https://signpath.org/terms.html)
 is free for accepted open source projects. The application must already exist

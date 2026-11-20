@@ -1,21 +1,21 @@
-import {createStudioWorkbench} from './studio-workbench.js?v=3.9.0';
-import {createViewerLighting} from './viewer-lighting.js?v=3.4.0';
-import {createHologramViewer} from './hologram-viewer.js?v=3.4.0-quality2';
-import {createGenerationWait} from './generation-wait.js?v=3.4.0';
+import {createStudioWorkbench} from './studio-workbench.js?v=detail-refinement-native';
+import {createViewerLighting,createViewerStage} from './viewer-lighting.js?v=visual-refresh-2';
+import {createHologramViewer} from './hologram-viewer.js?v=visual-refresh-2';
+import {createGenerationWait} from './generation-wait.js?v=studio-visual-refinement';
 import {createStudioTools} from './studio-tools.js?v=3.4.0';
 import {createAssetDetails,assetTypeName} from './asset-details.js?v=3.4.0';
 import {createPrintCopy} from './print-copy.js?v=3.4.0';
 import {createAnimationStudio} from './animation-studio.js?v=3.4.0-motion2';
 import {createRigSetupViewer} from './rig-setup-viewer.js?v=3.4.0';
 import {createModelImport} from './import-model.js?v=3.4.0';
-import {createMultiviewInputs} from './multiview-inputs.js?v=3.4.0';
-import {createReferencePreview} from './reference-preview.js?v=3.4.0';
+import {createMultiviewInputs} from './multiview-inputs.js?v=studio-visual-refinement';
+import {createReferencePreview} from './reference-preview.js?v=studio-visual-refinement';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createAdvancedControls } from './advanced-controls.js?v=3.4.0-quality2';
-import { createProfileControls } from './profiles.js?v=3.9.0';
+import { createProfileControls } from './profiles.js?v=detail-refinement-native';
 import {createCardMenu,updateCardStatus,icon} from './card-menu.js?v=3.4.0';
 import {createCardTurntables} from './card-turntable.js?v=3.4.0';
 const $=id=>document.getElementById(id);
@@ -23,7 +23,7 @@ const cardTurntables=createCardTurntables($('libraryGrid'));
 let cardTurntablesAvailable=false;
 const cardMenu=createCardMenu({version:reuseJob,remove:requestDelete,details:openDetails,print:j=>printCopy.open(j),compare:j=>studioTools.compare.open(j),diagnostics:j=>studioTools.diagnostics.open(j),export:j=>studioTools.exports.open(j),history:j=>workbench.history.open(j),folder:j=>workbench.workspace.move(j),lod:j=>workbench.prepare.open(j,'lod'),game:j=>workbench.prepare.open(j,'game'),refinish:openRefinish,finishingBoard:j=>workbench.finishingBoard.open(j)});
 const labels={done:'Completed',running:'Generating',error:'Failed',cancelled:'Cancelled',queued:'Queued'},reviews={review:'To review',retouch:'Needs changes',retained:'Retained',rejected:'Rejected'};
-let studioTools,viewerLighting,hologramViewer,workbench,rigSetupViewer;
+let studioTools,viewerLighting,viewerStage,hologramViewer,workbench,rigSetupViewer;
 let selectedId=null,loadedId=null,loadingId=null,activeId=null,records=[],busy=false,ready=false,shutDown=false,features=false;
 let page=0,trashMode=false,trashRecords=[],metadataId=null,inspectId=null,inspectVersion=0,textureOpen=false,refreshing=false;
 let submittingGeneration=false,restoringReferences=false;
@@ -43,14 +43,15 @@ const printCopy=createPrintCopy({api,startJob:startStudioJob});
 studioTools=createStudioTools({api,getRecords:()=>records,getJob:jobOf,refresh:async()=>{metadataId=null;await refresh();},printCopy,labelAnimation:name=>animationStudio?.label(name)||name,openPreparation:(job,action)=>workbench.prepare.open(job,action)});
 const advancedControls=await createAdvancedControls($('advancedControls'));
 const multiview=createMultiviewInputs({
-  changed({role,file,mode,profile}){
+  changed({role,file,mode,swap}){
     if(role||mode)referencePreview.discard(role);
+    if(swap)referencePreview.swapSides();
     if(role==='front'){
       $('parentId').value='';
       if(file&&$('name').value==='New model')$('name').value=file.name.replace(/\.[^.]+$/,'').slice(0,80);
     }
     $('notice').textContent='';
-    if(mode||profile)profileControls?.sync();
+    if(mode)profileControls?.sync();
     updateButtons();
   },
   invalid:message=>errorAt('notice',message),
@@ -61,7 +62,7 @@ function applyDefaultGeneration(){const d=advancedControls.defaults;if(!d)return
 applyDefaultGeneration();
 const settingsDownload=document.createElement('a');settingsDownload.className='download-settings';settingsDownload.textContent='Download settings JSON ↓';settingsDownload.download='trellis-reglages.json';settingsDownload.hidden=true;$('assetDetails').after(settingsDownload);
 $('resetAdvanced').disabled=!advancedControls.ready;
-$('resetAdvanced').onclick=()=>{profileControls?.reset();explainCost();$('notice').textContent='Game - Default restored. This model’s seed and height are preserved.';};
+$('resetAdvanced').onclick=()=>{profileControls?.reset();explainCost();$('notice').textContent='Game Asset settings restored.';};
 const resolutionOf=j=>Number(j.result?.resolution||j.settings?.resolution||512);
 let availableResolutions=[512],availableTextures=[1024,2048];
 function syncVersionNotice(status) {
@@ -76,10 +77,24 @@ function syncVersionNotice(status) {
   $('reloadStudio').hidden = !features || !outdated || olderServer;
   $('versionNotice').hidden = features && !outdated;
 }
-function syncCapabilities(status){multiview.setCapabilities(status.pixal3d);workbench?.setCapabilities(status);animationStudio?.setCapabilities(status);profileControls?.setFinishingCapabilities(status.features?.includes('repair_surface')===true,status.features?.includes('hd_reconstruction')===true);availableResolutions=status.supported_resolutions||[512];availableTextures=status.texture_sizes||[1024,2048];for(const option of $('resolution').options)option.disabled=!availableResolutions.includes(Number(option.value));for(const option of $('textureSize').options)option.disabled=Number(option.value)!==0&&!availableTextures.includes(Number(option.value));explainCost();}
+function syncCapabilities(status){
+  multiview.setCapabilities(status);
+  workbench?.setCapabilities(status);
+  animationStudio?.setCapabilities(status);
+  availableResolutions=status.supported_resolutions||[512];
+  availableTextures=status.texture_sizes||[1024,2048];
+  for(const option of $('resolution').options)option.disabled=!availableResolutions.includes(Number(option.value));
+  profileControls?.setFinishingCapabilities(status.features?.includes('repair_surface')===true,
+    status.features?.includes('hd_reconstruction')===true,status.create_master_finishing);
+  explainCost();
+}
 function explainCost(){const hint=$('qualityHint');if(!hint)return;const notes=[];if(Number($('resolution').value)===1536)notes.push('1536³ requires more processing time and memory.');if(Number($('textureSize').value)===4096)notes.push('4K uses larger textures; reserve it for close-up objects and large surfaces.');hint.textContent=notes.join(' ');hint.hidden=!notes.length;}
 $('resolution').addEventListener('change',explainCost);$('textureSize').addEventListener('change',explainCost);
-profileControls=await createProfileControls(advancedControls,{changed:()=>{explainCost();updateButtons();}});
+profileControls=await createProfileControls(advancedControls,{
+  changed:()=>{explainCost();updateButtons();},
+  usePixal:()=>multiview.usesPixal,
+  describeMethod:()=>multiview.methodLabel,
+});
 
 function node(tag,className,value){const el=document.createElement(tag);if(className)el.className=className;if(value!==undefined)el.textContent=value;return el;}
 async function api(url,options){const r=await fetch(url,options),v=await r.json();if(!r.ok)throw Error(typeof v.detail==='string'?v.detail:'This operation is unavailable.');return v;}
@@ -91,17 +106,59 @@ try{
   const pmrem=new THREE.PMREMGenerator(renderer),room=new RoomEnvironment();scene.environment=pmrem.fromScene(room,.04).texture;room.dispose();pmrem.dispose();scene.add(new THREE.HemisphereLight(0xffffff,0x48545d,.9));
   grid=new THREE.GridHelper(10,20,0x7d929a,0x596970);grid.material.transparent=true;grid.material.opacity=.22;scene.add(grid);grid.visible=false;
   viewerLighting=createViewerLighting({scene,renderer,getModel:()=>model});
+  viewerStage=createViewerStage(scene,viewport);
   hologramViewer=createHologramViewer(viewport,{camera});
   rigSetupViewer=createRigSetupViewer({scene,camera,controls,viewport,getModel:()=>model,stopRotation(){rotating=false;$('rotate').setAttribute('aria-pressed','false');}});
+  controls.addEventListener('start',()=>setViewPreset());
   new ResizeObserver(()=>{const w=Math.max(1,viewport.clientWidth),h=Math.max(1,viewport.clientHeight);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}).observe(viewport);
   renderer.setAnimationLoop(()=>{if(document.hidden||textureOpen||document.getElementById('compareDialog')?.open||document.getElementById('textureProjection')?.open||document.body.classList.contains('library-mode'))return;if(rotating&&model)model.rotation.y+=.004;if(mixer&&clipPlaying){mixer.update(Math.min(clock.getDelta(),.1));if(clipAction){$('clipTime').value=clipAction.time;$('clipTimeValue').value=clipAction.time.toFixed(1)+' s';}}else clock.getDelta();if(skeletonHelper&&boneDots){boneDots.visible=skeletonHelper.visible;model?.updateMatrixWorld(true);skeletonHelper.bones.forEach((bone,index)=>{boneDotPosition.setFromMatrixPosition(bone.matrixWorld);boneDotMatrix.makeTranslation(boneDotPosition.x,boneDotPosition.y,boneDotPosition.z);boneDots.setMatrixAt(index,boneDotMatrix);});boneDots.instanceMatrix.needsUpdate=true;}controls.update();rigSetupViewer?.update();hologramViewer?.update(performance.now());renderer.render(scene,camera);});
 }catch(e){$('viewerError').hidden=false;errorAt('viewerError',e);}
 function disposeModel(root){if(!root)return;const mats=new Set(),textures=new Set();root.traverse(x=>{x.geometry?.dispose();for(const m of [...(Array.isArray(x.material)?x.material:[x.material]),...(x.userData.baseMaterials||[])]){if(!m)continue;mats.add(m);for(const v of Object.values(m))if(v?.isTexture)textures.add(v);}});textures.forEach(x=>x.dispose());mats.forEach(x=>x.dispose());}
-function clearModel(){hologramViewer?.clear();animationStudio?.closeRig();rigSetupViewer?.close();viewerLighting?.clear();if(boneDots){scene.remove(boneDots);boneDots.geometry.dispose();boneDots.material.dispose();boneDots=null;}if(predictedSkeleton){scene.remove(predictedSkeleton);predictedSkeleton.geometry.dispose();predictedSkeleton.material.dispose();predictedSkeleton=null;predictedId=null;}mixer?.stopAllAction();mixer=null;clips=[];clipAction=null;$('animationPlayer').hidden=true;if(skeletonHelper){scene.remove(skeletonHelper);skeletonHelper.geometry.dispose();skeletonHelper.material.dispose();skeletonHelper=null;}if(model){scene.remove(model);disposeModel(model);}model=null;loadedId=null;loadingId=null;}
-function fit(angle){if(!model||!camera)return;model.updateMatrixWorld(true);model.traverse(x=>{if(x.isSkinnedMesh){x.skeleton.update();x.computeBoundingBox();}});const box=new THREE.Box3().setFromObject(model,true),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),d=Math.max(size.x,size.y,size.z,.01)*1.8,views={front:[0,.05,1],back:[0,.05,-1],left:[-1,.05,0],right:[1,.05,0],top:[0,1,0]};camera.up.set(0,angle==='top'?0:1,angle==='top'?-1:0);camera.position.copy(center).add(new THREE.Vector3(...(views[angle]||[.8,.55,1])).multiplyScalar(d));camera.near=Math.max(.001,d/1000);camera.far=Math.max(100,d*100);camera.updateProjectionMatrix();controls.target.copy(center);controls.minDistance=d*.1;controls.maxDistance=d*8;controls.update();viewerLighting?.fit();}
+const angleButtons = [...viewport.querySelectorAll('[data-angle]')];
+function setViewPreset(angle) {
+  for (const button of angleButtons) button.setAttribute('aria-pressed', button.dataset.angle === angle);
+}
+setViewPreset();
+const viewerDocks = viewport.querySelector('.viewport-docks');
+new ResizeObserver(() => {
+  viewport.style.setProperty('--viewer-docks-height', `${viewerDocks.offsetHeight}px`);
+}).observe(viewerDocks);
+
+function clearModel(){hologramViewer?.clear();animationStudio?.closeRig();rigSetupViewer?.close();viewerLighting?.clear();viewerStage?.setVisible(false);setViewPreset();if(boneDots){scene.remove(boneDots);boneDots.geometry.dispose();boneDots.material.dispose();boneDots=null;}if(predictedSkeleton){scene.remove(predictedSkeleton);predictedSkeleton.geometry.dispose();predictedSkeleton.material.dispose();predictedSkeleton=null;predictedId=null;}mixer?.stopAllAction();mixer=null;clips=[];clipAction=null;$('animationPlayer').hidden=true;if(skeletonHelper){scene.remove(skeletonHelper);skeletonHelper.geometry.dispose();skeletonHelper.material.dispose();skeletonHelper=null;}if(model){scene.remove(model);disposeModel(model);}model=null;loadedId=null;loadingId=null;}
+function fit(angle) {
+  if (!model || !camera) return;
+  model.updateMatrixWorld(true);
+  model.traverse(mesh => {
+    if (mesh.isSkinnedMesh) {
+      mesh.skeleton.update();
+      mesh.computeBoundingBox();
+    }
+  });
+  const bounds = new THREE.Box3().setFromObject(model, true);
+  const size = bounds.getSize(new THREE.Vector3());
+  const center = bounds.getCenter(new THREE.Vector3());
+  const span = Math.max(size.x, size.y, size.z, 0.01);
+  const distance = span * (angle === 'top' ? 1.8 : 2.2);
+  const elevation = Math.max(0.13, 0.40 - size.y / span);
+  const views = {front:[0,.05,1],back:[0,.05,-1],left:[-1,.05,0],right:[1,.05,0],top:[0,1,0]};
+  if (angle !== 'top') center.y -= 0.17 * size.y;
+  camera.up.set(0, angle === 'top' ? 0 : 1, angle === 'top' ? -1 : 0);
+  camera.position.copy(center).addScaledVector(new THREE.Vector3(...(views[angle] || [.36,elevation,1])), distance);
+  camera.near = Math.max(0.001, distance / 1000);
+  camera.far = Math.max(100, distance * 100);
+  camera.updateProjectionMatrix();
+  controls.target.copy(center);
+  controls.minDistance = distance * 0.1;
+  controls.maxDistance = distance * 8;
+  controls.update();
+  viewerStage?.fit(bounds);
+  viewerLighting?.fit();
+  setViewPreset(angle);
+}
 function materials(){
  const mode=$('materialMode').value;
  hologramViewer?.setModel(model,mode==='hologram');
+ viewerStage?.setVisible(!!model);
  const badge=viewport.querySelector('.viewport-badge>span:last-child');
  if(badge)badge.textContent=' / '+({pbr:'PBR',clay:'CLAY',normal:'NORMALS',hologram:'HOLOGRAM · PREVIEW'}[mode]||'PBR');
  model?.traverse(mesh=>{
@@ -191,9 +248,14 @@ async function loadModel(job) {
     if (loadingId === id) loadingId = null;
   }
 }
-$('gridToggle').onclick=()=>{if(!grid)return;grid.visible=!grid.visible;$('gridToggle').setAttribute('aria-pressed',grid.visible);};
-$('fit').onclick=()=>fit();$('rotate').onclick=()=>{if(rigSetupViewer?.active)return;rotating=!rotating;$('rotate').setAttribute('aria-pressed',rotating);};$('wireframe').onclick=()=>{wire=!wire;$('wireframe').setAttribute('aria-pressed',wire);materials();};$('materialMode').onchange=materials;
-document.querySelectorAll('[data-angle]').forEach(b=>b.onclick=()=>{if(rigSetupViewer?.active){rigSetupViewer.frame();return;}rotating=false;$('rotate').setAttribute('aria-pressed','false');if(model)model.rotation.y=0;fit(b.dataset.angle);});
+$('gridToggle').onclick = () => {
+  if (!grid) return;
+  grid.visible = !grid.visible;
+  viewerStage?.setGridVisible(!grid.visible);
+  $('gridToggle').setAttribute('aria-pressed', grid.visible);
+};
+$('fit').onclick=()=>fit();$('rotate').onclick=()=>{if(rigSetupViewer?.active)return;rotating=!rotating;if(rotating)setViewPreset();$('rotate').setAttribute('aria-pressed',rotating);};$('wireframe').onclick=()=>{wire=!wire;$('wireframe').setAttribute('aria-pressed',wire);materials();};$('materialMode').onchange=materials;
+angleButtons.forEach(b=>b.onclick=()=>{if(rigSetupViewer?.active){rigSetupViewer.frame();return;}rotating=false;$('rotate').setAttribute('aria-pressed','false');if(model)model.rotation.y=0;fit(b.dataset.angle);});
 function downloads(j){
  const done=j?.state==='done',terrain=j?.settings.asset_type==='terrain_unity';
  for(const[id,file,enabled]of[['downloadBlender','Blender.zip',features],['downloadGlb','model.glb',true],['downloadUnity','Unity.zip',true]]){
@@ -237,7 +299,9 @@ function renderRigJobNotice(job) {
 
 function renderSelected(){const j=jobOf();generationWait.update(j,{hasModel:!!model&&loadedId===j?.id,referenceUrl:j?`/api/jobs/${j.id}/files/prepared.png`:''});studioTools?.update(j,records,trashMode);workbench?.update(j);detailControls.update(j);animationStudio?.update();$('animateModel').disabled=!j||(j.state!=='done'&&j.operation!=='animation');downloads(j);fillMetadata(j);renderRigJobNotice(j);settingsDownload.hidden=!j;if(j)settingsDownload.href=`/api/jobs/${j.id}/files/settings.json`;$('favorite').disabled=!j||!features;$('favorite').textContent=j?.metadata?.favorite?'★':'☆';$('favorite').setAttribute('aria-pressed',!!j?.metadata?.favorite);$('saveMetadata').disabled=!j||!features;$('viewTextures').disabled=!j||j.state!=='done'||!features;
   if(!j){$('modelTitle').textContent='Your next model';$('stats').textContent='';$('sourceThumb').hidden=true;$('assetDetails').replaceChildren(node('dt','','Model'),node('dd','','No model selected'));$('textureSummary').textContent='Select a completed model.';$('textureGallery').replaceChildren();if(model||loadingId){++loadVersion;clearModel();}$('empty').hidden=false;return;}
-  $('modelTitle').textContent=nameOf(j);const terrain=j.settings.asset_type==='terrain_unity',external=['imported','rigged','print'].includes(j.settings.asset_type),pixal=j.settings.engine==='pixal3d';$('engineLabel').textContent=external?(j.settings.asset_type==='print'?'3D PRINT COPY':j.settings.asset_type==='rigged'?'RIG & ANIMATION':'IMPORTED MODEL'):terrain?'PROCEDURAL TERRAIN':pixal?`PIXAL3D · ${j.settings.views?.length||0} VIEWS`:`TRELLIS.2 · ${resolutionOf(j)}³`;$('downloadGlb').title=j.settings.asset_type==='print'?'Download print preview GLB in metres':terrain?'Download terrain GLB':'Download PBR GLB with all animations';$('sourceThumb').hidden=terrain||external;if(!terrain&&!external&&$('sourcePreview').dataset.id!==j.id){$('sourcePreview').src=`/api/jobs/${j.id}/files/input.png`;$('sourcePreview').dataset.id=j.id;}
+  $('modelTitle').textContent=nameOf(j);const terrain=j.settings.asset_type==='terrain_unity',external=['imported','rigged','print'].includes(j.settings.asset_type),pixal=j.settings.engine==='pixal3d';
+  const pixalSingle=pixal&&(j.settings.view_mode==='single'||j.settings.pipeline_type==='pixal3d_1024_monoview');
+  $('engineLabel').textContent=external?(j.settings.asset_type==='print'?'3D PRINT COPY':j.settings.asset_type==='rigged'?'RIG & ANIMATION':'IMPORTED MODEL'):terrain?'PROCEDURAL TERRAIN':pixalSingle?'PIXAL3D · SINGLE IMAGE':pixal?`PIXAL3D · ${j.settings.views?.length||0} VIEWS`:`TRELLIS.2 · ${resolutionOf(j)}³`;$('downloadGlb').title=j.settings.asset_type==='print'?'Download print preview GLB in metres':terrain?'Download terrain GLB':'Download PBR GLB with all animations';$('sourceThumb').hidden=terrain||external;if(!terrain&&!external&&$('sourcePreview').dataset.id!==j.id){$('sourcePreview').src=`/api/jobs/${j.id}/files/input.png`;$('sourcePreview').dataset.id=j.id;}
   $('exportHint').textContent=j.settings.asset_type==='print'?'The STL uses millimetres. The Blender package includes the static source and the topology report.':terrain?'The Blender package contains the terrain mesh; the Unity export keeps a native Terrain.':'GLB includes UVs and materials. The Blender package also provides separate textures and UV layouts.';const r=j.result;$('stats').textContent=j.state==='done'||(j.operation==='animation'&&r)?(r?(terrain?`${r.dimensions_m?.[0]||j.settings.size_m} m square · elevation ${r.height_m} m · ${r.resolution}² map`:`${Number(r.triangles||0).toLocaleString('en-US')} triangles${r.bones?' · '+r.bones+' bones':''} · ${Number(r.height_m||0).toLocaleString('en-US',{maximumFractionDigits:2})} m`):'Completed model · ready to inspect'):'';
   const rigPreview = usesRigPreview(j);
   const previewLoaded = loadedId === j.id && previewRevision(loadedRevision);
@@ -259,7 +323,11 @@ function renderSelected(){const j=jobOf();generationWait.update(j,{hasModel:!!mo
   const entries=[['Asset type',assetTypeName(j.metadata?.asset_type||j.settings.asset_type)],['Engine',external?(j.settings.asset_type==='print'?'Blender voxel remesh':j.result?.rig_engine||'Local import'):terrain?'Procedural':pixal?`Pixal3D / ${resolutionOf(j)}³`:`TRELLIS.2 / ${resolutionOf(j)}³`],['Height',j.settings.height_m+' m'],['Texture',j.settings.texture_size+' px'],['Seed',j.settings.seed??'—'],['Status',labels[j.state]||j.state],['Created',new Date(j.settings.created*1000).toLocaleDateString('en-US')]];const o=j.generation_options;
   const triangleBudget=[j.settings.adaptive_finishing?'Triangle ceiling':'Target triangles',Number(j.settings.triangles).toLocaleString('en-US')];
   if(pixal){
-    entries.push(['Reference views',(j.settings.views||[]).map(view=>view.role).join(' · ')],['Side view angle',j.settings.side_angle+'°'],triangleBudget);
+    if (pixalSingle) {
+      entries.push(['Reference images','1 · camera estimated with MoGe'],triangleBudget);
+    } else {
+      entries.push(['Reference views',(j.settings.views||[]).map(view=>view.role).join(' · ')],['Side view angle',j.settings.side_angle+'°'],triangleBudget);
+    }
     const projection=j.result?.face_projection;
     if(projection?.state==='applied')entries.push(['Face reprojection','Applied']);
     else if(projection?.state==='skipped')entries.push(['Face reprojection',projection.reason?'Skipped. '+projection.reason:'Skipped']);
@@ -271,7 +339,7 @@ function renderSelected(){const j=jobOf();generationWait.update(j,{hasModel:!!mo
   $('assetDetails').replaceChildren(...entries.flatMap(([k,v])=>[node('dt','',k),node('dd','',String(v))]));if(textureOpen&&inspectId!==j.id)inspectTextures();
 }
 function renderNavigation(){const select=$('librarySelect'),signature=records.map(j=>j.id+nameOf(j)+j.state).join('|');if(select.dataset.signature!==signature){select.replaceChildren(node('option','','Choose from the library…'));select.firstChild.value='';for(const j of records){const o=node('option','',nameOf(j)+' · '+(labels[j.state]||j.state));o.value=j.id;select.append(o);}select.dataset.signature=signature;}select.value=selectedId||'';$('count').textContent=records.length;$('collectionCount').textContent=records.length;const recentKey=JSON.stringify([selectedId,records.slice(0,6).map(j=>[j.id,nameOf(j),j.state])]);if($('history').dataset.signature===recentKey)return;$('history').dataset.signature=recentKey;$('history').replaceChildren();for(const j of records.slice(0,6)){const b=node('button','history-card'+(j.id===selectedId?' selected':''));b.type='button';const image=node('img');image.src=`/api/jobs/${j.id}/files/${j.settings.asset_type==='terrain_unity'?'heightmap.png':'input.png'}?v=${j.result?.revision||j.state}`;image.alt='';image.loading='lazy';image.onerror=()=>image.style.visibility='hidden';const t=node('span');t.append(node('strong','',nameOf(j)),node('small','',labels[j.state]||j.state));b.append(image,t);b.onclick=()=>selectJob(j.id);$('history').append(b);}if(!records.length)$('history').append(node('p','history-empty','No models yet.'));}
-function setMode(terrain){animationStudio?.closeRig();animationMode=false;document.body.classList.remove('animation-mode');document.body.classList.remove('library-mode');$('rigPanel').hidden=true;$('rigTab').setAttribute('aria-pressed','false');showCollection(false);$('openLibrary').setAttribute('aria-pressed','false');$('form').hidden=terrain;$('terrainForm').hidden=!terrain;$('imageTab').setAttribute('aria-pressed',!terrain);$('terrainTab').setAttribute('aria-pressed',terrain);document.querySelector('h1').textContent=terrain?'Create terrain':'Image to 3D';document.querySelector('.intro').textContent=terrain?'Textured procedural terrain, ready to adapt to your scene.':'Turn a reference image into a textured 3D model.';}
+function setMode(terrain){animationStudio?.closeRig();animationMode=false;document.body.classList.remove('animation-mode');document.body.classList.remove('library-mode');$('rigPanel').hidden=true;$('rigTab').setAttribute('aria-pressed','false');showCollection(false);$('openLibrary').setAttribute('aria-pressed','false');$('form').hidden=terrain;$('terrainForm').hidden=!terrain;$('imageTab').setAttribute('aria-pressed',!terrain);$('terrainTab').setAttribute('aria-pressed',terrain);document.querySelector('h1').textContent=terrain?'Create terrain':'Image to 3D';$('workspaceIntro').textContent=terrain?'Textured procedural terrain, ready to adapt to your scene.':'';$('workspaceIntro').hidden=!terrain;}
 function selectJob(id){const keepAnimation=animationMode;if(!records.some(j=>j.id===id))return;if(id!==selectedId){selectedId=id;metadataId=null;inspectId=null;++inspectVersion;$('textureGallery').replaceChildren();$('textureSummary').textContent='Inspecting textures…';}setMode(jobOf()?.settings.asset_type==='terrain_unity');if(keepAnimation)openAnimationStudio();renderNavigation();renderSelected();renderLibrary();updateButtons();refreshLog();}
 $('librarySelect').onchange=()=>selectJob($('librarySelect').value);$('imageTab').onclick=()=>{$('parentId').value='';setMode(false);};$('terrainTab').onclick=()=>{$('terrainForm').dataset.parentId='';setMode(true);};$('openLibrary').onclick=()=>{animationStudio?.closeRig();document.body.classList.remove('collection-collapsed');document.body.classList.add('library-mode');showCollection(false);for(const id of['imageTab','terrainTab','rigTab'])$(id).setAttribute('aria-pressed','false');$('openLibrary').setAttribute('aria-pressed','true');renderLibrary();};
 function renderLibrary(){studioTools?.selection.sync(records,trashMode);const q=$('librarySearch').value.toLocaleLowerCase('en'),filter=$('libraryFilter').value,list=(trashMode?trashRecords:records).filter(j=>{const m=j.metadata||{},text=[nameOf(j),m.category,assetTypeName(m.asset_type||j.settings.asset_type),...(m.tags||[])].join(' ').toLocaleLowerCase('en');return (!workbench||workbench.workspace.matches(j))&&text.includes(q)&&(filter==='all'||filter==='favorite'&&m.favorite||filter===j.state||filter===j.settings.asset_type||filter===m.review_state||filter==='type:'+(m.asset_type||j.settings.asset_type));}),pages=Math.max(1,Math.ceil(list.length/24));page=Math.max(0,Math.min(page,pages-1));studioTools?.selection.visible(list.slice(page*24,page*24+24),list);const signature=JSON.stringify([q,filter,page,trashMode,features,selectedId,cardTurntablesAvailable,list.map(j=>[j.id,nameOf(j),j.state,j.metadata,j.media,j.presentation?.thumbnail?.revision,j.presentation?.library_turntable?.revision])]);if($('libraryGrid').dataset.signature===signature){for(const card of $('libraryGrid').querySelectorAll('[data-job-id]')){const j=list.find(x=>x.id===card.dataset.jobId);if(j)updateCardStatus(card,j);}return;}cardMenu.close();cardTurntables.stop();$('libraryGrid').dataset.signature=signature;$('pageLabel').textContent=`${page+1} / ${pages}`;$('pagePrev').disabled=page===0;$('pageNext').disabled=page>=pages-1;$('libraryTotal').textContent=`${list.length} model${list.length>1?'s':''}`;$('showTrash').replaceChildren(icon(trashMode?'grid':'trash'));$('showTrash').title=trashMode?'Back to library':'Open trash';$('showTrash').setAttribute('aria-label',$('showTrash').title);$('showTrash').disabled=!features;$('collectionTitle').textContent=trashMode?'Trash':'My models';$('collectionCount').textContent=trashMode?trashRecords.length:records.length;$('libraryGrid').replaceChildren();
@@ -285,14 +353,16 @@ function openImage(url,alt){$('largeImage').src=url;$('largeImage').alt=alt;$('i
 function setView(textures){textureOpen=textures;viewport.hidden=textures;$('texturePanel').hidden=!textures;$('view3d').classList.toggle('active',!textures);$('viewTextures').classList.toggle('active',textures);if(textures)inspectTextures();}$('view3d').onclick=()=>setView(false);$('viewTextures').onclick=()=>setView(true);
 async function inspectTextures(){const j=jobOf();if(!j||j.state!=='done'||!features)return;const id=j.id;if(inspectId===id)return;inspectId=id;const version=++inspectVersion;$('textureSummary').textContent='Extracting texture maps and UV layouts…';$('textureGallery').replaceChildren();try{const d=await api(`/api/jobs/${id}/inspect`);if(version!==inspectVersion||selectedId!==id)return;$('textureSummary').textContent=`${d.meshes.length} mesh(es) · ${d.has_uv?'UVs present':'UVs missing'} · ${d.has_pbr?'roughness and metalness present':'PBR maps incomplete'} · ${d.normals_map_present?'normal map present':'no normal map in this GLB'}`;const items=[...d.textures.map(t=>({...t,detail:`${t.width} × ${t.height} · ${t.color_space}`})),...d.meshes.filter(m=>m.uv_preview).map(m=>({file:m.uv_preview,label:'UV layout · '+m.name,detail:m.uv_warning||'Painting guide · PNG / SVG included in the package'}))];for(const t of items){const b=node('button','texture-card');b.type='button';const img=node('img');img.src=`/api/jobs/${id}/blender/${t.file}`;img.alt=t.label;b.append(img,node('strong','',t.label),node('small','',t.detail));b.onclick=()=>openImage(img.src,t.label);$('textureGallery').append(b);}if(!items.length)$('textureGallery').append(node('p','hint','This model contains no image textures.'));}catch(e){if(version===inspectVersion){inspectId=null;errorAt('textureSummary',e);}}}
 function updateButtons(){
-  const label=$('generate').querySelector('span');
-  if(label)label.textContent=busy?'Add to queue':multiview.active?'Generate character':'Generate model';
-  const supported=multiview.active?multiview.ready:ready&&advancedControls.ready&&profileControls?.ready&&
-    availableResolutions.includes(Number($('resolution').value))&&availableTextures.includes(Number($('textureSize').value)||($('preset').value==='fast'?1024:2048));
+  const budget=profileControls?.budget();
+  const textures=multiview.usesPixal?[1024,2048]:availableTextures;
+  const resolutions=multiview.usesPixal?[1024]:availableResolutions;
+  for(const option of $('textureSize').options)option.disabled=Number(option.value)!==0&&!textures.includes(Number(option.value));
+  multiview.sync(budget?.texture_size);
+  const supported=multiview.ready&&advancedControls.ready&&profileControls?.ready&&profileControls.finishingReady
+    && resolutions.includes(budget?.resolution)&&textures.includes(budget?.texture_size);
   $('generate').disabled=!multiview.hasFront||!supported||shutDown||submittingGeneration||restoringReferences;
   referencePreview.sync(shutDown||submittingGeneration||restoringReferences);
   updateRefinishTool(jobOf());
-  if(multiview.active)$('generationSummary').textContent=multiview.summary;
   $('cancel').hidden=!busy;
   $('cancel').disabled=!activeId||jobOf()?.settings.asset_type==='terrain_unity';
   $('createTerrain').disabled=busy||shutDown||!features;
@@ -305,18 +375,17 @@ $('form').onsubmit=async event=>{
   updateButtons();
   $('notice').textContent='';
   try{
-    const usePixal=multiview.active;
-    const form=usePixal?multiview.buildRequest():new FormData($('form'));
-    if(!usePixal){
-      form.set('remove_bg',String($('removeBg').checked));
-      form.set('queue_only','true');
-      form.set('advanced_settings',JSON.stringify(advancedControls.read()));
-    }
-    const finishing = $('denseMasterFinishing');
-    if (!finishing.disabled && finishing.value === 'repair') form.set('repair_surface', 'true');
-    if (!finishing.disabled && finishing.value === 'hd_reconstruction') form.set('hd_reconstruction', 'true');
+    const form=new FormData($('form'));
+    const budget=profileControls.budget();
+    for(const [field,value] of Object.entries(budget))form.set(field,String(value));
+    multiview.appendRequest(form);
+    form.set('remove_bg',String(multiview.usesPixal||$('removeBg').checked));
+    form.set('queue_only','true');
+    if($('keepFinishingSource').checked)form.set('keep_finishing_source','true');
+    if(!multiview.usesPixal)form.set('advanced_settings',JSON.stringify(advancedControls.read()));
+    profileControls.appendFinishing(form);
     referencePreview.append(form);
-    const v=await api(usePixal?'/api/generate-multiview':'/api/generate',{method:'POST',body:form});
+    const v=await api(multiview.active?'/api/generate-multiview':'/api/generate',{method:'POST',body:form});
     if(!selectedId){selectedId=v.id;metadataId=null;}
     revealNewCreation();
     await refresh();
@@ -350,27 +419,19 @@ async function reuseJob(j){
   try{
     await multiview.restore(j);
     referencePreview.restore(s.reference_edits,s.remove_bg);
-    const finishing = s.hd_reconstruction ? 'hd_reconstruction' : s.repair_surface ? 'repair' : 'direct';
     setMode(false);
     $('parentId').value=j.id;
     $('name').value=(nameOf(j)+' version').slice(0,80);
     $('height').value=String(s.height_m);
-    if(multiview.active){
-      $('denseMasterFinishing').value = finishing;
-      profileControls.restoreSource(s.keep_finishing_source);
-      $('notice').textContent='Saved views and Pixal3D settings restored. Adjust them to compare a new version.';
-      return;
-    }
     for(const [id,v] of Object.entries({preset:s.preset,seed:s.seed,triangles:s.triangles,textureSize:s.texture_size,resolution:s.resolution||j.result?.resolution||512,assetType:s.asset_type||'object',referencePrompt:j.metadata?.reference_prompt||''}))$(id).value=String(v);
-    $('denseMasterFinishing').value = finishing;
-    const restoredOptions = finishing === 'direct' ? j.generation_options : s.generation_options;
+    profileControls.restoreFinishing(s);
+    const restoredOptions = s.hd_reconstruction||s.repair_surface||s.master_finishing ? s.generation_options : j.generation_options;
     advancedControls.apply(restoredOptions||s.generation_options||{});
-    $('removeBg').checked=s.remove_bg;
+    $('removeBg').checked=s.remove_bg??multiview.usesPixal;
     detailControls.hint();
-    profileControls.detach();profileControls.restoreSource(s.keep_finishing_source);
+    profileControls.detach(s.profile?.id);profileControls.restoreSource(s.keep_finishing_source);
     $('profileBase').value=$('preset').value;
     explainCost();
-    $('generationSummary').textContent='VARIANT · LOCAL COMPUTE';
     $('notice').textContent='Reference, geometry, texture and finishing settings restored. Adjust them to compare a new version.';
   }catch(error){errorAt('notice',error);}
   finally{restoringReferences=false;updateButtons();}
@@ -596,11 +657,27 @@ async function refreshLog(){if(!selectedId)return;try{const d=await api(`/api/jo
 async function refresh(){if(shutDown||refreshing)return;refreshing=true;try{const[status,jobs]=await Promise.all([api('/api/status'),api('/api/jobs')]);features=!!status.studio_version;cardTurntablesAvailable=status.features?.includes('library_turntable')===true;syncCapabilities(status);ready=status.ready;activeId=status.active;busy=!!activeId;records=jobs;if(pendingSelection){const pending=records.find(j=>j.id===pendingSelection);if(pending?.state==='done'){if(pending.operation_error)errorAt('animationNotice',pending.operation_error);selectedId=pendingSelection;pendingSelection=null;metadataId=null;inspectId=null;}else if(pending&&['error','cancelled'].includes(pending.state)){errorAt('animationNotice',isStoppedRig(pending)?rigJobError(pending):pending.error||pending.stage);pendingSelection=null;}}if(selectedId&&!records.some(j=>j.id===selectedId)){selectedId=null;metadataId=null;inspectId=null;++inspectVersion;}syncVersionNotice(status);$('runtime').textContent=ready?`LOCAL · ${status.ram_free_gib} GB RAM available`:'WORKSHOP · generation engine not installed';$('hardware').textContent=status.gpu||'Local compute';updateButtons();renderNavigation();renderSelected();renderLibrary();if(document.querySelector('.journal').open)refreshLog();refreshRigPreview();}catch(error){console.error('Studio refresh failed:',error);$('runtime').textContent='Disconnected · restart TRELLIS';ready=false;multiview.setCapabilities({message:'Studio is disconnected. Restart TRELLIS Studio.'});updateButtons();}finally{refreshing=false;}}
 $('shutdown').onclick=async()=>{try{await api('/api/shutdown',{method:'POST'});shutDown=true;ready=false;busy=false;renderer?.setAnimationLoop(null);generationWait.dispose();clearModel();hologramViewer?.dispose();renderer?.dispose();$('notice').textContent='Run Open TRELLIS.cmd to restart the studio.';$('runtime').textContent='STUDIO STOPPED';$('shutdown').disabled=true;downloads(null);$('downloadHeight').hidden=true;updateButtons();}catch(e){errorAt('notice',e);}};
 function showCollection(details){$('libraryView').hidden=details;$('inspectorPanel').hidden=!details;$('collectionPanel').classList.toggle('details-open',details);}
-function openDetails(j){if(!j)return;selectJob(j.id);document.body.classList.remove('library-mode','collection-collapsed');$('openLibrary').setAttribute('aria-pressed','false');showCollection(true);}
+function openDetails(j) {
+  if (!j) return;
+  selectJob(j.id);
+  document.body.classList.remove('library-mode', 'collection-collapsed');
+  $('openLibrary').setAttribute('aria-pressed', 'false');
+  const workspaceTab = animationMode ? 'rigTab' : $('terrainForm').hidden ? 'imageTab' : 'terrainTab';
+  $(workspaceTab).setAttribute('aria-pressed', 'true');
+  showCollection(true);
+}
 $('backToCollection').onclick=()=>showCollection(false);
 $('toggleCollection').onclick=()=>{const collapsed=document.body.classList.toggle('collection-collapsed');$('toggleCollection').setAttribute('aria-pressed',!collapsed);};
-function openAnimationStudio(){setMode(false);animationMode=true;document.body.classList.add('animation-mode');$('form').hidden=true;$('rigPanel').hidden=false;$('imageTab').setAttribute('aria-pressed','false');$('rigTab').setAttribute('aria-pressed','true');document.querySelector('h1').textContent='Animation studio';document.querySelector('.intro').textContent='Choose a motion and add it to your model.';animationStudio?.render();}
+function openAnimationStudio(){setMode(false);animationMode=true;document.body.classList.add('animation-mode');$('form').hidden=true;$('rigPanel').hidden=false;$('imageTab').setAttribute('aria-pressed','false');$('rigTab').setAttribute('aria-pressed','true');document.querySelector('h1').textContent='Animation studio';$('workspaceIntro').textContent='Choose a motion and add it to your model.';$('workspaceIntro').hidden=false;animationStudio?.render();}
 $('rigTab').onclick=openAnimationStudio;$('animateModel').onclick=openAnimationStudio;
+
+for (const workflowTab of document.querySelectorAll('[data-workflow-tab]')) {
+  const railTab = $(workflowTab.dataset.workflowTab);
+  const syncPressed = () => workflowTab.setAttribute('aria-pressed', railTab.getAttribute('aria-pressed'));
+  syncPressed();
+  new MutationObserver(syncPressed).observe(railTab, {attributeFilter: ['aria-pressed']});
+  workflowTab.addEventListener('click', () => railTab.click());
+}
 
 document.addEventListener('paste',event=>{
   if(referencePreview.open||event.target.closest('input:not([type=file]),textarea,[contenteditable=true]'))return;

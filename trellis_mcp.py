@@ -154,12 +154,12 @@ async def upload_source(file_path:str)->dict[str,Any]:
 
 @tool()
 async def queue_generation(recipe:Generation)->dict[str,Any]:
-    """Queue one image generation with its own profile, scale, seed and priority. Dense Master supports HD Reconstruction (768) via overrides.hd_reconstruction. Upload an image first. Returns immediately; poll get_model."""
+    """Queue an uploaded image with TRELLIS.2 or engine='pixal3d_single' (MoGe camera estimation). With profile_id='dense_master', select studio_768, wtivo_1024 or optional hi3d_512/hi3d_1024 using master_finishing. Hi3D refines the chosen TRELLIS.2 single-image resolution using its prepared transparent cutout. The Hi3D output resolution is independent of the generation resolution. Check studio_status and poll get_model."""
     return await api('POST','/generations',recipe.model_dump())
 
 @tool()
 async def queue_multiview_generation(recipe:MultiViewGeneration)->dict[str,Any]:
-    """Queue Pixal3D from a front image and at least one posed side/back image. Upload images first. dense_master supports hd_reconstruction with the 768 grid and keeps the finishing source. Poll get_model and review anatomy."""
+    """Queue Pixal3D from a front image and at least one matching side or back image. Choose a generation profile, then optionally select master_finishing with dense_master. Upload images first and poll get_model."""
     return await api('POST','/generations/multiview',recipe.model_dump(exclude_none=True))
 
 @tool()
@@ -174,7 +174,7 @@ async def get_finishing_options(model_id: Identifier) -> dict[str, Any]:
 
 @tool()
 async def queue_refinish(model_id: Identifier, recipe: Refinish) -> dict[str, Any]:
-    """Create a linked variant from the saved cache. For a dense PBR master, pass master_finishing='wtivo_1024' or 'studio_768' and optionally texture_size. Read get_finishing_options for availability. The advanced reconstruction and game preparation routes remain available. Poll get_model."""
+    """Create a linked variant from the saved cache. For a dense PBR master, pass master_finishing='wtivo_1024', 'studio_768', 'hi3d_512' or 'hi3d_1024' and optionally texture_size. Hi3D refines a saved TRELLIS.2 single-image source at its original resolution using the prepared cutout. Read get_finishing_options for eligibility and runtime availability, then poll get_model."""
     return await api('POST', f'/models/{model_id}/refinish', recipe.model_dump(exclude_none=True))
 
 @tool(read=True)

@@ -7,7 +7,7 @@ export function createGenerationWait(viewport,{getMode,setMode}={}){
     <div class="generation-projection-halo"></div><div class="generation-projection-plane">
       <img alt=""><svg class="generation-projection-placeholder" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1"><path d="M50 10 85 30v40L50 90 15 70V30ZM15 30l35 20 35-20M50 50v40M50 10v40"/><path opacity=".3" d="M32 20v60m36-60v60M15 50l35 20 35-20"/></svg>
       <div class="generation-projection-scan"></div><i class="generation-projection-corner c1"></i><i class="generation-projection-corner c2"></i><i class="generation-projection-corner c3"></i><i class="generation-projection-corner c4"></i>
-    </div><svg class="generation-projection-beams" viewBox="0 0 420 360" preserveAspectRatio="none"><path d="M42 345 96 52M42 345 324 52M378 345 96 52M378 345 324 52"/><ellipse cx="210" cy="342" rx="170" ry="13"/></svg>
+    </div><svg class="generation-projection-beams" viewBox="0 0 420 360" preserveAspectRatio="none"><path d="M42 345 96 52M42 345 324 52M378 345 96 52M378 345 324 52"/></svg>
     <span class="generation-projection-label">REFERENCE PROJECTION</span>
   </div><div class="generation-wait-card"><div class="generation-wait-heading"><span class="generation-wait-eyebrow"><i></i><span>LOCAL CREATION</span></span><span class="generation-wait-percent"></span></div><h3></h3><p class="generation-wait-stage" role="status" aria-live="polite"></p><div class="generation-wait-track" role="progressbar" aria-label="Computation progress" aria-valuemin="0" aria-valuemax="100"><span></span></div><p class="generation-wait-hint"></p></div>`;
   viewport.append(layer);

@@ -164,7 +164,8 @@ def install(root, distribution, accept, cache=None, threads=8):
         request_path = config / ('.kimodo-request-' + token + '.json')
         response_path = config / ('.kimodo-response-' + token + '.json')
         request = dict(installation_id=installation_id(root), manifest=linux_path(manifest_path),
-                       threads=threads, accept_model_licenses=True, cache_dir=linux_path(cache) if cache else None, lifeline=True)
+                       threads=threads, accept_model_licenses=True, cache_dir=linux_path(cache) if cache else None, lifeline=True,
+                       test_install=(root / '.trellis-setup-test').is_file())
         atomic_json(request_path, request)
         helper = ROOT / 'installer/kimodo_install_linux.py'
         arguments = ['python3', linux_path(helper), '--request', linux_path(request_path), '--response', linux_path(response_path)]

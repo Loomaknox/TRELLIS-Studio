@@ -17,6 +17,9 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -B -m unittest discover -s tests -p installation_compatibility.py -v
+      - run: python -B tests/runtime_merge.py
+      - run: python -m pip install --only-binary=:all: numpy==2.2.6
+      - run: python -B tests/narrow_a_pose.py
       - run: python -B tests/animation_names.py
       - run: python -B tests/gpu_compatibility.py
       - run: python -B tests/kimodo_installer.py

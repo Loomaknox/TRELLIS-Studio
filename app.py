@@ -15,9 +15,11 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from generation_options import (normalize_options, options_for_job, schema as generation_schema,
                                 DEFAULT_PROFILE, DEFAULT_GENERATION, GENERATION_PRESETS, GAME_D_ADVANCED, PROFILE_ADVANCED,
                                 DENSE_MASTER, DENSE_MASTER_NAME, DENSE_MASTER_TRIANGLES, DENSE_MASTER_FINISHING,
-                                HUMANOID_EXPERIMENTAL, TRIANGLE_MIN, TRIANGLE_MAX, validate_hd_reconstruction)
+                                HUMANOID_EXPERIMENTAL, TRIANGLE_MIN, TRIANGLE_MAX, validate_hd_reconstruction,
+                                HI3D_FINISHING_METHODS, master_finishing_options, validate_create_master_finishing)
 from asset_taxonomy import ASSET_TYPES, SYSTEM_TYPES, schema as taxonomy_schema
 from generation_profiles import DENSE_MASTER_DESCRIPTION, ProfileStore, builtin_profiles
+from gpu_runtime import guided_install
 from studio_import import FORMATS, MAX_BYTES, find_blender, validate_glb, copy_version
 from animation_edits import recover as recover_animation
 from glb_data import media as model_media
@@ -25,6 +27,8 @@ from library_actions import validate_metadata,validate_ids
 from pixal3d_runtime import VIEW_FILES, runtime_status as pixal3d_runtime_status
 from reference_preparation import (BackgroundRemovalError, PREPARED_VIEWS, parse_reference_edits,
                                    prepare_references, premultiplied_rgb)
+from wtivo_runtime import wtivo_capability
+from hi3d_runtime import hi3d_status
 
 ROOT = Path(__file__).resolve().parent
 PIXAL_CHARACTER_PROFILE = dict(id='character_pixal', name='Character · Pixal3D',
@@ -32,6 +36,7 @@ PIXAL_CHARACTER_PROFILE = dict(id='character_pixal', name='Character · Pixal3D'
 PIXAL_TEXTURE_SIZES = (1024, 2048)
 PIXAL_CHARACTER_OPTIONS = dict(GAME_D_ADVANCED, structure_steps=12, shape_steps=20,
                                texture_steps=12, texture_guidance=1.0)
+PIXAL_SINGLE_OPTIONS = dict(PIXAL_CHARACTER_OPTIONS, shape_steps=12)
 PIXAL_HUMANOID_PROFILE = dict(id=HUMANOID_EXPERIMENTAL, name='Humanoid · Experimental',
                               resolution=1024, triangles=250000, texture_size=2048,
                               experimental=True, asset_type='humanoid', keep_finishing_source=True,
@@ -55,9 +60,10 @@ def gpu_description():
 GPU_DESCRIPTION=gpu_description()
 # Server workspaces each use their own application state and paths.
 WORKSPACE_CONFIG = globals().get('WORKSPACE_CONFIG', {})
-PROFILES = ProfileStore(WORKSPACE_CONFIG.get('profiles', os.environ.get('TRELLIS_PROFILES_FILE', str(ROOT / 'config' / 'generation-profiles.json'))))
-OUTPUT = Path(WORKSPACE_CONFIG.get('outputs', os.environ.get('TRELLIS_OUTPUT_DIR', str(ROOT / 'outputs')))).resolve()
-TRASH = Path(WORKSPACE_CONFIG.get('trash', os.environ.get('TRELLIS_TRASH_DIR', str(ROOT / 'trash')))).resolve()
+workspace_environment = {} if (ROOT / '.trellis-setup-test').is_file() else os.environ
+PROFILES = ProfileStore(WORKSPACE_CONFIG.get('profiles', workspace_environment.get('TRELLIS_PROFILES_FILE', str(ROOT / 'config' / 'generation-profiles.json'))))
+OUTPUT = Path(WORKSPACE_CONFIG.get('outputs', workspace_environment.get('TRELLIS_OUTPUT_DIR', str(ROOT / 'outputs')))).resolve()
+TRASH = Path(WORKSPACE_CONFIG.get('trash', workspace_environment.get('TRELLIS_TRASH_DIR', str(ROOT / 'trash')))).resolve()
 OUTPUT.mkdir(parents=True, exist_ok=True)
 PROCESS = None
 ACTIVE = None
@@ -72,8 +78,8 @@ EXPORTING = set()
 EXPORT_PROCESS = None
 EXPORT_TASK = None
 EXPORT_LOG = None
-EXPORT_ROOT = Path(WORKSPACE_CONFIG.get('exports', os.environ.get('TRELLIS_EXPORT_DIR',str(ROOT/'exports')))).resolve()
-RIG_PILOT = Path(os.environ.get('TRELLIS_RIG_PILOT_DIR', str(ROOT / 'UniRig' / 'tests' / 'tira' / 'delivery'))).resolve()
+EXPORT_ROOT = Path(WORKSPACE_CONFIG.get('exports', workspace_environment.get('TRELLIS_EXPORT_DIR',str(ROOT/'exports')))).resolve()
+RIG_PILOT = Path(workspace_environment.get('TRELLIS_RIG_PILOT_DIR', str(ROOT / 'UniRig' / 'tests' / 'tira' / 'delivery'))).resolve()
 
 def stop_worker():
     if PROCESS is None or PROCESS.poll() is not None: return
@@ -202,22 +208,85 @@ def generation_capabilities():
         except (ValueError,OSError,AttributeError):pass
     return resolutions,textures
 
+def guided_install_failure(component):
+    if not guided_install(ROOT):
+        return ''
+    try:
+        content = (ROOT / 'config' / 'component-install.json').read_text(encoding='utf-8-sig')
+        record = json.loads(content).get('components', {}).get(component, {})
+        if record.get('status') == 'ready':
+            return ''
+        if record.get('message'):
+            return record['message']
+    except (OSError, ValueError, AttributeError):
+        pass
+    return 'Use Repair or resume components to install and verify this component.'
+
+
 def pixal3d_capabilities():
-    return {**pixal3d_runtime_status(ROOT), 'profile': PIXAL_CHARACTER_PROFILE,
+    runtime = pixal3d_runtime_status(ROOT)
+    if message := guided_install_failure('pixal3d'):
+        runtime.update(ready=False, message=message, single_image=dict(ready=False, message=message))
+    return {**runtime, 'profile': PIXAL_CHARACTER_PROFILE,
             'default_profile': PIXAL_CHARACTER_PROFILE['id'], 'profiles': list(PIXAL_PROFILES),
             'texture_sizes': PIXAL_TEXTURE_SIZES}
+
+
+def create_master_finishing_capabilities():
+    available, reason = wtivo_capability(ROOT, 1024)
+    if available and not find_blender():
+        available = False
+        reason = 'Install Blender to use Surface Closure.'
+    hi3d = hi3d_status(ROOT)
+    return dict(studio_768=dict(available=True, reason=''),
+                wtivo_1024=dict(available=available, reason=reason),
+                **{method: dict(available=hi3d['available'], reason=hi3d['reason']) for method in HI3D_FINISHING_METHODS})
+
+
+def require_create_master_finishing(method):
+    if method == 'wtivo_1024' or method in HI3D_FINISHING_METHODS:
+        capability = create_master_finishing_capabilities()[method]
+        if not capability['available']:
+            raise HTTPException(503, capability['reason'])
+
+
+def assign_create_master_finishing(settings, method):
+    if not method:
+        return
+    settings.update(master_finishing=method,
+                    generation_options=master_finishing_options(method, settings['generation_options']))
+    flags = {'studio_768': 'hd_reconstruction', 'wtivo_1024': 'wtivo_reconstruction'}
+    flag = flags.get(method)
+    if flag:
+        settings[flag] = True
+    if method in HI3D_FINISHING_METHODS:
+        settings['keep_finishing_source'] = True
+    if snapshot := settings.get('profile_snapshot'):
+        snapshot.update(master_finishing=method, generation_options=settings['generation_options'])
+        if flag:
+            snapshot[flag] = True
+        if method in HI3D_FINISHING_METHODS:
+            snapshot['keep_finishing_source'] = True
 
 
 @app.get('/api/status')
 def status():
     import psutil
     ready = (ROOT / 'models' / 'trellis2' / 'pipeline.json').exists() and (ROOT / 'engine' / 'MODELS' / 'dinov3' / 'model.safetensors').exists()
+    preview_error=guided_install_failure('trellis')
+    ready=ready and not preview_error
     resolutions,textures=generation_capabilities()
     pixal3d=pixal3d_capabilities()
+    generation_methods = {
+        'trellis2': dict(ready=ready, message='' if ready else preview_error or 'Install the TRELLIS.2 model weights.'),
+        'pixal3d_single': pixal3d.get('single_image', dict(ready=False, message='Install Pixal3D Single Image.')),
+        'pixal3d': {key: pixal3d[key] for key in ('ready', 'message')},
+    }
     return dict(ready=ready, gpu=GPU_DESCRIPTION, ram_free_gib=round(psutil.virtual_memory().available/1024**3,1),
                 active=ACTIVE if PROCESS is not None and PROCESS.poll() is None else TERRAIN_ACTIVE,
                 export_active=EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None,
                 resolution=DEFAULT_GENERATION['resolution'], default_profile=DEFAULT_PROFILE, local=True, studio_version=VERSION,source_revision=SOURCE_REVISION,ui_revision=UI_REVISION,multi_view=pixal3d['ready'],pixal3d=pixal3d,
+                generation_methods=generation_methods, create_master_finishing=create_master_finishing_capabilities(),
                 edition='server' if WORKSPACE_CONFIG else 'desktop',
                 features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','hd_reconstruction','hd_master_finishing','pixal3d_multiview','pixal3d_face_projection','texture_projection','baked_game_copy'], texture_sizes=textures,supported_resolutions=resolutions)
 
@@ -226,8 +295,11 @@ def components():
     try: runtime=json.loads((ROOT/'logs'/'components.json').read_text(encoding='utf-8-sig'))
     except (OSError,ValueError): runtime={}
     blender=bool(find_blender())
+    unirig=runtime.get('unirig',{'ready':False,'message':'Run Open TRELLIS.cmd to check UniRig.'})
+    if message := guided_install_failure('unirig'):
+        unirig=dict(ready=False,message=message)
     return dict(blender=blender, import_formats=list(FORMATS) if blender and not WORKSPACE_CONFIG else ['.glb'], max_import_bytes=MAX_BYTES,
-                unirig=runtime.get('unirig',{'ready':False,'message':'Run Open TRELLIS.cmd to check UniRig.'}),
+                unirig=unirig,
                 rig_pilot=(RIG_PILOT/'tira_animated.glb').is_file())
 
 def launch_worker(folder, script, source_id=None):
@@ -948,7 +1020,7 @@ async def reference_sources(uploads, engine):
         if upload is None:
             continue
         label = f'{role.title()} view' if multiview else 'Image'
-        source = await read_generation_image(upload, label, restrict_formats=multiview)
+        source = await read_generation_image(upload, label, restrict_formats=engine != 'trellis2')
         if source.getchannel('A').getextrema()[1] == 0:
             raise HTTPException(400, f'{label} is fully transparent.')
         sources[role] = source
@@ -980,7 +1052,7 @@ def reference_preview_views(sources, cutouts, frames, engine, preview_size=None)
     views = []
     for role, source in sources.items():
         frame = frames[role]
-        if engine == 'pixal3d':
+        if engine in ('pixal3d', 'pixal3d_single'):
             frame = Image.fromarray((premultiplied_rgb(frame) * 255).astype('uint8'))
         views.append(dict(role=role, width=source.width, height=source.height,
                           original=encode_reference_preview(source, max_size=preview_size or 768),
@@ -991,10 +1063,10 @@ def reference_preview_views(sources, cutouts, frames, engine, preview_size=None)
 
 async def prepare_reference_preview(image, left_image=None, back_image=None, right_image=None,
                                     *, engine, remove_bg, reference_edits, preview_size=None):
-    if engine not in ('trellis2', 'pixal3d'):
+    if engine not in ('trellis2', 'pixal3d', 'pixal3d_single'):
         raise HTTPException(400, 'Unknown reference engine.')
-    if engine == 'trellis2' and any((left_image, back_image, right_image)):
-        raise HTTPException(400, 'Additional views are only supported by Pixal3D.')
+    if engine != 'pixal3d' and any((left_image, back_image, right_image)):
+        raise HTTPException(400, 'Additional views require Pixal3D Multi-view.')
     sources = await reference_sources((image, left_image, back_image, right_image), engine)
     _, cutouts, frames = await prepare_reference_uploads(sources, reference_edits, engine, remove_bg)
     views = await asyncio.to_thread(reference_preview_views, sources, cutouts, frames, engine, preview_size)
@@ -1036,24 +1108,44 @@ async def generate_multiview(
     reproject_face: Annotated[bool, Form()] = False,
     queue_priority: Annotated[int, Form()] = 0,
     reference_edits: Annotated[str, Form()] = '',
+    preset: Annotated[str, Form()] = '',
+    asset_type: Annotated[str, Form()] = 'humanoid',
+    master_finishing: Annotated[str | None, Form()] = None,
 ):
     profile = next((p for p in PIXAL_PROFILES if p['id'] == profile_id), None)
     if profile is None:
-        raise HTTPException(400, 'Unknown Pixal3D profile. Choose a profile advertised by Studio.')
-    if repair_surface and profile['id'] != DENSE_MASTER:
-        raise HTTPException(400, 'Choose Dense Master to repair the surface during generation.')
+        try:
+            saved_profile = next((item for item in PROFILES.list() if item['id'] == profile_id), None)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        if saved_profile is None:
+            raise HTTPException(400, 'Unknown generation profile. Choose a profile advertised by Studio.')
+        profile = dict(saved_profile['settings'], id=saved_profile['id'], name=saved_profile['name'],
+                       keep_finishing_source=saved_profile.get('keep_finishing_source', False))
+    preset = preset or profile.get('preset', profile['id'])
+    if preset != 'character_pixal' and preset not in GENERATION_PRESETS:
+        raise HTTPException(400, 'Unknown generation preset.')
+    if repair_surface and preset != DENSE_MASTER:
+        raise HTTPException(400, 'Choose HD Master to repair the surface during generation.')
+    if preset == HUMANOID_EXPERIMENTAL:
+        asset_type = 'humanoid'
+    triangles = triangles or profile['triangles']
+    texture_size = texture_size or profile['texture_size']
     try:
-        validate_hd_reconstruction(hd_reconstruction, preset=profile['id'], resolution=profile['resolution'],
+        validate_hd_reconstruction(hd_reconstruction, preset=preset, resolution=1024,
                                    repair_surface=repair_surface)
+        validate_create_master_finishing(master_finishing, preset=preset, resolution=1024,
+                                         triangles=triangles, repair_surface=repair_surface,
+                                         hd_reconstruction=hd_reconstruction, engine='pixal3d')
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
-    keep_finishing_source = keep_finishing_source or profile.get('keep_finishing_source', False)
+    keep_finishing_source = keep_finishing_source or preset in (DENSE_MASTER, HUMANOID_EXPERIMENTAL) or profile.get('keep_finishing_source', False)
     if (side_angle not in (40, 90) or not 0.01 <= height_m <= 100
         or not 0 <= seed <= 2147483647 or not -2 <= queue_priority <= 2
-        or (triangles and not TRIANGLE_MIN <= triangles <= TRIANGLE_MAX)
-        or (texture_size and texture_size not in PIXAL_TEXTURE_SIZES)
+        or not TRIANGLE_MIN <= triangles <= TRIANGLE_MAX
+        or texture_size not in PIXAL_TEXTURE_SIZES or asset_type not in ASSET_TYPES
         or len(name) > 80 or len(reference_prompt) > 6000):
-        raise HTTPException(400, 'Invalid character generation settings.')
+        raise HTTPException(400, 'Invalid Pixal3D Multi-view settings.')
     if not any((left_image, back_image, right_image)):
         raise HTTPException(400, 'Add at least one side or back image to the front view.')
     runtime = pixal3d_capabilities()
@@ -1061,6 +1153,7 @@ async def generate_multiview(
         raise HTTPException(503, runtime['message'])
     if reproject_face and not runtime['face_projection']['ready']:
         raise HTTPException(503, runtime['face_projection']['message'])
+    require_create_master_finishing(master_finishing)
     sources = await reference_sources((image, left_image, back_image, right_image), 'pixal3d')
     azimuths = dict(front=0, left=side_angle, back=180, right=-side_angle)
     views = [dict(role=role, azimuth=azimuths[role], file=VIEW_FILES[role]) for role in sources]
@@ -1069,23 +1162,22 @@ async def generate_multiview(
     else:
         frames = {}
     generation_options = dict(PIXAL_CHARACTER_OPTIONS)
-    if profile['id'] == HUMANOID_EXPERIMENTAL:
+    if preset == HUMANOID_EXPERIMENTAL:
         generation_options['mesh_mode'] = 'direct'
-    elif profile['id'] == DENSE_MASTER:
+    elif preset == DENSE_MASTER:
         generation_options.update(DENSE_MASTER_FINISHING)
     safe_name = re.sub(r'[^A-Za-z0-9_-]+', '-', name.strip()).strip('-')[:50] or 'Character'
-    settings = dict(name=safe_name, engine='pixal3d', preset=profile['id'],
+    settings = dict(name=safe_name, engine='pixal3d', preset=preset, view_mode='multi',
                     profile=dict(id=profile['id'], name=profile['name']),
-                    asset_type='humanoid', height_m=height_m, seed=seed,
-                    triangles=triangles or profile['triangles'],
-                    texture_size=texture_size or profile['texture_size'],
-                    resolution=profile['resolution'], pipeline_type='pixal3d_1024_multiview',
+                    asset_type=asset_type, height_m=height_m, seed=seed,
+                    triangles=triangles, texture_size=texture_size,
+                    resolution=1024, pipeline_type='pixal3d_1024_multiview',
                     generation_options=generation_options, settings_version=3, created=time.time(),
                     views=views, side_angle=side_angle, keep_finishing_source=keep_finishing_source)
-    settings['profile_snapshot'] = dict(profile, engine='pixal3d', triangles=settings['triangles'],
+    settings['profile_snapshot'] = dict(profile, engine='pixal3d', preset=preset, resolution=1024, triangles=settings['triangles'],
         texture_size=settings['texture_size'], generation_options=generation_options,
         keep_finishing_source=keep_finishing_source)
-    if profile['id'] == DENSE_MASTER and not hd_reconstruction:
+    if preset == DENSE_MASTER and not (hd_reconstruction or master_finishing):
         settings['adaptive_finishing'] = True
         settings['profile_snapshot']['adaptive_finishing'] = True
     if repair_surface:
@@ -1094,6 +1186,7 @@ async def generate_multiview(
     if hd_reconstruction:
         settings['hd_reconstruction'] = True
         settings['profile_snapshot']['hd_reconstruction'] = True
+    assign_create_master_finishing(settings, master_finishing)
     if reference_edits:
         settings['reference_edits'] = edits
     if reproject_face:
@@ -1112,9 +1205,11 @@ async def generate_multiview(
             for role, frame in frames.items():
                 frame.save(staged / PREPARED_VIEWS[role])
             write_json(staged / 'settings.json', settings)
-            write_json(staged / 'metadata.json', dict(
-                display_name=name.strip() or safe_name, category='Characters',
-                reference_prompt=reference_prompt.strip(), review_state='review', favorite=False, tags=[]))
+            metadata = dict(display_name=name.strip() or safe_name, reference_prompt=reference_prompt.strip(),
+                            review_state='review', favorite=False, tags=[])
+            if asset_type == 'humanoid':
+                metadata['category'] = 'Characters'
+            write_json(staged / 'metadata.json', metadata)
             write_json(staged / 'status.json', dict(state='queued', stage='Waiting in queue', progress=0))
             staged.rename(folder)
         try:
@@ -1135,9 +1230,21 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                    repair_surface: Annotated[bool,Form()]=False,
                    hd_reconstruction: Annotated[bool,Form()]=False,
                    profile_id: str = Form(''), parent_id: Annotated[str,Form()]='', queue_only: Annotated[bool,Form()]=False, queue_priority: Annotated[int,Form()]=0, queue_hold: Annotated[bool,Form()]=False,
-                   reference_edits: Annotated[str, Form()] = ''):
+                   reference_edits: Annotated[str, Form()] = '',
+                   engine: Annotated[str, Form()] = 'trellis2',
+                   master_finishing: Annotated[str | None, Form()] = None,
+                   reproject_face: Annotated[bool, Form()] = False):
     if WORKSPACE_CONFIG:
         queue_only = True
+    if engine not in ('trellis2', 'pixal3d_single'):
+        raise HTTPException(400, 'Choose a supported single-image method.')
+    pixal = engine == 'pixal3d_single'
+    if pixal:
+        if resolution != 1024 or (texture_size and texture_size not in PIXAL_TEXTURE_SIZES):
+            raise HTTPException(400, 'Pixal3D Single image uses resolution 1024 and a 1K or 2K atlas.')
+        remove_bg = True
+    if reproject_face and not pixal:
+        raise HTTPException(400, 'Face reprojection requires Pixal3D.')
     # Legacy multipart profile_id is provenance; an edited base preset wins.
     experimental = preset == HUMANOID_EXPERIMENTAL
     cache_required = preset in (HUMANOID_EXPERIMENTAL, DENSE_MASTER)
@@ -1151,13 +1258,26 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
         or (triangles!=0 and not TRIANGLE_MIN<=triangles<=TRIANGLE_MAX) or asset_type not in ASSET_TYPES
         or texture_size not in (0,1024,2048,4096) or resolution not in (512,1024,1536) or len(reference_prompt)>6000 or len(name)>80):
         raise HTTPException(400, 'Invalid settings.')
+    steps, default_triangles, default_texture = GENERATION_PRESETS[preset]
+    triangles = triangles or default_triangles
+    texture = texture_size or default_texture
     try:
         validate_hd_reconstruction(hd_reconstruction, preset=preset, resolution=resolution,
                                    repair_surface=repair_surface)
+        validate_create_master_finishing(master_finishing, preset=preset, resolution=resolution,
+                                         triangles=triangles, repair_surface=repair_surface,
+                                         hd_reconstruction=hd_reconstruction, engine=engine)
         if len(advanced_settings)>12000:raise ValueError('Advanced settings are too large.')
         incoming=json.loads(advanced_settings) if advanced_settings else {}
         if not isinstance(incoming,dict):raise ValueError('Malformed advanced settings.')
-        advanced=normalize_options({**PROFILE_ADVANCED.get(preset,{}),**incoming},GENERATION_PRESETS[preset][0])
+        if pixal:
+            if incoming:
+                raise ValueError('Pixal3D uses its own sampling settings.')
+            advanced = dict(PIXAL_SINGLE_OPTIONS)
+            if preset in (DENSE_MASTER, HUMANOID_EXPERIMENTAL, 'high_detail'):
+                advanced.update(DENSE_MASTER_FINISHING)
+        else:
+            advanced=normalize_options({**PROFILE_ADVANCED.get(preset,{}),**incoming},steps)
     except (ValueError,TypeError) as error:
         raise HTTPException(400,str(error))
     base_profile = next((p for p in builtin_profiles() if p['id'] == preset), None) if cache_required else None
@@ -1166,56 +1286,70 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
         try: profile = next((p for p in PROFILES.list() if p['id'] == profile_id), None)
         except ValueError as error: raise HTTPException(422, str(error))
         if profile is None: raise HTTPException(400, 'Profile not found; reload profiles.')
+    require_create_master_finishing(master_finishing)
+    if pixal:
+        runtime = pixal3d_capabilities()
+        single_image = runtime.get('single_image', {})
+        if not single_image.get('ready'):
+            raise HTTPException(503, single_image.get('message', 'Install Pixal3D Single image.'))
+        if reproject_face and not runtime['face_projection']['ready']:
+            raise HTTPException(503, runtime['face_projection']['message'])
     if reference_edits:
-        sources = await reference_sources((image,), 'trellis2')
-        edits, cutouts, frames = await prepare_reference_uploads(sources, reference_edits, 'trellis2', remove_bg)
+        sources = await reference_sources((image,), engine)
+        edits, cutouts, frames = await prepare_reference_uploads(sources, reference_edits, engine, remove_bg)
     async with LOCK:
         if parent_id:job_path(parent_id)
         if not queue_only and (TERRAIN_ACTIVE or (PROCESS is not None and PROCESS.poll() is None)):
             raise HTTPException(409, 'A generation is already running; add the next image to the queue.')
         if type(queue_priority) is not int or not -2<=queue_priority<=2:raise HTTPException(400,'Invalid queue priority.')
-        if not status()['ready']: raise HTTPException(503, 'Model weights are not installed yet.')
-        supported,textures=generation_capabilities()
+        if not pixal and not status()['ready']: raise HTTPException(503, 'Model weights are not installed yet.')
+        supported, textures = ([1024], PIXAL_TEXTURE_SIZES) if pixal else generation_capabilities()
         if resolution not in supported:raise HTTPException(400,'This 3D resolution is not available or validated in this installation.')
         if texture_size and texture_size not in textures:raise HTTPException(400,'This texture size is not validated in this installation.')
-        source = sources['front'] if reference_edits else await read_generation_image(image)
+        source = sources['front'] if reference_edits else (await reference_sources((image,), engine))['front']
         identifier = uuid.uuid4().hex
         folder = OUTPUT / identifier
-        safe_name = re.sub(r'[^A-Za-z0-9_-]+', '-', name.strip()).strip('-')[:50] or 'Objet'
-        steps, default_triangles, texture = GENERATION_PRESETS[preset]
-        texture = texture_size or texture
-        triangles = triangles or default_triangles
+        safe_name = re.sub(r'[^A-Za-z0-9_-]+', '-', name.strip()).strip('-')[:50] or 'Object'
         settings = dict(name=safe_name, preset=preset, height_m=height_m, seed=seed, remove_bg=remove_bg,
                         steps=steps, triangles=triangles, texture_size=texture, created=time.time(), asset_type=asset_type,
                         resolution=resolution,pipeline_type={512:'512',1024:'1024_cascade',1536:'1536_cascade'}[resolution],
                         generation_options=advanced,settings_version=2)
+        if pixal:
+            settings.update(engine='pixal3d', view_mode='single', pipeline_type='pixal3d_1024_monoview',
+                            settings_version=3)
+        if reproject_face:
+            settings['reproject_face'] = True
         if keep_finishing_source: settings['keep_finishing_source'] = True
         if repair_surface: settings['repair_surface'] = True
         if hd_reconstruction: settings['hd_reconstruction'] = True
-        if preset == DENSE_MASTER and not hd_reconstruction: settings['adaptive_finishing'] = True
+        if preset == DENSE_MASTER and not (hd_reconstruction or master_finishing): settings['adaptive_finishing'] = True
         if reference_edits:
             settings['reference_edits'] = edits
         if profile: settings['profile'] = dict(id=profile['id'], name=profile['name'])
         if base_profile:
             settings['profile_snapshot'] = dict(id=preset, name=base_profile['name'],
-                engine='trellis2', asset_type=asset_type, keep_finishing_source=True,
+                engine='pixal3d' if pixal else 'trellis2', asset_type=asset_type, keep_finishing_source=True,
                 preset=preset, resolution=resolution, triangles=triangles, texture_size=texture,
                 generation_options=advanced)
             if experimental:
                 settings['profile_snapshot']['experimental'] = True
-            if preset == DENSE_MASTER and not hd_reconstruction:
+            if preset == DENSE_MASTER and not (hd_reconstruction or master_finishing):
                 settings['profile_snapshot']['adaptive_finishing'] = True
             if repair_surface:
                 settings['profile_snapshot']['repair_surface'] = True
             if hd_reconstruction:
                 settings['profile_snapshot']['hd_reconstruction'] = True
+        assign_create_master_finishing(settings, master_finishing)
         if parent_id:settings['parent_id']=parent_id
         with TemporaryDirectory(prefix='.trellis2-', dir=OUTPUT) as staging:
             staged = Path(staging)
             source.save(staged / 'input.png')
             if reference_edits:
-                cutouts['front'].save(staged / 'prepared.png')
-                frames['front'].save(staged / 'conditioning.png')
+                if pixal:
+                    frames['front'].save(staged / 'prepared.png')
+                else:
+                    cutouts['front'].save(staged / 'prepared.png')
+                    frames['front'].save(staged / 'conditioning.png')
             write_json(staged / 'settings.json', settings)
             write_json(staged / 'metadata.json', dict(display_name=name.strip()[:80] or safe_name,
                        reference_prompt=reference_prompt.strip(), review_state='review', favorite=False, tags=[]))
@@ -1230,7 +1364,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                            progress=0, error=str(error)))
                 raise HTTPException(503, 'Unable to save the generation queue.') from error
             return {'id':identifier,'queued':True}
-        launch_worker(folder, 'worker.py')
+        launch_worker(folder, 'pixal3d_worker.py' if pixal else 'worker.py')
         return {'id': identifier}
 
 @app.post('/api/jobs/{identifier}/cancel')

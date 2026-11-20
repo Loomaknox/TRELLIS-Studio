@@ -65,6 +65,35 @@ high-poly alternative. Read `/profiles` for the exact recipes and custom IDs.
 Object height and seed belong to the job, not the saved profile. Supported JSON
 overrides are documented in the `Generation` schema; unknown fields are rejected.
 
+## Generation methods and master finishing
+
+Read `generation_methods` from `GET /status`. The single-image route
+`POST /generations` accepts `engine: "trellis2"` (the default) and
+`engine: "pixal3d_single"`. Pixal3D Single image estimates the input camera with
+MoGe-2, uses resolution 1024 and supports 1K or 2K atlases. It uses its own sampler
+settings. Read `generation_methods.pixal3d_single` for installation readiness.
+Pixal3D Multi-view uses `POST /generations/multiview` with the front and at least
+one additional image.
+
+Use `profile_id: "dense_master"` and a top-level `master_finishing` field to
+finish a master in the generation job. `"studio_768"` selects Balanced
+Reconstruction and `"wtivo_1024"` selects Surface Closure. Read
+`create_master_finishing` in the status response for availability. The
+generation profile supplies the default budget of 1.2M triangles and a 2K
+atlas. Both methods accept the same generation budget fields, with geometry
+resolution 1024 or higher and a triangle ceiling of at most 3M. The
+generation returns one finished model and retains its decoded source for
+later comparison. The existing cached finishing route has its own defaults
+of up to 3M triangles and the largest supported atlas.
+
+For Hi3D, use `master_finishing: "hi3d_512"` or `"hi3d_1024"` with
+`engine: "trellis2"` and `profile_id: "dense_master"`. The profile or
+`overrides.resolution` sets the TRELLIS.2 generation resolution. Both
+methods refine that native mesh using the prepared reference cutout. The
+method value selects the Hi3D refinement resolution. Read its capability
+entry in `create_master_finishing`.
+[Powered by Hi3D 1.0](http://hi3d.ai/) · [Runtime setup](HI3D.md)
+
 ## Routes
 
 | Group | Operations |
@@ -272,8 +301,8 @@ travel and skin deformation on each target character before using the result.
 
 ## Reference preview and corrections
 
-`POST /references/preview` accepts `upload_id`, `engine` (`trellis2` or
-`pixal3d`), `remove_bg` and optional `reference_edits`. For Pixal3D, include
+`POST /references/preview` accepts `upload_id`, `engine` (`trellis2`,
+`pixal3d_single` or `pixal3d`), `remove_bg` and optional `reference_edits`. For Pixal3D Multi-view, include
 any supplemental views as `left_upload_id`, `back_upload_id` and `right_upload_id`.
 Each entry in `views` contains the role, source dimensions and three PNG data
 URLs, `original`, `cutout` and `framed`, at up to 240 × 240 pixels each.
@@ -320,6 +349,11 @@ preview setting. Previewing uses zero generation credits.
   decoded PBR volume, and the completed result records pre-UV topology and
   atlas coverage. Geometry size, orientation and method can be reviewed
   before a separate texture projection or game-copy operation.
+- `{"master_finishing":"hi3d_512"}` and `{"master_finishing":"hi3d_1024"}`
+  create linked refined masters from a retained native TRELLIS.2 single-image
+  source with its cutout. Read `master_finishing.methods` for per-model availability.
+  The variants also work in a finishing-board batch.
+
 - `POST /models/{id}/finishing-board` accepts `{"variants":[...]}` with one
   to three distinct recipes. Poll `GET /jobs/{id}` for each returned ID. Save a
   completed variant as the board's choice with
@@ -334,11 +368,11 @@ preview setting. Previewing uses zero generation credits.
 
 ## Pixal3D multi-view generation
 
-Use `GET /status` to inspect `pixal3d.ready` and the optional character recipe. Upload the front and complementary images individually with `POST /uploads`, then submit their returned IDs with `POST /generations/multiview`.
+Use `GET /status` to inspect `generation_methods.pixal3d`. Upload the front and complementary images individually with `POST /uploads`, then submit their returned IDs with `POST /generations/multiview`.
 
 - `upload_id` is the front image. Supply at least one of `left_upload_id`, `back_upload_id` and `right_upload_id`.
 - `side_angle` is 40 for three-quarter views or 90 for profiles. Left is positive azimuth, right is negative azimuth and back is 180°. Use the same full-body pose and framing.
-- Optional fields include `name`, `height_m`, `seed`, `triangles`, `texture_size` (1024 or 2048), `parent_id`, `keep_finishing_source` and queue `priority`. Defaults come from **Character · Pixal3D**.
+- Optional fields include `name`, `height_m`, `seed`, `triangles`, `texture_size` (1024 or 2048), `asset_type`, `parent_id`, `keep_finishing_source` and queue `priority`. Use `profile_id` from `/profiles`. The original `character_pixal` recipe remains the default for this endpoint. HD Master profiles can also select `master_finishing`.
 - Set `reproject_face` to `true` to transfer the visible face from the original front photo after generation. The default is `false`. Check `pixal3d.face_projection.ready` in `GET /status` before requesting it. Model results report the pass under `result.face_projection`, including a reason if skipped.
 
 The response uses the usual job ID, state and status URL. Inspect the completed job's settings for the saved camera roles. The source views can be downloaded via the regular model files route. The optional runtime must be installed before submission.
@@ -395,12 +429,15 @@ that URL and inspect the completed GLB and its result report.
   `{"method":"generation_views"}` as the entire projection recipe. Studio uses
   the verified prepared references and cameras saved by that Pixal3D
   generation, including its export coordinates. No upload is required.
+  Pixal3D single-image generations save one estimated MoGe camera. Multi-view
+  generations save their configured cameras. Verified linked refinishing,
+  game and texture copies retain these views.
   Pixel Match updates the base color of a linked copy with visibility masks,
   edge blending and local color matching. Inspect the result against the
   original under the same lighting. Earlier exports without saved camera
   provenance can use the existing one- and two-view recipes.
-- On a compatible single-image TRELLIS.2 generation or linked refinishing
-  result, `generation_reference.supported` identifies an available saved
+- On a compatible single-image TRELLIS.2 generation or a verified linked
+  copy, `generation_reference.supported` identifies an available saved
   `prepared` cutout. Send `{"method":"generation_reference"}` with the
   aligned `camera`, `source_rect`, `target_rect` and any selection or blending
   fields from a single-view recipe. Studio Auto Align estimates the view

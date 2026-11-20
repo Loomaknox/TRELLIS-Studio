@@ -1,9 +1,18 @@
 const $ = id => document.getElementById(id);
 const roles = ['front', 'left', 'back', 'right'];
 const limit = 25 * 1024 * 1024;
+const methods = {
+  trellis2: {label: 'TRELLIS.2 · Single image', detail: 'Standard generation'},
+  pixal3d_single: {label: 'Pixal3D · Single image', detail: 'Automatic camera estimation with MoGe'},
+  pixal3d: {label: 'Pixal3D · Multi-view', detail: 'Front plus one to three matching views'},
+};
 
 export function createMultiviewInputs({ changed, invalid }) {
-  const toggle = $('pixalMode');
+  const chooser = $('generationMethod');
+  const methodButtons = [...chooser.querySelectorAll('button')];
+  const addView = $('addReferenceView');
+  const swapSides = $('swapReferenceSides');
+  const pickReference = $('pickReference');
   const reprojectFace = $('reprojectFace');
   const slots = new Map(roles.map(role => {
     const area = document.querySelector(`[data-reference-slot="${role}"]`);
@@ -12,28 +21,26 @@ export function createMultiviewInputs({ changed, invalid }) {
       drop: area.querySelector('label'),
       image: area.querySelector('img'),
       prompt: area.querySelector('[data-slot-prompt]'),
-      remove: area.querySelector('button'),
+      remove: area.querySelector('.reference-slot-remove'),
       file: null,
       url: null,
     }];
   }));
-  let capabilities;
-  const profileChoice=$('pixalProfileChoice');
-  function selectedProfile(){return (capabilities?.profiles||[capabilities?.profile]).find(p=>p?.id===profileChoice.value)||capabilities?.profile;}
-  function renderProfile(){
-    const profile=selectedProfile();
-    const dense=profile?.id==='dense_master';
-    const triangles=Number($('pixalTriangles').value)||profile?.triangles;
-    $('pixalProfileSummary').textContent=profile?
-      `${profile.resolution}³ · ${dense?'up to ':''}${Number(triangles).toLocaleString('en-US')} ${dense?'triangles':'target triangles'} · texture ${profile.texture_size/1024}K`:'Dedicated recipe for characters.';
-    $('pixalTrianglesLabel').textContent=dense?'Maximum triangles':'Target triangles';
-    $('pixalTrianglesHint').textContent=dense?'Leave blank for the profile ceiling':'Leave blank for the character profile';
-    $('pixalTriangles').placeholder=profile?String(profile.triangles):'Profile default';
+  let method = 'trellis2';
+  let status = {};
+
+  const isMulti = () => method === 'pixal3d';
+  const usesPixal = () => method !== 'trellis2';
+  const activeRoles = () => isMulti() ? roles : ['front'];
+  const countViews = () => activeRoles().filter(role => slots.get(role).file).length;
+
+  function capability(value) {
+    const explicit = status.generation_methods?.[value];
+    if (explicit) return explicit;
+    if (value === 'pixal3d') return status.pixal3d;
+    if (value === 'pixal3d_single') return status.pixal3d?.single_image;
+    return status.ready === undefined ? null : {ready: status.ready, message: status.message};
   }
-  $('pixalTriangles').addEventListener('input',renderProfile);
-  profileChoice.addEventListener('change',()=>{
-    $('pixalTriangles').value='';$('pixalTextureSize').value='';renderProfile();changed({profile:true});
-  });
 
   function syncPicker(slot) {
     const transfer = new DataTransfer();
@@ -45,7 +52,7 @@ export function createMultiviewInputs({ changed, invalid }) {
   function setFile(role, file) {
     const slot = slots.get(role);
     if (slot.url) URL.revokeObjectURL(slot.url);
-    slot.file = file;
+    slot.file = file || null;
     slot.url = file ? URL.createObjectURL(file) : null;
     syncPicker(slot);
     if (slot.url) slot.image.src = slot.url;
@@ -55,31 +62,30 @@ export function createMultiviewInputs({ changed, invalid }) {
     slot.remove.hidden = !file;
   }
 
-  function countViews() {
-    return roles.filter(role => slots.get(role).file).length;
-  }
-
   function renderReferences() {
     const count = countViews();
-    $('referenceMode').textContent = toggle.checked ? `${count} / 4 VIEWS` : 'SINGLE IMAGE';
-    $('mainViewBadge').hidden = !toggle.checked || !slots.get('front').file;
-    const help = !slots.get('front').file ? 'Add a front view and at least one complementary view.' :
-      count < 2 ? 'Add at least one complementary view.' : '';
+    $('referenceMode').textContent = isMulti() ? `${count} / 4 views` : `${count} ${count === 1 ? 'image' : 'images'}`;
+    const hasFront = !!slots.get('front').file;
+    pickReference.querySelector('span').textContent = hasFront ? 'Replace image' : 'Add image';
+    $('mainViewBadge').hidden = !isMulti() || !hasFront;
+    const help = !slots.get('front').file ? 'Add a front view and at least one additional view.'
+      : count < 2 ? 'Add a side or back view.' : '';
     $('viewRequirements').textContent = help;
     $('viewRequirements').hidden = !help;
+    swapSides.disabled = !(slots.get('left').file || slots.get('right').file);
   }
 
   function accept(role, file) {
     const slot = slots.get(role);
-    if (!slot || (role !== 'front' && !toggle.checked)) return;
+    if (!slot || (role !== 'front' && !isMulti())) return;
     if (file && (!/^image\/(png|jpeg|webp)$/.test(file.type) || file.size > limit || !file.size)) {
       syncPicker(slot);
       invalid(file.size > limit ? 'Each image is limited to 25 MB.' : 'Choose a non-empty PNG, JPEG or WebP image.');
       return;
     }
-    setFile(role, file || null);
+    setFile(role, file);
     renderReferences();
-    changed({ role, file });
+    changed({role, file});
   }
 
   for (const [role, slot] of slots) {
@@ -104,115 +110,158 @@ export function createMultiviewInputs({ changed, invalid }) {
   }
 
   function renderMode() {
-    const active = toggle.checked;
-    for (const id of ['monoProfile', 'monoAssetType', 'monoBrief', 'monoResolution', 'monoTexture', 'monoAdvanced', 'monoBackground']) {
-      const element = $(id);
-      element.hidden = active;
-      if (element instanceof HTMLFieldSetElement) element.disabled = active;
+    for (const id of ['supplementalViews', 'pixalViewAngles']) {
+      $(id).hidden = $(id).disabled = !isMulti();
     }
-    for (const id of ['pixalProfile', 'supplementalViews', 'pixalViewAngles', 'pixalQuality', 'pixalTexture']) {
-      const element = $(id);
-      element.hidden = !active;
-      if (element instanceof HTMLFieldSetElement) element.disabled = !active;
-    }
-    $('frontDropTitle').textContent = active ? 'Main view · front' : 'Drop your reference image';
-    slots.get('front').input.setAttribute('aria-label', active ? 'Main reference, front view' : 'Reference image');
+    $('generationSampling').hidden = $('generationSampling').disabled = usesPixal();
+    $('resolution').closest('label').hidden = usesPixal();
+    $('resolution').disabled = usesPixal();
+    $('removeBgField').hidden = usesPixal();
+    $('removeBg').disabled = usesPixal();
+    addView.hidden = isMulti();
+    addView.setAttribute('aria-expanded', String(isMulti()));
+    $('frontDropTitle').textContent = isMulti() ? 'Front view' : 'Drop your reference image';
+    slots.get('front').input.setAttribute('aria-label', isMulti() ? 'Front reference image' : 'Reference image');
+    $('generationMethodLabel').textContent = methods[method].label;
+    for (const button of methodButtons) button.setAttribute('aria-pressed', String(button.value === method));
     renderReferences();
   }
 
-  toggle.addEventListener('change', () => {
-    const monoPreset=$('preset').value;
-    if(toggle.checked&&['humanoid_experimental','dense_master'].includes(monoPreset)&&[...profileChoice.options].some(o=>o.value===monoPreset)){
-      profileChoice.value=monoPreset;$('pixalTriangles').value='';$('pixalTextureSize').value='';renderProfile();
+  function sync(textureSize = Number($('textureSize').value)) {
+    const projection = status.pixal3d?.face_projection;
+    const canShowFace = usesPixal() && $('assetType').value === 'humanoid';
+    $('faceProjectionField').hidden = !canShowFace;
+    reprojectFace.disabled = !canShowFace || !capability(method)?.ready || !projection?.ready;
+    if (canShowFace) {
+      $('reprojectFaceHelp').textContent = projection?.ready
+        ? 'Blends the reference face into the finished texture.'
+        : projection?.message || 'Face reprojection is unavailable.';
     }
-    renderMode();
-    changed({ mode: true });
+    const notice = $('generationMethodNotice');
+    const hiddenViews = !isMulti() && roles.slice(1).some(role => slots.get(role).file);
+    const selected = capability(method);
+    const messages = [];
+    if (status.message) messages.push(status.message);
+    else if (usesPixal() && !selected?.ready) messages.push(selected?.message || 'This Pixal3D mode needs its optional runtime.');
+    else if (selected && !selected.ready) messages.push(selected.message || 'Install the TRELLIS.2 model weights to generate.');
+    if (usesPixal() && textureSize > 2048) messages.push('Choose 1K or 2K textures in Advanced for Pixal3D.');
+    if (hiddenViews) messages.push('Additional references are available in Multi-view.');
+    notice.textContent = messages.join(' ');
+    notice.hidden = !messages.length;
+  }
+
+  function selectMethod(value) {
+    if (value !== method) {
+      method = value;
+      renderMode();
+      changed({mode: true});
+    }
+    chooser.open = false;
+    chooser.querySelector('summary').focus();
+  }
+
+  for (const button of methodButtons) button.addEventListener('click', () => selectMethod(button.value));
+  chooser.addEventListener('toggle', () => {
+    if (!chooser.open) return;
+    const panel = chooser.closest('.creation');
+    if (panel.scrollHeight <= panel.clientHeight) return;
+    const dock = $('generationSummary').closest('.generation-dock');
+    const visibleBottom = Math.min(panel.getBoundingClientRect().bottom, dock.getBoundingClientRect().top);
+    const overlap = chooser.getBoundingClientRect().bottom - visibleBottom;
+    if (overlap > 0) panel.scrollBy(0, overlap + 8);
+  });
+  chooser.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !chooser.open) return;
+    chooser.open = false;
+    chooser.querySelector('summary').focus();
+  });
+  pickReference.addEventListener('click', () => slots.get('front').input.click());
+  addView.addEventListener('click', () => {
+    selectMethod('pixal3d');
+    slots.get('left').input.focus();
+  });
+  swapSides.addEventListener('click', () => {
+    const left = slots.get('left').file;
+    setFile('left', slots.get('right').file);
+    setFile('right', left);
+    renderReferences();
+    changed({swap: true});
   });
 
   function setCapabilities(value) {
-    capabilities = value;
-    const state = $('pixalRuntimeState');
-    state.textContent = value?.ready ? 'READY' : 'OPTIONAL';
-    state.classList.toggle('dirty', !value?.ready);
-    $('pixalRuntimeNotice').textContent = value?.ready ? 'Pixal3D ready on this computer.' :
-      value?.message || 'Restart TRELLIS Studio to check the optional Pixal3D runtime.';
-    const projection = value?.face_projection;
-    reprojectFace.disabled = !value?.ready || !projection?.ready;
-    $('reprojectFaceHelp').textContent = reprojectFace.disabled ?
-      projection?.message || value?.message || 'Restart TRELLIS Studio to check face reprojection availability.' :
-      'Blends the visible face from the front reference into the model texture after generation.';
-    const profiles=value?.profiles||(value?.profile?[value.profile]:[]);
-    if(profiles.length&&JSON.stringify(profiles.map(p=>[p.id,p.name]))!==profileChoice.dataset.recipes){
-      const selected=profileChoice.value;profileChoice.replaceChildren();
-      for(const p of profiles){const option=document.createElement('option');option.value=p.id;option.textContent=p.name;profileChoice.append(option);}
-      profileChoice.value=profiles.some(p=>p.id===selected)?selected:value.profile.id;
-      profileChoice.dataset.recipes=JSON.stringify(profiles.map(p=>[p.id,p.name]));
+    status = value || {};
+    for (const button of methodButtons) {
+      const info = capability(button.value);
+      const available = !!info?.ready;
+      button.disabled = button.value !== 'trellis2' && !available;
+      const detail = button.querySelector('[data-method-status]');
+      const label = available || (button.value === 'trellis2' && !info)
+        ? methods[button.value].detail : info?.message || 'Optional runtime required';
+      if (detail.textContent !== label) detail.textContent = label;
     }
-    renderProfile();
-    const textures = value?.texture_sizes || [1024, 2048];
-    for (const option of $('pixalTextureSize').options) option.disabled = !!option.value && !textures.includes(Number(option.value));
+    const multi = capability('pixal3d');
+    addView.disabled = !multi?.ready;
+    addView.title = addView.disabled ? multi?.message || 'Pixal3D Multi-view runtime required.' : '';
+    sync();
   }
 
   function referenceRequest() {
     const form = new FormData();
-    for (const role of toggle.checked ? roles : ['front']) {
+    for (const role of activeRoles()) {
       const file = slots.get(role).file;
       if (file) form.set(role === 'front' ? 'image' : `${role}_image`, file);
     }
     return form;
   }
 
-  function buildRequest() {
-    const form = referenceRequest();
-    for (const [field, id] of Object.entries({
-      name: 'name', height_m: 'height', parent_id: 'parentId', side_angle: 'sideAngle', seed: 'pixalSeed',
-      triangles: 'pixalTriangles', texture_size: 'pixalTextureSize',
-      profile_id:'pixalProfileChoice',
-    })) {
-      const value = $(id).value;
-      if (value !== '') form.set(field, value);
+  function appendRequest(form) {
+    for (const [name, file] of referenceRequest()) form.set(name, file);
+    if (isMulti()) {
+      form.set('side_angle', $('sideAngle').value);
+      if (!form.get('profile_id')) form.delete('profile_id');
+    } else {
+      form.set('engine', method);
     }
     if (reprojectFace.checked && !reprojectFace.disabled) form.set('reproject_face', 'true');
-    if ($('keepFinishingSource').checked || selectedProfile()?.keep_finishing_source) form.set('keep_finishing_source', 'true');
-    return form;
+    if (usesPixal()) form.set('resolution', '1024');
   }
 
   async function restore(job) {
     const settings = job.settings;
-    const active = settings.engine === 'pixal3d';
-    const references = active ? settings.views : [{ role: 'front', file: 'input.png' }];
-    if (!Array.isArray(references) || !references.some(view => view.role === 'front') || (active && references.length < 2)) {
+    const single = settings.view_mode === 'single' || settings.pipeline_type === 'pixal3d_1024_monoview'
+      || settings.engine === 'pixal3d_single';
+    const restoredMethod = single ? 'pixal3d_single' : settings.engine === 'pixal3d' ? 'pixal3d' : 'trellis2';
+    const references = restoredMethod === 'pixal3d' ? settings.views : [{role: 'front', file: 'input.png'}];
+    if (!Array.isArray(references) || !references.some(view => view.role === 'front')
+        || (restoredMethod === 'pixal3d' && references.length < 2)) {
       throw Error('The saved reference list is incomplete.');
     }
-    const restored = await Promise.all(references.map(async ({ role, file }) => {
+    const restored = await Promise.all(references.map(async ({role, file}) => {
       if (!roles.includes(role) || typeof file !== 'string') throw Error('The saved reference list is invalid.');
       const response = await fetch(`/api/jobs/${job.id}/files/${encodeURIComponent(file)}`);
       if (!response.ok) throw Error(`Saved ${role} reference is unavailable.`);
       const blob = await response.blob();
-      return [role, new File([blob], `${settings.name}-${role}.png`, { type: 'image/png' })];
+      return [role, new File([blob], `${settings.name}-${role}.png`, {type: 'image/png'})];
     }));
     const files = new Map(restored);
-    for (const role of roles) setFile(role, files.get(role) || null);
-    toggle.checked = active;
-    reprojectFace.checked = active && settings.reproject_face === true;
-    if (active) {
-      profileChoice.value=settings.profile?.id||settings.preset||'character_pixal';
-      $('sideAngle').value = String(settings.side_angle ?? 40);
-      $('pixalSeed').value = String(settings.seed ?? 42);
-      $('pixalTriangles').value = settings.triangles ?? '';
-      $('pixalTextureSize').value = String(settings.texture_size ?? '');
-      renderProfile();
-    }
+    for (const role of roles) setFile(role, files.get(role));
+    method = restoredMethod;
+    reprojectFace.checked = usesPixal() && settings.reproject_face === true;
+    $('sideAngle').value = String(settings.side_angle ?? 40);
     renderMode();
   }
 
   renderMode();
+  setCapabilities();
   return {
-    accept, restore, referenceRequest, buildRequest, setCapabilities,
-    get active() { return toggle.checked; },
+    accept, restore, referenceRequest, appendRequest, setCapabilities, sync,
+    get active() { return isMulti(); },
+    get usesPixal() { return usesPixal(); },
+    get method() { return method; },
+    get methodLabel() { return methods[method].label; },
+    get viewCount() { return countViews(); },
     get hasFront() { return !!slots.get('front').file; },
-    get ready() { return !!capabilities?.ready && countViews() >= 2 && !$('pixalTextureSize').selectedOptions[0]?.disabled; },
-    get summary() { return `${selectedProfile()?.name || 'Character · Pixal3D'} · ${countViews()} views · local compute`; },
-    pasteRole(target) { return (toggle.checked && target.closest('[data-reference-slot]')?.dataset.referenceSlot) || 'front'; },
+    get ready() { return !!capability(method)?.ready && (!isMulti() || countViews() >= 2); },
+    pasteRole(target) { return (isMulti() && target.closest('[data-reference-slot]')?.dataset.referenceSlot) || 'front'; },
   };
 }

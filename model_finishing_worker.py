@@ -16,6 +16,21 @@ def staged_reference(folder, name):
     return path
 
 
+def retain_generation_views(folder, source, provenance, report, operation):
+    """Rebind verified views after a frame-preserving bake or color-only projection."""
+    from generation_view_projection import (
+        checked_generation_views, digest, save_generation_views, verify_generation_view_inputs,
+    )
+
+    provenance = checked_generation_views(provenance)
+    verify_generation_view_inputs(folder, source, provenance)
+    if operation == 'baked_game_copy':
+        if report['source_sha256'] != provenance['model_sha256'] or report['model_sha256'] != digest(folder / 'model.glb'):
+            raise ValueError('The baked export differs from the verified generation source.')
+    save_generation_views(folder, provenance['normalization'], provenance['views'],
+                          camera_model=provenance.get('camera_model'))
+
+
 def run(folder):
     request = read(folder / 'finishing-request.json')
     operation = request['operation']
@@ -75,6 +90,13 @@ def run(folder):
         if operation == 'baked_game_copy':
             result.update(triangles=report['triangles'], vertices=report['vertices'],
                           texture_size=request['options']['texture_size'])
+        if 'retained_generation_views' in request:
+            try:
+                retain_generation_views(folder, source, request['retained_generation_views'], report, operation)
+                report['generation_views_retained'] = True
+            except (OSError, ValueError, TypeError, KeyError, OverflowError) as error:
+                print(f'Could not retain the saved generation views ({type(error).__name__}).', flush=True)
+                report['generation_views_retained'] = False
         write(folder / 'result.json', result)
         source.unlink(missing_ok=True)
         for reference in references:

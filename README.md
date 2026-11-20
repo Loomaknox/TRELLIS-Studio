@@ -21,16 +21,17 @@ One local generation produced two finishes from the same saved source. The high-
 ## Get started
 
 1. Download the x64 Setup from [GitHub Releases](https://github.com/yoslo59/TRELLIS-Studio/releases). This preview is unsigned; the release also includes its SHA-256 checksum.
-2. Choose **TRELLIS Desktop (single user)** or **TRELLIS Server (multi-user)**. Both editions offer **Workshop only** for the library, 3D viewer and GLB import/export, or **Full Studio** for TRELLIS.2 generation, UniRig and Pixal3D. Full Studio requires a compatible NVIDIA driver, Blender and Ubuntu 22.04 under WSL2. Allow around **29 GiB** of model downloads plus packages and **100 GiB** of free space.
-3. Optionally select **Kimodo text-to-motion** and accept its separate model licences. Setup downloads and configures the CPU engine; it needs an initialized WSL2 Linux x64 distribution, an AVX2/FMA/F16C CPU and at least **12 GiB free inside WSL**. Its approximately **9.3 GB** of weights are additional to Full Studio. No NVIDIA GPU is needed for this optional motion engine. [Details and limits](docs/MOTION_GENERATION.md)
+2. Choose **TRELLIS Desktop (single user)** or **TRELLIS Server (multi-user)**. Setup detects the GPU and VRAM, helps locate Blender, and offers optional generation and rigging components. The Workshop includes the library, 3D viewer and standard animation files. Allow about **29 GiB** of model downloads plus packages and **100 GiB** of free space for the main AI components.
+3. Optionally select **Kimodo text-to-motion** and accept its separate model licences. This CPU engine needs initialized WSL2 Linux x64, AVX2/FMA/F16C, and at least **12 GiB free inside WSL**. Its approximately **9.3 GB** of weights are additional. [Details and limits](docs/MOTION_GENERATION.md)
 4. Open **TRELLIS Studio** or **TRELLIS Server** from the Start menu. Setup can add a desktop shortcut. A new Server installation guides you through creating the first administrator. See the [Server setup guide](docs/SERVER.md) for network access, account approval, quotas and personal API keys.
 
 Read the [Windows Setup guide](docs/WINDOWS_SETUP.md) for component installation, repair and uninstall. Downloads are resumable and verified with SHA-256. The uninstaller can stop its own idle local services and keeps the library.
 
-**New in 3.9.0** — Rebuild a cached source with **HD Master Finishing**, then
-reproject compatible Pixal3D generation views or fit a saved TRELLIS.2 image
-to the model. The header shows the installed version and available stable
-updates. See the [release notes](docs/RELEASE_3.9.0.md).
+**New in 3.11.0** — The redesigned workspace brings together Create, Collection
+and Animation Studio. Windows Setup checks the GPU and offers optional
+**Hi3D detail refinement** on eligible hardware. The component downloads
+approximately 10.66 GB of additional model weights after license acceptance.
+[Release notes](docs/RELEASE_3.11.0.md) · [Hi3D guide](docs/HI3D.md)
 
 ### Install from source
 
@@ -38,12 +39,13 @@ updates. See the [release notes](docs/RELEASE_3.9.0.md).
 
 ## What you can do
 
-![Create workspace with a textured desk, Game - Default profile and local collection](docs/screenshots/new/01.jpg)
-*The Create workspace combines the generation profile, reference image card, PBR preview and local collection. The pictured assets are not included in this repository.*
+![Create workspace with Rook, a reference image, generation settings and a two-model collection](docs/screenshots/new/01.jpg)
+
+*Rook in Create with the reference image, output settings and PBR preview. The demonstration collection shows Rook’s game copy and rigged variant.*
 
 | Workspace | Features |
 | --- | --- |
-| **Create** | Local TRELLIS.2 single-image generation and optional Pixal3D multi-view characters. Preview the cutout and the model's framing, then crop or correct the mask without changing the original. |
+| **Create** | Local TRELLIS.2 and Pixal3D generation with shared profiles and master finishing. Preview the cutout and the model's framing, then crop or correct the mask while keeping the original. |
 | **Queue** | Schedule batches of up to 30 images. Correct the recipe of a failed job and create a linked retry with the same references and seed. The original failure remains available for review. |
 | **Collection** | Search, category/type/review filters, favourites, tags, notes, nested folders, saved views, multiple selection, restorable trash and per-card action menus. |
 | **Review** | PBR/clay/normals/wireframe views, camera presets, adjustable preview lighting, synchronised before/after comparison, topology/UV/material/dimension diagnostics. |
@@ -87,9 +89,25 @@ The source cache can take hundreds of megabytes per model. Studio stores it once
 
 ### Generation profiles
 
-Create opens with **Dense Master**. Its default 1.2 million triangles is an editable ceiling for the displayed GLB. Studio measures how closely smaller candidates follow the decoded surface, or the reconstructed surface when repair is enabled. It keeps the full geometry and materials cache for Remesh. **3D print copy** uses the selected GLB. Choose another recipe and click **Use at startup** to remember it in this browser. The API default and **Reset to Game - Default** use the game recipe.
+Create opens with **HD Master** (`dense_master`). The default ceiling is 1.2
+million triangles with 2K materials. **Balanced Reconstruction** uses Studio 768
+in the same job. **Surface Closure** uses WTiVo 1024 when its optional runtime and
+Blender are installed. Both methods follow the displayed generation budget and
+retain the decoded cache for further finishing from Prepare. **Direct Export**
+and **Repair Holes** are under Advanced. Choose a recipe and click **Use at
+startup** to remember it in this browser.
 
-**Game - Default** (`game_d`) uses the validated 1024 cascade recipe: 20 steps per phase, guidance 7.5 / 7.5 / 2, approximately 28,000 target triangles, 2K textures, 2M pre-simplification, initial small-hole repair and DC remeshing capped at 512. Final triangle count is approximate. Dimensions and seeds belong to individual models.
+**Detail Refinement (512)** and **Detail Refinement (1024)** use an optional
+Hi3D runtime to refine a native TRELLIS.2 single-image source and bake the
+resulting master. The generation profile keeps its source resolution. Both
+options are also available from **Finishing board**
+on a compatible saved source. [Powered by Hi3D 1.0](http://hi3d.ai/) · [Runtime setup](docs/HI3D.md)
+
+**Game Asset** (`game_d`) uses the 1024 TRELLIS.2 cascade with 20 steps per phase,
+guidance 7.5 / 7.5 / 2, approximately 28,000 target triangles and 2K textures.
+It uses 2M pre-simplification, initial small-hole repair and DC remeshing capped at
+512. This remains the API default and the recipe used by **Reset to Game Asset**.
+Dimensions and seeds belong to individual models.
 
 **High Detail** retains the 1024/20-step/2K sampling setup, targets 250,000 triangles and uses direct simplification to preserve more surface detail. Create custom profiles when you need another recipe; the built-in profiles remain protected. Historical recipes remain readable.
 
@@ -97,17 +115,33 @@ Create opens with **Dense Master**. Its default 1.2 million triangles is an edit
 
 512 and 1024 generation are provided by the standard installer. Higher-resolution controls require separate local capability validation and sufficient memory. Texture resolution is independent of geometry resolution.
 
-### Optional multi-view characters
+### Optional Pixal3D generation
 
-**Full Studio** includes Pixal3D. On a source installation, run **Install Pixal3D.cmd** after the main installation to add it. In the **Reference image** card in **Create**, enable **Multi-view · Pixal3D**, add a full-body front image and at least one complementary view, then choose the side angle that matches the images. The left and right slots are relative to the character. The back is a 180° view. Use the same character, scale and A-pose or T-pose in each image, with hands and feet visible. The slots accept PNG, JPEG and WebP up to 25 MB each. Studio prepares the cutouts and framing locally. Supply the views yourself.
+Windows Setup offers Pixal3D multi-view. On a source installation, run
+**Install Pixal3D.cmd**. Add the optional single-image checkpoint and MoGe-2
+camera estimator by running `"Install Pixal3D.cmd" --single-image` in Command
+Prompt from the Studio folder. See [optional setup](INSTALLATION.md#optional-pixal3d-generation).
 
-The separate **Character · Pixal3D** recipe uses the 1024 cascade, a target of 10,600 triangles and 2K materials. The mesh and materials are generated in successive stages. Actual triangle counts are approximate. Jobs share Studio's queue and retain their input views, angles and recipe. The source cache for **Refinish model** is optional for this standard recipe. The **Character profile** selector also offers **Humanoid · Experimental**, which keeps the source and targets a detailed 250,000-triangle master before lighter finishing comparisons, and **Dense Master**, which adapts the displayed GLB to the surface under the selected ceiling.
+In Create, use **Change** next to **Generation method**. **Pixal3D · Single image**
+uses one image of an object or a character. MoGe-2 estimates its camera framing.
+**Pixal3D · Multi-view** uses a front view and one to three complementary views
+at consistent pose and scale. Choose the side angle that matches the references.
+The left and right slots are relative to the subject. **Swap sides** switches
+those images. The back slot represents 180°. References accept PNG, JPEG and
+WebP up to 25 MB each. Studio prepares the cutouts and framing locally.
 
-New Pixal3D jobs use 12 structure steps, 20 steps in each geometry pass and 12 material steps, with guidance 7.5 / 7.5 / 1. Recipe version 3 makes the geometry step count apply to both passes. Replaying a saved version 1 or 2 job retains its historical 12-step high-resolution pass. Increasing steps does not guarantee finer anatomy. Keep the references, seed and finishing settings fixed when comparing recipes.
+Both Pixal3D modes use the 1024 cascade and Studio's local queue. New monoview
+jobs use 12 steps per pass. New multi-view jobs use 12 structure steps, 20 steps
+in each geometry pass and 12 material steps, with guidance 7.5 / 7.5 / 1.
+Replaying a saved version 1 or 2 job retains its historical 12-step
+high-resolution pass. Keep the references, seed and finishing settings fixed
+when comparing recipes.
 
 Enable **Reproject the original face photo** to transfer the visible face from the original front photo into the generated base color. Use a sharp, unobstructed front view with the face large enough to see the eyes, nose and mouth. The pass runs locally after generation and keeps the existing mesh and other material maps. Check its status in the model details. If the faces cannot be aligned reliably, Studio keeps the generated texture.
 
-The optional runtime uses about 8.25 GiB of pinned downloads before Python dependencies. The tested configuration used three views on an RTX 4070 Ti with 12 GB VRAM. Review the face, fingers and silhouette before use. [Optional setup](INSTALLATION.md#optional-pixal3d-multi-view)
+The multi-view runtime uses about 8.25 GiB of pinned downloads before Python
+dependencies. Single-image generation adds about 6.4 GiB. Review the
+orientation, silhouette and fine details in the 3D preview.
 
 ### Import and review
 
@@ -117,10 +151,13 @@ Each card identifies static or animated content. Its action menu opens details, 
 
 Diagnostics report measured topology, UV presence/collapse, normals, textures, dimensions, bones and clips. These checks support review; they do not certify a final production mesh, physical printability or natural animation.
 
+![Rook in the lime Hologram preview with scan lines and the lit stage](docs/screenshots/workspace.jpg)
+
 ### Rigging and animation
 
-![Animate workspace with an imported character, skeleton overlay and animation library](docs/screenshots/new/02.jpg)
-*An imported character with its skeleton visible, animation timeline and clip library. Studio supports both generated and imported models.*
+![Animation Studio showing Rook in the Walk clip with a skeleton overlay and the Standard motion library](docs/screenshots/new/02.jpg)
+
+*Animation Studio displays Rook’s rig, the Walk clip timeline and the Standard motion library.*
 
 1. Select a completed model and open **Animation**.
 2. Use **Add rig** for an unrigged character. Set its orientation, target height and vertical offset, using the fixed **1.70 m reference silhouette** for scale. Choose **Next · place joints**, then position the chin, shoulders, elbows, wrists, groin, knees and ankles. Drag markers or use the arrow keys (Shift for larger steps); disable **Mirror paired markers** for asymmetrical poses. L/R refer to the character's own sides. Confirm only after checking every point. UniRig runs in its separate WSL environment and produces a linked rigged copy.
@@ -173,7 +210,7 @@ frontal T-pose humanoid. Inspect faces, hands, thin parts and materials in
 
 ### Export
 
-![Export destination menu](docs/screenshots/export.jpg)
+![Export dialog for Rook with the Unity destination and character preflight selected](docs/screenshots/export.jpg)
 
 | Destination | Contents | Convention |
 | --- | --- | --- |

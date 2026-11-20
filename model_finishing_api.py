@@ -99,6 +99,9 @@ def install(router, app, upload):
 
         def stage():
             target.mkdir()
+            retained = generation_views
+            if retained is None and record['settings'].get('engine') == 'pixal3d':
+                _, retained = inspect_generation_views(folder, source, record['settings'], True, '')
             if generation_cutout is not None:
                 request['generation_reference'] = dict(source_sha256=digest(source),
                                                        reference_sha256=digest(generation_cutout))
@@ -109,6 +112,12 @@ def install(router, app, upload):
                     shutil.copy2(path, target / path.name)
             for name, reference in staged_references.items():
                 shutil.copy2(reference, target / name)
+            if retained is not None:
+                request['retained_generation_views'] = retained
+                for view in retained['views']:
+                    role = view['role']
+                    if role != 'front':
+                        shutil.copy2(generation_reference(folder, role), target / generation_reference_name(role))
             if generation_views is not None:
                 for view in generation_views['views']:
                     role = view['role']

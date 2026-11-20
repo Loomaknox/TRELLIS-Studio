@@ -2,20 +2,29 @@
 set -euo pipefail
 STUDIO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$STUDIO_ROOT/UniRig/runtime.sh"
-# Large CUDA wheels regularly exceed uv's 30-second default.
+# CUDA wheels routinely need more than the uv default download timeout.
 export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}"
-PROFILE="$(python3 "$STUDIO_ROOT/installer/unirig_blackwell.py" --detect)"
-if [ "$PROFILE" = blackwell ]; then
-    # Fail before changing any environment when the compiler is unavailable.
-    python3 "$STUDIO_ROOT/installer/unirig_blackwell.py" --preflight
-    if [ -z "${TRELLIS_UNIRIG_ENV:-}" ]; then
-        export UNIRIG_ENV="$UNIRIG_BASE-blackwell"
-    fi
-else
-    export UNIRIG_ENV="$UNIRIG_BASE"
+if [ "${1:-}" = --check-profile ]; then
+    printf 'UniRig runtime profile: %s\n' "${UNIRIG_PROFILE:-legacy}"
+    exit 0
 fi
-export PATH="$UNIRIG_ENV/venv/bin:$UNIRIG_ENV/tools:$PATH"
-export LD_LIBRARY_PATH="$UNIRIG_ENV/runtime/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
+if [ -n "${UNIRIG_PROFILE:-}" ]; then
+    printf 'Installing UniRig runtime profile: %s (CUDA compute %s)\n' "$UNIRIG_PROFILE" "$UNIRIG_COMPUTE_CAP"
+fi
+# Guided installs use the new pinned package profile. Keep the tested
+# source-build fallback isolated for existing source installations.
+PROFILE=""
+if [ -z "${UNIRIG_PROFILE:-}" ]; then
+    PROFILE="$(python3 "$STUDIO_ROOT/installer/unirig_blackwell.py" --detect)"
+    if [ "$PROFILE" = blackwell ]; then
+        python3 "$STUDIO_ROOT/installer/unirig_blackwell.py" --preflight
+        if [ -z "${TRELLIS_UNIRIG_ENV:-}" ]; then export UNIRIG_ENV="$UNIRIG_BASE-blackwell"; fi
+    else
+        export UNIRIG_ENV="$UNIRIG_BASE"
+    fi
+    export PATH="$UNIRIG_ENV/venv/bin:$UNIRIG_ENV/tools:$PATH"
+    export LD_LIBRARY_PATH="$UNIRIG_ENV/runtime/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
+fi
 mkdir -p "$UNIRIG_ENV/tools" "$UNIRIG_ENV/runtime/packages"
 export UV_PYTHON_INSTALL_DIR="$UNIRIG_ENV/python"
 export UV_CACHE_DIR="$UNIRIG_ENV/cache"
@@ -31,23 +40,31 @@ PY
     tar -xzf "$archive" --strip-components=1 -C "$UNIRIG_ENV/tools" uv-x86_64-unknown-linux-gnu/uv
 fi
 UV="$UNIRIG_ENV/tools/uv"
-if [ ! -x "$UNIRIG_ENV/venv/bin/python" ]; then "$UV" venv --python 3.11 "$UNIRIG_ENV/venv";fi
+if [ ! -x "$UNIRIG_ENV/venv/bin/python" ]; then "$UV" venv --python "$UNIRIG_PYTHON_VERSION" "$UNIRIG_ENV/venv";fi
 PY="$UNIRIG_ENV/venv/bin/python"
+flags=(--extra-index-url "$UNIRIG_TORCH_INDEX" --find-links "$UNIRIG_PYG_WHEELS" --index-strategy unsafe-best-match)
 if [ "$PROFILE" = blackwell ]; then
     "$PY" "$STUDIO_ROOT/installer/unirig_blackwell.py" --uv "$UV" --environment "$UNIRIG_ENV"
+elif [ "${UNIRIG_PREBUILT_BLACKWELL:-0}" = 1 ]; then
+    bpy_wheel="$(python3 "$STUDIO_ROOT/installer/prepare_unirig_bpy.py" "$UNIRIG_ENV/wheels")"
+    # PyOpenGL 3.1.0 is a pure Python source distribution required by pyrender.
+    compiled_packages=torch,torchvision,triton,cumm-cu128,spconv-cu128,flash-attn,torch-cluster,torch-scatter,open3d,bpy
+    "$UV" pip install --python "$PY" --only-binary "$compiled_packages" -r "$UNIRIG_REQUIREMENTS" "$bpy_wheel" "${flags[@]}"
+    "$UV" pip check --python "$PY"
 else
-    "$UV" pip install --python "$PY" -r "$STUDIO_ROOT/installer/requirements-unirig.txt" \
-    --extra-index-url https://download.pytorch.org/whl/cu124 \
-    --find-links https://data.pyg.org/whl/torch-2.5.0+cu124.html --index-strategy unsafe-best-match
+    "$UV" pip install --python "$PY" -r "$UNIRIG_REQUIREMENTS" "${flags[@]}"
 fi
 # User-local runtime libraries: does not install a Linux NVIDIA driver or require sudo.
 cd "$UNIRIG_ENV/runtime/packages"
 apt-get download libsm6 libice6 libgomp1
 for pkg in ./*.deb;do dpkg-deb -x "$pkg" "$UNIRIG_ENV/runtime";done
-"$PY" "$STUDIO_ROOT/UniRig/check-runtime.py"
-# Switch startup only after all CUDA operators, model files and config pass.
-# Preserve the old venv so an interrupted build cannot damage it.
-if [ -z "${TRELLIS_UNIRIG_ENV:-}" ]; then
+if [ "${1:-}" = --packages-only ]; then
+    "$PY" "$STUDIO_ROOT/UniRig/check-runtime.py" --gpu-only
+else
+    "$PY" "$STUDIO_ROOT/UniRig/check-runtime.py"
+fi
+# Only a full successful validation activates the source-build runtime.
+if [ "${1:-}" != --packages-only ] && [ -n "$PROFILE" ] && [ -z "${TRELLIS_UNIRIG_ENV:-}" ]; then
     if [ "$PROFILE" = blackwell ]; then
         mkdir -p "$UNIRIG_BASE"
         printf '%s\n' blackwell > "$UNIRIG_BASE/blackwell-ready.tmp"

@@ -1,15 +1,27 @@
 Unicode true
 ManifestDPIAware true
 RequestExecutionLevel user
-Name "TRELLIS Studio"
+!define GUIDED_MARKER ".trellis-guided-setup"
+!define PREVIEW_MARKER ".trellis-setup-test"
+!ifdef SETUP_PREVIEW
+  !define SETUP_NAME "TRELLIS Studio Setup Test"
+  !define SETUP_MARKER "${PREVIEW_MARKER}"
+  !define SETUP_DESCRIPTION "TRELLIS Studio Setup Test for Windows"
+!else
+  !define SETUP_NAME "TRELLIS Studio"
+  !define SETUP_MARKER "${GUIDED_MARKER}"
+  !define SETUP_DESCRIPTION "TRELLIS Studio Windows Setup"
+!endif
+!define SETUP_KEY "Software\${SETUP_NAME}"
+Name "${SETUP_NAME}"
 OutFile "${OUTPUT_EXE}"
-InstallDir "$LOCALAPPDATA\Programs\TRELLIS Studio"
-InstallDirRegKey HKCU "Software\TRELLIS Studio" "InstallDir"
+InstallDir "$LOCALAPPDATA\Programs\${SETUP_NAME}"
+InstallDirRegKey HKCU "${SETUP_KEY}" "InstallDir"
 SetCompressor /SOLID lzma
 ShowInstDetails show
 VIProductVersion "${STUDIO_VERSION}.0"
-VIAddVersionKey "ProductName" "TRELLIS Studio"
-VIAddVersionKey "FileDescription" "TRELLIS Studio Windows Setup"
+VIAddVersionKey "ProductName" "${SETUP_NAME}"
+VIAddVersionKey "FileDescription" "${SETUP_DESCRIPTION}"
 VIAddVersionKey "FileVersion" "${STUDIO_VERSION}"
 VIAddVersionKey "ProductVersion" "${STUDIO_VERSION}"
 VIAddVersionKey "CompanyName" "TRELLIS Studio contributors"
@@ -19,31 +31,75 @@ VIAddVersionKey "LegalCopyright" "TRELLIS Studio contributors (MIT)"
 !include "x64.nsh"
 !include "LogicLib.nsh"
 !include "nsDialogs.nsh"
-!define ARP "Software\Microsoft\Windows\CurrentVersion\Uninstall\TRELLIS Studio"
+; The x86 NSIS stub otherwise launches SysWOW64 PowerShell, which cannot see the
+; native NVIDIA utility through System32. Keep every setup helper in the native host.
+!if ${NSIS_PTR_SIZE} > 4
+  !define SETUP_SYSTEM_DIR "$SYSDIR"
+!else
+  !define SETUP_SYSTEM_DIR "$WINDIR\Sysnative"
+!endif
+!define ARP "Software\Microsoft\Windows\CurrentVersion\Uninstall\${SETUP_NAME}"
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_FUNCTION StartStudio
 !define MUI_FINISHPAGE_RUN_TEXT "$(LaunchLabel)"
 !define MUI_FINISHPAGE_RUN_NOTCHECKED
 !define MUI_ICON "${PAYLOAD_ROOT}\installer\windows\trellis-studio.ico"
+!define MUI_WELCOMEFINISHPAGE_BITMAP "${PAYLOAD_ROOT}\installer\windows\trellis-welcome.bmp"
 !define MUI_UNICON "${PAYLOAD_ROOT}\installer\windows\trellis-studio.ico"
 
-Var InstallFull
-Var FullRadio
+Var InstallTrellis
+Var InstallPixal3D
+Var InstallUniRig
+Var TrellisCheckbox
+Var Pixal3DCheckbox
+Var UniRigCheckbox
+Var GpuName
+Var GpuMemory
+Var VramNotice
+Var GpuDriver
+Var GpuCompute
+Var GpuUuid
+Var GpuProfile
+Var GpuSupported
+Var RigSupported
+Var RigStatus
+Var WslDistribution
+Var WslReady
+Var BlenderPath
+Var BlenderReady
+Var BlenderSummary
+Var BlenderInput
+Var BlenderStatusLabel
+Var ComponentsArgument
+Var HardwareArguments
+Var PreflightRoot
 Var InstallServer
 Var ServerRadio
 Var CreateDesktopShortcut
 Var DesktopCheckbox
+Var InstallHi3d
+Var Hi3dSupported
+Var SkipHi3d
+Var Hi3dCheckbox
+Var AcceptHi3dLicenses
+Var Hi3dLicenseCheckbox
 Var InstallKimodo
 Var KimodoCheckbox
 Var AcceptKimodoLicenses
 Var KimodoLicenseCheckbox
 Var KimodoArguments
 
+!ifdef SETUP_PREVIEW
+  !define MUI_WELCOMEPAGE_TITLE "Welcome to the TRELLIS Studio Setup Test"
+!endif
 !insertmacro MUI_PAGE_WELCOME
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE ValidateInstallFolder
 !insertmacro MUI_PAGE_DIRECTORY
 Page custom ShowInstallMode SaveInstallMode
+Page custom ShowHardware SaveHardware
 Page custom ShowComponentMode SaveComponentMode
+Page custom ShowHi3dOptions SaveHi3dOptions
 Page custom ShowKimodoOptions SaveKimodoOptions
 Page custom ShowShortcutOptions SaveShortcutOptions
 !insertmacro MUI_PAGE_INSTFILES
@@ -54,7 +110,8 @@ Page custom ShowShortcutOptions SaveShortcutOptions
 
 LangString LaunchLabel ${LANG_ENGLISH} "Open TRELLIS from its tray icon"
 LangString WrongPlatform ${LANG_ENGLISH} "TRELLIS Studio requires Windows x64 on an Intel or AMD processor."
-LangString DifferentInstall ${LANG_ENGLISH} "The selected folder already contains a source installation. Setup did not change it."
+LangString DifferentInstall ${LANG_ENGLISH} "The selected folder already contains files and is not a recognized ${SETUP_NAME} installation. Choose an empty folder. Setup did not change the folder."
+LangString DifferentUninstall ${LANG_ENGLISH} "This folder is not a recognized ${SETUP_NAME} installation. No files were removed."
 LangString StudioRunning ${LANG_ENGLISH} "This copy of TRELLIS or its installer is still running. Stop Desktop / Server, then quit its tray icon before continuing. No process was stopped."
 LangString MarkerFailed ${LANG_ENGLISH} "Setup could not prepare the installation folder: $INSTDIR. Check that the folder is writable and run Setup again."
 LangString PayloadFailed ${LANG_ENGLISH} "Setup could not copy all application files to $INSTDIR. Close any program using those files and run Setup again."
@@ -66,27 +123,29 @@ LangString InstallModeSubtitle ${LANG_ENGLISH} "Choose the edition before select
 LangString DesktopModeChoice ${LANG_ENGLISH} "TRELLIS Desktop (single user)"
 LangString DesktopModeDescription ${LANG_ENGLISH} "Use your local library on this PC without creating an account."
 LangString ServerChoice ${LANG_ENGLISH} "TRELLIS Server (multi-user)"
-LangString ServerDescription ${LANG_ENGLISH} "Choose local access, your LAN certificate, or Internet access with your domain and automatic HTTPS. Configure the data folder, optional startup and first administrator."
+!ifdef SETUP_PREVIEW
+  LangString ServerDescription ${LANG_ENGLISH} "Set up an isolated local server and its first administrator. This test uses its own data folder and a localhost address."
+  LangString InstallingServer ${LANG_ENGLISH} "Preparing the isolated local server. Follow the instructions in the TRELLIS PowerShell window."
+!else
+  LangString ServerDescription ${LANG_ENGLISH} "Choose local access, LAN access with your certificate, or Internet access with automatic HTTPS. Configure the data folder, optional startup and first administrator."
+  LangString InstallingServer ${LANG_ENGLISH} "Preparing the server. Follow the instructions in the TRELLIS PowerShell window."
+!endif
+LangString HardwareTitle ${LANG_ENGLISH} "Check this PC"
+LangString HardwareSubtitle ${LANG_ENGLISH} "Review the detected GPU and choose the Blender executable."
 LangString ComponentModeTitle ${LANG_ENGLISH} "Choose the components"
-LangString ComponentModeSubtitle ${LANG_ENGLISH} "Choose the workshop or install the generation and rigging engines as well."
-LangString WorkshopChoice ${LANG_ENGLISH} "Workshop only"
-LangString WorkshopDescription ${LANG_ENGLISH} "Library, 3D viewer and GLB import/export. Setup downloads Python dependencies; no AI models or NVIDIA GPU required."
-LangString FullChoice ${LANG_ENGLISH} "Full Studio (TRELLIS.2, UniRig and Pixal3D)"
-LangString FullDescription ${LANG_ENGLISH} "About 29 GiB of models plus dependencies. Requires NVIDIA CUDA, Blender and Ubuntu 22.04 in WSL2."
-LangString InstallingServer ${LANG_ENGLISH} "Preparing the server. Continue in the TRELLIS PowerShell window and complete administrator setup in the browser."
+LangString ComponentModeSubtitle ${LANG_ENGLISH} "Install the Workshop and select the additional engines for this PC."
+LangString WorkshopDescription ${LANG_ENGLISH} "Workshop includes the 3D viewer, GLB tools and standard animation files. Blender applies clips to compatible rigs."
 LangString ServerFailed ${LANG_ENGLISH} "Server setup did not finish. Review the console messages and run Setup again to resume."
-LangString InstallingFull ${LANG_ENGLISH} "Installing the engines. Continue in the TRELLIS Studio PowerShell window."
 LangString InstallingWorkshop ${LANG_ENGLISH} "Preparing the Workshop and tray application. Python dependencies are downloaded automatically."
 LangString WorkshopFailed ${LANG_ENGLISH} "The application files are installed, but Workshop preparation did not finish. Review the console and run Setup again to resume."
-LangString FullFailed ${LANG_ENGLISH} "The workshop is installed, but the full setup did not finish. See $INSTDIR\logs\full-setup.log and run Setup again to resume."
-LangString FullConsoleFailed ${LANG_ENGLISH} "The workshop is installed, but Setup could not open the console. Run Setup again or install the engines from the Start menu."
+LangString ComponentsNeedAttention ${LANG_ENGLISH} "Some components need attention. See the setup logs in $INSTDIR\logs, then open Repair or resume components in the ${SETUP_NAME} Start menu folder."
 LangString ShortcutOptionsTitle ${LANG_ENGLISH} "Shortcuts"
 LangString ShortcutOptionsSubtitle ${LANG_ENGLISH} "Choose where to open TRELLIS Studio."
 LangString StartMenuDescription ${LANG_ENGLISH} "The Start menu opens a tray icon to start, stop and open TRELLIS. Quitting the icon keeps the application running."
 LangString DesktopChoice ${LANG_ENGLISH} "Create a desktop shortcut"
 LangString ShortcutError ${LANG_ENGLISH} "Studio files are installed, but one or more shortcuts could not be created. You can launch Studio with $INSTDIR\installer\windows\Launch.cmd."
 LangString KimodoTitle ${LANG_ENGLISH} "Optional motion generation"
-LangString KimodoSubtitle ${LANG_ENGLISH} "Available with Workshop or Full Studio, in both Desktop and Server."
+LangString KimodoSubtitle ${LANG_ENGLISH} "Available with either Desktop or Server."
 LangString KimodoChoice ${LANG_ENGLISH} "Install Kimodo text-to-motion (optional)"
 LangString KimodoDescription ${LANG_ENGLISH} "Create reusable humanoid animations from text on the CPU. About 9.3 GB of model weights plus portable build tools. No NVIDIA GPU or CUDA required."
 LangString KimodoRequirements ${LANG_ENGLISH} "Needs WSL2 Linux x64, Python 3.10+, an AVX2/FMA/F16C CPU and 12 GiB free in WSL. Setup guides you if WSL is missing; Windows may require a restart."
@@ -96,13 +155,21 @@ LangString KimodoAccept ${LANG_ENGLISH} "I have read and accept both model licen
 LangString KimodoLicenseRequired ${LANG_ENGLISH} "Accept both model licenses to install Kimodo, or clear the optional Kimodo selection."
 
 Function .onInit
+  ; A PowerShell 7 parent can pass modules that Windows PowerShell 5.1 cannot load.
+  System::Call 'kernel32::SetEnvironmentVariableW(w "PSModulePath", p 0)'
   ; Ignore language preferences saved by previous bilingual installers.
   StrCpy $LANGUAGE ${LANG_ENGLISH}
-  StrCpy $InstallFull "0"
+  StrCpy $InstallTrellis "0"
+  StrCpy $InstallPixal3D "0"
+  StrCpy $InstallUniRig "0"
+  StrCpy $BlenderReady "0"
   StrCpy $InstallServer "0"
   IfFileExists "$INSTDIR\config\server.json" 0 +2
   StrCpy $InstallServer "1"
   StrCpy $CreateDesktopShortcut "0"
+  StrCpy $InstallHi3d "0"
+  StrCpy $SkipHi3d "0"
+  StrCpy $AcceptHi3dLicenses "0"
   StrCpy $InstallKimodo "0"
   StrCpy $AcceptKimodoLicenses "0"
   ${IfNot} ${IsNativeAMD64}
@@ -110,6 +177,57 @@ Function .onInit
     SetErrorLevel 1
     Abort
   ${EndIf}
+FunctionEnd
+
+Function ValidateInstallFolder
+  IfFileExists "$INSTDIR\.git" foreign
+  IfFileExists "$INSTDIR\.git\*.*" foreign
+!ifndef SETUP_PREVIEW
+  IfFileExists "$INSTDIR\${PREVIEW_MARKER}" foreign
+!endif
+  ClearErrors
+  FileOpen $0 "$INSTDIR\${SETUP_MARKER}" r
+  IfErrors check_legacy
+  StrCpy $1 ""
+  FileRead $0 $1
+  FileClose $0
+  StrCmp $1 "${SETUP_NAME}" allowed
+
+  check_legacy:
+!ifndef SETUP_PREVIEW
+    ; Only migrate an existing packaged installation at the registered path.
+    IfFileExists "$INSTDIR\bundled-web.json" 0 check_directory
+    ClearErrors
+    ReadRegStr $1 HKCU "${SETUP_KEY}" "InstallDir"
+    IfErrors check_directory
+    StrCmp $1 "" check_directory
+    GetFullPathName $0 "$INSTDIR"
+    GetFullPathName $1 "$1"
+    IfErrors check_directory
+    StrCmp $0 $1 allowed
+!endif
+  check_directory:
+    ClearErrors
+    FindFirst $0 $1 "$INSTDIR\*.*"
+    IfErrors allowed
+  next_entry:
+    StrCmp $1 "." ignore_entry
+    StrCmp $1 ".." ignore_entry
+    StrCmp $1 "" empty
+    FindClose $0
+  foreign:
+    MessageBox MB_ICONSTOP "$(DifferentInstall)" /SD IDOK
+    SetErrorLevel 2
+    Abort
+  ignore_entry:
+    ClearErrors
+    FindNext $0 $1
+    IfErrors empty next_entry
+  empty:
+    FindClose $0
+  allowed:
+    ClearErrors
+    SetErrorLevel 0
 FunctionEnd
 
 Function ShowInstallMode
@@ -139,6 +257,146 @@ Function SaveInstallMode
   ${NSD_GetState} $ServerRadio $InstallServer
 FunctionEnd
 
+Function RunHardwareProbe
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\Setup-Preflight.ps1 "${PAYLOAD_ROOT}\installer\windows\Setup-Preflight.ps1"
+  File /oname=$PLUGINSDIR\gpu-runtime-profiles.json "${PAYLOAD_ROOT}\installer\gpu-runtime-profiles.json"
+  Delete "$PLUGINSDIR\preflight.ini"
+  nsExec::ExecToStack /TIMEOUT=30000 '"${SETUP_SYSTEM_DIR}\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\Setup-Preflight.ps1" -Action Probe -InstallRoot "$INSTDIR" -OutputPath "$PLUGINSDIR\preflight.ini"'
+  Pop $0
+  Pop $1
+FunctionEnd
+
+Function ShowHardware
+  Call RunHardwareProbe
+  ${If} $PreflightRoot != $INSTDIR
+    StrCpy $PreflightRoot "$INSTDIR"
+    StrCpy $BlenderSummary ""
+    ReadINIStr $InstallTrellis "$PLUGINSDIR\preflight.ini" "Plan" "Trellis"
+    ReadINIStr $InstallPixal3D "$PLUGINSDIR\preflight.ini" "Plan" "Pixal3D"
+    ReadINIStr $InstallUniRig "$PLUGINSDIR\preflight.ini" "Plan" "UniRig"
+    ReadINIStr $InstallHi3d "$PLUGINSDIR\preflight.ini" "Plan" "Hi3D"
+    ReadINIStr $AcceptHi3dLicenses "$PLUGINSDIR\preflight.ini" "Plan" "Hi3DLicenseAccepted"
+    ${If} $InstallHi3d != "1"
+      StrCpy $InstallHi3d "0"
+    ${EndIf}
+    ${If} $AcceptHi3dLicenses != "1"
+      StrCpy $AcceptHi3dLicenses "0"
+    ${EndIf}
+    ${If} $InstallTrellis != "1"
+      StrCpy $InstallTrellis "0"
+    ${EndIf}
+    ${If} $InstallPixal3D != "1"
+      StrCpy $InstallPixal3D "0"
+    ${EndIf}
+    ${If} $InstallUniRig != "1"
+      StrCpy $InstallUniRig "0"
+    ${EndIf}
+  ${EndIf}
+  !insertmacro MUI_HEADER_TEXT "$(HardwareTitle)" "$(HardwareSubtitle)"
+  nsDialogs::Create 1018
+  Pop $0
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+  ReadINIStr $GpuName "$PLUGINSDIR\preflight.ini" "GPU" "Name"
+  ReadINIStr $GpuMemory "$PLUGINSDIR\preflight.ini" "GPU" "MemoryMiB"
+  ReadINIStr $VramNotice "$PLUGINSDIR\preflight.ini" "GPU" "VramNotice"
+  ReadINIStr $GpuDriver "$PLUGINSDIR\preflight.ini" "GPU" "Driver"
+  ReadINIStr $GpuCompute "$PLUGINSDIR\preflight.ini" "GPU" "Compute"
+  ReadINIStr $GpuUuid "$PLUGINSDIR\preflight.ini" "GPU" "Uuid"
+  ReadINIStr $GpuProfile "$PLUGINSDIR\preflight.ini" "GPU" "Profile"
+  ReadINIStr $GpuSupported "$PLUGINSDIR\preflight.ini" "GPU" "Supported"
+  ReadINIStr $RigSupported "$PLUGINSDIR\preflight.ini" "GPU" "UniRigSupported"
+  ReadINIStr $RigStatus "$PLUGINSDIR\preflight.ini" "GPU" "UniRigStatus"
+  ReadINIStr $2 "$PLUGINSDIR\preflight.ini" "GPU" "Status"
+  ${If} $GpuName != ""
+    StrCpy $3 "$GpuName ($GpuMemory MiB VRAM)"
+    StrCpy $4 "Compute capability $GpuCompute  |  Driver $GpuDriver"
+  ${Else}
+    StrCpy $3 "NVIDIA GPU unavailable"
+    StrCpy $4 "Workshop remains available."
+  ${EndIf}
+  ${If} $GpuProfile != ""
+    StrCpy $4 "$4  |  Profile $GpuProfile"
+  ${EndIf}
+  ${If} $2 == ""
+    StrCpy $2 "Hardware check could not complete. You can continue with Workshop."
+  ${EndIf}
+  ${NSD_CreateLabel} 0 0u 100% 11u "$3"
+  Pop $0
+  ${NSD_CreateLabel} 0 12u 100% 11u "$4"
+  Pop $0
+  ${NSD_CreateLabel} 0 23u 100% 20u "$2"
+  Pop $0
+  ReadINIStr $WslDistribution "$PLUGINSDIR\preflight.ini" "WSL" "Distribution"
+  ReadINIStr $WslReady "$PLUGINSDIR\preflight.ini" "WSL" "Ready"
+  ReadINIStr $2 "$PLUGINSDIR\preflight.ini" "WSL" "Status"
+  ${If} $2 == ""
+    StrCpy $2 "WSL2 could not be verified."
+  ${EndIf}
+  ${NSD_CreateLabel} 0 43u 100% 20u "$2"
+  Pop $0
+  ReadINIStr $2 "$PLUGINSDIR\preflight.ini" "Disk" "Status"
+  ${NSD_CreateLabel} 0 63u 100% 16u "$2"
+  Pop $0
+  ${If} $BlenderSummary == ""
+    ReadINIStr $BlenderPath "$PLUGINSDIR\preflight.ini" "Blender" "Path"
+    ReadINIStr $BlenderReady "$PLUGINSDIR\preflight.ini" "Blender" "Ready"
+    ReadINIStr $BlenderSummary "$PLUGINSDIR\preflight.ini" "Blender" "Status"
+  ${EndIf}
+  ${NSD_CreateLabel} 0 80u 100% 11u "Blender executable"
+  Pop $0
+  ${NSD_CreateText} 0 92u -58u 13u "$BlenderPath"
+  Pop $BlenderInput
+  ${NSD_CreateBrowseButton} -53u 92u 53u 13u "Browse..."
+  Pop $0
+  ${NSD_OnClick} $0 BrowseBlender
+  ${NSD_CreateLabel} 0 108u 100% 19u "$BlenderSummary"
+  Pop $BlenderStatusLabel
+  ${NSD_CreateLabel} 0 128u 100% 11u "Leave blank to configure Blender later."
+  Pop $0
+  nsDialogs::Show
+FunctionEnd
+
+Function BrowseBlender
+  Pop $0
+  ${NSD_GetText} $BlenderInput $1
+  nsDialogs::SelectFileDialog open "$1" "Blender executable|blender.exe"
+  Pop $0
+  ${If} $0 != ""
+    ${NSD_SetText} $BlenderInput "$0"
+    ${NSD_SetText} $BlenderStatusLabel "The selected Blender will be checked when you continue."
+  ${EndIf}
+FunctionEnd
+
+Function SaveHardware
+  ${NSD_GetText} $BlenderInput $BlenderPath
+  StrCpy $BlenderReady "0"
+  ${If} $BlenderPath == ""
+    StrCpy $BlenderSummary "Blender will be configured later."
+    Return
+  ${EndIf}
+  IfFileExists "$BlenderPath" validate_blender
+    ${NSD_SetText} $BlenderStatusLabel "Choose an existing blender.exe file."
+    Abort
+  validate_blender:
+  Delete "$PLUGINSDIR\blender.ini"
+  nsExec::ExecToStack /TIMEOUT=20000 '"${SETUP_SYSTEM_DIR}\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\Setup-Preflight.ps1" -Action ValidateBlender -BlenderPath "$BlenderPath" -OutputPath "$PLUGINSDIR\blender.ini"'
+  Pop $0
+  Pop $1
+  ReadINIStr $BlenderReady "$PLUGINSDIR\blender.ini" "Blender" "Ready"
+  ReadINIStr $BlenderSummary "$PLUGINSDIR\blender.ini" "Blender" "Status"
+  ${If} $BlenderReady != "1"
+    ${If} $BlenderSummary == ""
+      StrCpy $BlenderSummary "Blender could not be verified. Choose another file or clear the path."
+    ${EndIf}
+    ${NSD_SetText} $BlenderStatusLabel "$BlenderSummary"
+    Abort
+  ${EndIf}
+  ReadINIStr $BlenderPath "$PLUGINSDIR\blender.ini" "Blender" "Path"
+FunctionEnd
+
 Function ShowComponentMode
   !insertmacro MUI_HEADER_TEXT "$(ComponentModeTitle)" "$(ComponentModeSubtitle)"
   nsDialogs::Create 1018
@@ -146,24 +404,162 @@ Function ShowComponentMode
   ${If} $0 == error
     Abort
   ${EndIf}
-  ${NSD_CreateFirstRadioButton} 0 6u 100% 13u "$(WorkshopChoice)"
-  Pop $1
-  ${NSD_CreateLabel} 13u 23u -13u 25u "$(WorkshopDescription)"
+  ${NSD_CreateLabel} 0 1u 100% 22u "$(WorkshopDescription)"
   Pop $0
-  ${NSD_CreateAdditionalRadioButton} 0 55u 100% 13u "$(FullChoice)"
-  Pop $FullRadio
-  ${NSD_CreateLabel} 13u 72u -13u 34u "$(FullDescription)"
-  Pop $0
-  ${If} $InstallFull == "1"
-    ${NSD_Check} $FullRadio
+  ${NSD_CreateCheckbox} 0 27u 100% 13u "TRELLIS.2 image-to-3D  (about 15 GiB of models)"
+  Pop $TrellisCheckbox
+  ${NSD_CreateCheckbox} 0 45u 100% 13u "Pixal3D multi-view generation  (about 8.25 GiB more)"
+  Pop $Pixal3DCheckbox
+  ${NSD_CreateCheckbox} 0 63u 100% 13u "UniRig skeleton and skinning  (WSL2 and Blender)"
+  Pop $UniRigCheckbox
+  ${If} $GpuSupported != "1"
+    StrCpy $InstallTrellis "0"
+    StrCpy $InstallPixal3D "0"
+    EnableWindow $TrellisCheckbox 0
+    EnableWindow $Pixal3DCheckbox 0
+    StrCpy $1 "GPU generation needs a supported NVIDIA card and driver."
   ${Else}
-    ${NSD_Check} $1
+    StrCpy $1 "The detected GPU matches the $GpuProfile dependency profile."
   ${EndIf}
+  ${NSD_SetState} $TrellisCheckbox $InstallTrellis
+  ${NSD_SetState} $Pixal3DCheckbox $InstallPixal3D
+  ${NSD_SetState} $UniRigCheckbox $InstallUniRig
+  ${NSD_OnClick} $TrellisCheckbox UpdateGenerationChoices
+  ${NSD_OnClick} $Pixal3DCheckbox SelectTrellisDependency
+  ${If} $GpuSupported != "1"
+  ${OrIf} $RigSupported != "1"
+    StrCpy $2 "UniRig is unavailable for this GPU profile."
+    ${If} $RigStatus != ""
+      StrCpy $2 "$RigStatus"
+    ${EndIf}
+  ${ElseIf} $WslReady != "1"
+    StrCpy $2 "UniRig can be added after a compatible WSL2 distribution is ready."
+  ${ElseIf} $BlenderReady != "1"
+    StrCpy $2 "UniRig can be added after selecting a working Blender."
+  ${Else}
+    StrCpy $2 "The UniRig prerequisites are available. Setup will test the runtime."
+    ${If} $RigStatus != ""
+      StrCpy $2 "$RigStatus"
+    ${EndIf}
+  ${EndIf}
+  ${If} $GpuSupported != "1"
+  ${OrIf} $RigSupported != "1"
+  ${OrIf} $WslReady != "1"
+  ${OrIf} $BlenderReady != "1"
+    ${NSD_Uncheck} $UniRigCheckbox
+    EnableWindow $UniRigCheckbox 0
+  ${EndIf}
+  ${NSD_CreateLabel} 0 84u 100% 18u "$1"
+  Pop $0
+  ${NSD_CreateLabel} 0 104u 100% 22u "$2"
+  Pop $0
+  ${If} $VramNotice != ""
+    ${NSD_CreateLabel} 0 126u 100% 20u "$VramNotice"
+  ${Else}
+    ${NSD_CreateLabel} 0 126u 100% 13u "Setup checks each selected engine before marking it ready."
+  ${EndIf}
+  Pop $0
   nsDialogs::Show
 FunctionEnd
 
+Function UpdateGenerationChoices
+  Pop $0
+  ${NSD_GetState} $TrellisCheckbox $0
+  ${If} $0 != "1"
+    ${NSD_Uncheck} $Pixal3DCheckbox
+  ${EndIf}
+FunctionEnd
+
+Function SelectTrellisDependency
+  Pop $0
+  ${NSD_GetState} $0 $1
+  ${If} $1 == "1"
+    ${NSD_Check} $TrellisCheckbox
+  ${EndIf}
+FunctionEnd
+
 Function SaveComponentMode
-  ${NSD_GetState} $FullRadio $InstallFull
+  ${NSD_GetState} $TrellisCheckbox $InstallTrellis
+  ${NSD_GetState} $Pixal3DCheckbox $InstallPixal3D
+  ${NSD_GetState} $UniRigCheckbox $InstallUniRig
+  ${If} $InstallPixal3D == "1"
+    StrCpy $InstallTrellis "1"
+  ${EndIf}
+FunctionEnd
+
+Function Hi3dChoiceChanged
+  ${NSD_GetState} $Hi3dCheckbox $InstallHi3d
+  EnableWindow $Hi3dLicenseCheckbox $InstallHi3d
+FunctionEnd
+
+Function OpenHi3dLicense
+  ExecShell "open" "https://github.com/visualbruno/ComfyUI-Hi3D/blob/03dea7e366ba951d7475f3f1c8a71596a87f913c/LICENSE"
+FunctionEnd
+
+Function OpenHi3dDinoTerms
+  ExecShell "open" "https://huggingface.co/facebook/dinov2-large/tree/47b73eefe95e8d44ec3623f8890bd894b6ea2d6c"
+FunctionEnd
+
+Function OpenHi3dClipTerms
+  ExecShell "open" "https://huggingface.co/openai/clip-vit-large-patch14/tree/32bd64288804d66eefd0ccbe215aa642df71cc41"
+FunctionEnd
+
+Function ShowHi3dOptions
+  !insertmacro MUI_HEADER_TEXT "Optional Hi3D Detail Refinement" "Available with Desktop or Server on supported NVIDIA hardware."
+  nsDialogs::Create 1018
+  Pop $0
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+  ${NSD_CreateCheckbox} 0 3u 100% 15u "Install Hi3D Detail Refinement (optional)"
+  Pop $Hi3dCheckbox
+  ${NSD_OnClick} $Hi3dCheckbox Hi3dChoiceChanged
+  ${NSD_CreateLabel} 13u 20u -13u 24u "Refine native TRELLIS.2 meshes in 512 or 1024. Requires TRELLIS.2 generation and downloads about 10.7 GB of weights."
+  Pop $0
+  ReadINIStr $1 "$PLUGINSDIR\preflight.ini" "Hi3D" "Status"
+  ReadINIStr $2 "$PLUGINSDIR\preflight.ini" "Hi3D" "VramNotice"
+  ReadINIStr $Hi3dSupported "$PLUGINSDIR\preflight.ini" "Hi3D" "Supported"
+  ${If} $1 == ""
+    StrCpy $1 "NVIDIA hardware could not be checked. You can continue with the other components."
+  ${EndIf}
+  ${NSD_CreateLabel} 13u 44u -13u 22u "$1"
+  Pop $0
+  ${NSD_CreateLabel} 13u 66u -13u 25u "$2"
+  Pop $0
+  ${NSD_CreateLink} 13u 94u 30% 11u "Hi3D license"
+  Pop $0
+  ${NSD_OnClick} $0 OpenHi3dLicense
+  ${NSD_CreateLink} 34% 94u 29% 11u "DINOv2 terms"
+  Pop $0
+  ${NSD_OnClick} $0 OpenHi3dDinoTerms
+  ${NSD_CreateLink} 66% 94u 28% 11u "CLIP terms"
+  Pop $0
+  ${NSD_OnClick} $0 OpenHi3dClipTerms
+  ${NSD_CreateCheckbox} 0 108u 100% 20u "I have read and accept the Hi3D, DINOv2 and CLIP terms."
+  Pop $Hi3dLicenseCheckbox
+  ${If} $Hi3dSupported != "1"
+    StrCpy $InstallHi3d "0"
+    EnableWindow $Hi3dCheckbox 0
+  ${EndIf}
+  ${NSD_SetState} $Hi3dCheckbox $InstallHi3d
+  ${NSD_SetState} $Hi3dLicenseCheckbox $AcceptHi3dLicenses
+  EnableWindow $Hi3dLicenseCheckbox $InstallHi3d
+  nsDialogs::Show
+FunctionEnd
+
+Function SaveHi3dOptions
+  ${NSD_GetState} $Hi3dCheckbox $InstallHi3d
+  ${NSD_GetState} $Hi3dLicenseCheckbox $AcceptHi3dLicenses
+  StrCpy $SkipHi3d "0"
+  ${If} $Hi3dSupported == "1"
+  ${AndIf} $InstallHi3d == "0"
+    StrCpy $SkipHi3d "1"
+  ${EndIf}
+  ${If} $InstallHi3d == "1"
+  ${AndIf} $AcceptHi3dLicenses != "1"
+    MessageBox MB_ICONEXCLAMATION "Accept all three model terms, or clear the optional Hi3D selection." /SD IDOK
+    Abort
+  ${EndIf}
 FunctionEnd
 
 Function OpenKimodoNvidiaLicense
@@ -258,7 +654,7 @@ FunctionEnd
 !macro ReadStudioState ExtraArguments
   InitPluginsDir
   File /oname=$PLUGINSDIR\check-idle.ps1 "${PAYLOAD_ROOT}\installer\windows\check-idle.ps1"
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\check-idle.ps1" -InstallRoot "$INSTDIR" ${ExtraArguments}'
+  nsExec::ExecToStack '"${SETUP_SYSTEM_DIR}\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\check-idle.ps1" -InstallRoot "$INSTDIR" ${ExtraArguments}'
   Pop $0
   Pop $1
 !macroend
@@ -276,7 +672,7 @@ FunctionEnd
 !macro ManageShortcuts Mode ExtraArguments
   InitPluginsDir
   File /oname=$PLUGINSDIR\Manage-Shortcuts.ps1 "${PAYLOAD_ROOT}\installer\windows\Manage-Shortcuts.ps1"
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\Manage-Shortcuts.ps1" -InstallRoot "$INSTDIR" -Action ${Mode} ${ExtraArguments}'
+  nsExec::ExecToStack '"${SETUP_SYSTEM_DIR}\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\Manage-Shortcuts.ps1" -InstallRoot "$INSTDIR" -Action ${Mode} ${ExtraArguments}'
   Pop $0
   Pop $1
   ${If} $1 != ""
@@ -284,34 +680,36 @@ FunctionEnd
   ${EndIf}
 !macroend
 
-Section "TRELLIS Studio"
-  IfFileExists "$INSTDIR\.trellis-managed-install" owned
-  IfFileExists "$INSTDIR\bundled-web.json" owned
-  IfFileExists "$INSTDIR\app.py" foreign
-  ; The previous uninstaller removed the owner marker, but kept its runtime.
-  IfFileExists "$INSTDIR\.studio-workshop-ready" 0 check_retained_data
-  IfFileExists "$INSTDIR\.component-install.lock" owned
-  check_retained_data:
-  IfFileExists "$INSTDIR\outputs\*.*" foreign
-  Goto owned
-  foreign:
-    MessageBox MB_ICONSTOP "$(DifferentInstall)" /SD IDOK
-    SetErrorLevel 2
-    Abort
-  owned:
+!macro WriteSetupMarker Marker Label
+  ClearErrors
+  FileOpen $0 "$INSTDIR\${Marker}" r
+  ${IfNot} ${Errors}
+    StrCpy $1 ""
+    FileRead $0 $1
+    FileClose $0
+    StrCmp $1 "${SETUP_NAME}" marker_ready_${Label}
+  ${EndIf}
+  ClearErrors
+  StrCpy $2 "$INSTDIR\${Marker}"
+  FileOpen $0 "$2" w
+  IfErrors marker_failed
+  FileWrite $0 "${SETUP_NAME}"
+  IfErrors marker_write_failed
+  FileClose $0
+  IfErrors marker_close_failed
+  marker_ready_${Label}:
+!macroend
+
+Section "${SETUP_NAME}"
+  Call ValidateInstallFolder
   !insertmacro CheckIdle
   ClearErrors
   SetOutPath "$INSTDIR"
   IfErrors marker_failed
-  ; NSIS errors are sticky. A stale flag from an earlier check must not
-  ; turn a successful open into an abort with an empty ownership marker.
-  ClearErrors
-  FileOpen $0 "$INSTDIR\.trellis-managed-install" w
-  IfErrors marker_failed
-  FileWrite $0 "TRELLIS Studio managed installation"
-  IfErrors marker_write_failed
-  FileClose $0
-  IfErrors marker_failed
+  !insertmacro WriteSetupMarker "${SETUP_MARKER}" owner
+!ifdef SETUP_PREVIEW
+  !insertmacro WriteSetupMarker "${GUIDED_MARKER}" guided
+!endif
   ClearErrors
   !include "${INSTALL_FILES}"
   IfErrors payload_failed
@@ -319,8 +717,8 @@ Section "TRELLIS Studio"
   IfErrors payload_failed
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   IfErrors payload_failed
-  WriteRegStr HKCU "Software\TRELLIS Studio" "InstallDir" "$INSTDIR"
-  WriteRegStr HKCU "${ARP}" "DisplayName" "TRELLIS Studio"
+  WriteRegStr HKCU "${SETUP_KEY}" "InstallDir" "$INSTDIR"
+  WriteRegStr HKCU "${ARP}" "DisplayName" "${SETUP_NAME}"
   WriteRegStr HKCU "${ARP}" "DisplayVersion" "${STUDIO_VERSION}"
   WriteRegStr HKCU "${ARP}" "Publisher" "TRELLIS Studio contributors"
   WriteRegStr HKCU "${ARP}" "DisplayIcon" "$INSTDIR\installer\windows\trellis-studio.ico"
@@ -329,6 +727,13 @@ Section "TRELLIS Studio"
   WriteRegStr HKCU "${ARP}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
   WriteRegDWORD HKCU "${ARP}" "NoModify" 1
   WriteRegDWORD HKCU "${ARP}" "NoRepair" 1
+!ifndef SETUP_PREVIEW
+  IfSilent 0 prepare_shortcuts
+  StrCpy $InstallServer "0"
+  IfFileExists "$INSTDIR\config\server.json" 0 prepare_shortcuts
+  StrCpy $InstallServer "1"
+  prepare_shortcuts:
+!endif
   !insertmacro ManageShortcuts "Install" "-DesktopShortcut $CreateDesktopShortcut -ServerMode $InstallServer"
   ${If} $0 != "0"
     MessageBox MB_ICONEXCLAMATION "$(ShortcutError)" /SD IDOK
@@ -338,57 +743,90 @@ Section "TRELLIS Studio"
   ${AndIf} $AcceptKimodoLicenses == "1"
     StrCpy $KimodoArguments "-WithKimodo -AcceptKimodoModelLicenses"
   ${EndIf}
-  ${If} $InstallServer == "1"
-    IfSilent install_done
-    DetailPrint "$(InstallingServer)"
-    StrCpy $1 "$KimodoArguments"
-    ${If} $InstallFull == "1"
-      StrCpy $1 "$1 -FullStudio"
-    ${EndIf}
-    ClearErrors
-    ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\installer\windows\Launch-Installed.ps1" -Mode ServerSetup -NoBrowser $1' $0
-    IfErrors server_failed
-    ${If} $0 != "0"
-      Goto server_failed
-    ${EndIf}
-  ${ElseIf} $InstallFull == "1"
-    DetailPrint "$(InstallingFull)"
-    ClearErrors
-    ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\installer\windows\Launch-Installed.ps1" -Mode Full -NoBrowser $KimodoArguments' $0
-    IfErrors full_console_failed
-    ${If} $0 != "0"
-      DetailPrint "$(FullFailed)"
-      MessageBox MB_ICONEXCLAMATION "$(FullFailed)" /SD IDOK
-      SetErrorLevel 3
-      Abort
-    ${EndIf}
-  ${Else}
-    DetailPrint "$(InstallingWorkshop)"
-    ClearErrors
-    ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\installer\windows\Launch-Installed.ps1" -Mode PrepareWorkshop -NoBrowser $KimodoArguments' $0
-    IfErrors workshop_failed
-    ${If} $0 != "0"
-      Goto workshop_failed
+!ifdef SETUP_PREVIEW
+  IfSilent install_done
+!else
+  IfSilent 0 assemble_selection
+  ; Silent reinstalls never open the server configuration dialog.
+  StrCmp $InstallServer "1" install_done
+  assemble_selection:
+!endif
+  StrCpy $ComponentsArgument ""
+  StrCpy $HardwareArguments ""
+  ${If} $InstallTrellis == "1"
+    StrCpy $ComponentsArgument "trellis"
+  ${EndIf}
+  ${If} $InstallPixal3D == "1"
+    StrCpy $ComponentsArgument "$ComponentsArgument,pixal3d"
+  ${EndIf}
+  ${If} $InstallUniRig == "1"
+    ${If} $ComponentsArgument == ""
+      StrCpy $ComponentsArgument "unirig"
+    ${Else}
+      StrCpy $ComponentsArgument "$ComponentsArgument,unirig"
     ${EndIf}
   ${EndIf}
+  ${If} $InstallHi3d == "1"
+    ${If} $ComponentsArgument == ""
+      StrCpy $ComponentsArgument "hi3d"
+    ${Else}
+      StrCpy $ComponentsArgument "$ComponentsArgument,hi3d"
+    ${EndIf}
+  ${EndIf}
+  ${If} $ComponentsArgument != ""
+    StrCpy $HardwareArguments '-Components "$ComponentsArgument"'
+    ${If} $GpuUuid != ""
+      StrCpy $HardwareArguments '$HardwareArguments -GpuUuid "$GpuUuid"'
+    ${EndIf}
+    ${If} $InstallUniRig == "1"
+    ${AndIf} $WslDistribution != ""
+      StrCpy $HardwareArguments '$HardwareArguments -WslDistribution "$WslDistribution"'
+    ${EndIf}
+  ${EndIf}
+  ${If} $InstallHi3d == "1"
+  ${AndIf} $AcceptHi3dLicenses == "1"
+    StrCpy $HardwareArguments "$HardwareArguments -AcceptHi3dModelLicenses"
+  ${ElseIf} $SkipHi3d == "1"
+    StrCpy $HardwareArguments "$HardwareArguments -SkipHi3d"
+  ${EndIf}
+  ${If} $BlenderReady == "1"
+  ${AndIf} $BlenderPath != ""
+    StrCpy $HardwareArguments '$HardwareArguments -BlenderPath "$BlenderPath"'
+  ${EndIf}
+
+  ${If} $InstallServer == "1"
+    DetailPrint "$(InstallingServer)"
+    StrCpy $1 "ServerSetup"
+  ${Else}
+    DetailPrint "$(InstallingWorkshop)"
+    StrCpy $1 "PrepareWorkshop"
+  ${EndIf}
+  ClearErrors
+  ExecWait '"${SETUP_SYSTEM_DIR}\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\installer\windows\Launch-Installed.ps1" -Mode $1 -Guided -NoBrowser $HardwareArguments $KimodoArguments' $0
+  IfErrors setup_failed
+  ${If} $0 == "3"
+    DetailPrint "$(ComponentsNeedAttention)"
+    MessageBox MB_ICONEXCLAMATION "$(ComponentsNeedAttention)" /SD IDOK
+    SetErrorLevel 3
+  ${ElseIf} $0 != "0"
+    Goto setup_failed
+  ${EndIf}
   Goto install_done
-  workshop_failed:
-    DetailPrint "$(WorkshopFailed)"
-    MessageBox MB_ICONEXCLAMATION "$(WorkshopFailed)" /SD IDOK
-    SetErrorLevel 3
-    Abort
-  server_failed:
-    DetailPrint "$(ServerFailed)"
-    MessageBox MB_ICONEXCLAMATION "$(ServerFailed)" /SD IDOK
-    SetErrorLevel 3
-    Abort
-  full_console_failed:
-    DetailPrint "$(FullConsoleFailed)"
-    MessageBox MB_ICONEXCLAMATION "$(FullConsoleFailed)" /SD IDOK
+
+  setup_failed:
+    ${If} $InstallServer == "1"
+      DetailPrint "$(ServerFailed)"
+      MessageBox MB_ICONEXCLAMATION "$(ServerFailed)" /SD IDOK
+    ${Else}
+      DetailPrint "$(WorkshopFailed)"
+      MessageBox MB_ICONEXCLAMATION "$(WorkshopFailed)" /SD IDOK
+    ${EndIf}
     SetErrorLevel 3
     Abort
   marker_write_failed:
     FileClose $0
+  marker_close_failed:
+    Delete "$2"
   marker_failed:
     DetailPrint "$(MarkerFailed)"
     MessageBox MB_ICONSTOP "$(MarkerFailed)" /SD IDOK
@@ -403,7 +841,26 @@ Section "TRELLIS Studio"
 SectionEnd
 
 Function un.onInit
+  System::Call 'kernel32::SetEnvironmentVariableW(w "PSModulePath", p 0)'
   StrCpy $LANGUAGE ${LANG_ENGLISH}
+  IfFileExists "$INSTDIR\.git" foreign
+  IfFileExists "$INSTDIR\.git\*.*" foreign
+!ifndef SETUP_PREVIEW
+  IfFileExists "$INSTDIR\${PREVIEW_MARKER}" foreign
+!endif
+  ClearErrors
+  FileOpen $0 "$INSTDIR\${SETUP_MARKER}" r
+  IfErrors foreign
+  StrCpy $1 ""
+  FileRead $0 $1
+  FileClose $0
+  StrCmp $1 "${SETUP_NAME}" allowed
+  foreign:
+    MessageBox MB_ICONSTOP "$(DifferentUninstall)" /SD IDOK
+    SetErrorLevel 2
+    Abort
+  allowed:
+    ClearErrors
 FunctionEnd
 
 Section "Uninstall"
@@ -429,9 +886,9 @@ Section "Uninstall"
   !include "${UNINSTALL_FILES}"
   Delete "$INSTDIR\Uninstall.exe"
   ; Keep the owner marker with the retained library for a later reinstall.
-  ReadRegStr $0 HKCU "Software\TRELLIS Studio" "InstallDir"
+  ReadRegStr $0 HKCU "${SETUP_KEY}" "InstallDir"
   ${If} $0 == "$INSTDIR"
     DeleteRegKey HKCU "${ARP}"
-    DeleteRegKey HKCU "Software\TRELLIS Studio"
+    DeleteRegKey HKCU "${SETUP_KEY}"
   ${EndIf}
 SectionEnd

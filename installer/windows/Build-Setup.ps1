@@ -2,11 +2,14 @@ param(
     [string]$Compiler,
     [string]$OutputDirectory,
     [string]$Python = 'python',
-    [switch]$KeepStage
+    [switch]$KeepStage,
+    [switch]$Preview
 )
 $ErrorActionPreference='Stop'
 $taskRoot=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-if (-not $OutputDirectory) { $OutputDirectory=Join-Path $taskRoot 'Builds\Windows' }
+if (-not $OutputDirectory) {
+    $OutputDirectory=Join-Path $taskRoot $(if ($Preview) {'Builds\Windows\Preview'} else {'Builds\Windows'})
+}
 $OutputDirectory=[IO.Path]::GetFullPath($OutputDirectory)
 if (-not $Compiler) {
     $taskOnPath=Get-Command makensis.exe -ErrorAction SilentlyContinue
@@ -23,7 +26,7 @@ if ($taskPackage.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected a numeri
 $taskRoots=@('web','installer','runtime','licenses','animations','unity','UniRig','integrations')
 $taskRootFiles=@('LICENSE','README.md','INSTALLATION.md','SECURITY.md','THIRD_PARTY_NOTICES.md','package.json','package-lock.json')
 $taskDocFiles=@('docs/API.md','docs/MCP.md','docs/DEPENDENCIES.json','docs/WINDOWS_SETUP.md','docs/SERVER.md',
-    'docs/MOTION_GENERATION.md','docs/WTIVO.md','docs/BLACKWELL_SETUP.md',('docs/RELEASE_'+$taskPackage.version+'.md'))
+    'docs/MOTION_GENERATION.md','docs/WTIVO.md','docs/HI3D.md','docs/BLACKWELL_SETUP.md',('docs/RELEASE_'+$taskPackage.version+'.md'))
 $taskFiles=@(git -C $taskRoot -c core.quotePath=false ls-files --cached --others --exclude-standard)
 if ($LASTEXITCODE -ne 0) { throw 'Could not read the TRELLIS Studio public source allowlist.' }
 $taskFiles=@($taskFiles | Sort-Object -Unique | Where-Object {
@@ -49,11 +52,19 @@ $taskRequired+=@('texture_projection.py','baked_game_copy.py','game_bake_blender
 $taskRequired+=@('web/game-copy-regions.js','web/reduction-region-preview.js')
 $taskRequired+=@('gpu_compat.py','UniRig/inference_entry.py','UniRig/gpu_probe.py','installer/unirig_blackwell.py','docs/BLACKWELL_SETUP.md')
 $taskRequired+=@('wtivo_runtime.py','docs/WTIVO.md','master_mesh.py','master_mesh_blender.py','web/hd-master-finishing.js')
+$taskRequired+=@('hi3d_runtime.py','hi3d_worker.py','hi3d_attention.py','docs/HI3D.md',
+    'installer/install_hi3d.py','installer/hi3d-manifest.json','installer/requirements-hi3d.txt',
+    'licenses/Hi3D-1.0-LICENSE.md')
 $taskRequired+=@('studio_release.py','web/release-notification.css','web/release-notification.js')
 $taskRequired+=@('generation_view_projection.py','licenses/AssetFurnace-Apache-2.0.txt',
     'third_party/assetfurnace/image_to_3dlab/__init__.py',
     'third_party/assetfurnace/image_to_3dlab/photo_paint.py',
     'third_party/assetfurnace/image_to_3dlab/view_align.py')
+$taskRequired+=@('gpu_runtime.py','installer/windows/Setup-Preflight.ps1',
+    'installer/windows/Install-Components.ps1','installer/gpu-runtime-profiles.json',
+    'UniRig/check-runtime.py','UniRig/runtime.sh','UniRig/runtime-profile.py',
+    'installer/windows/trellis-welcome.bmp','installer/requirements-unirig-blackwell.txt',
+    'installer/prepare_unirig_bpy.py','UniRig/run-skin-inference.py')
 foreach($taskItem in $taskRequired) {
     if ($taskItem -cnotin $taskFiles) { throw "Required public payload is missing: $taskItem" }
 }
@@ -124,9 +135,12 @@ try {
     $taskUninstallPath=Join-Path $taskStage 'uninstall-files.nsh'
     [IO.File]::WriteAllLines($taskInstallPath,$taskInstall,[Text.UTF8Encoding]::new($true))
     [IO.File]::WriteAllLines($taskUninstallPath,$taskUninstall,[Text.UTF8Encoding]::new($true))
-    $taskName='TRELLIS-Studio-'+$taskPackage.version+'-Setup-x64.exe'
+    $taskSuffix=if ($Preview) {'-Setup-Test-x64.exe'} else {'-Setup-x64.exe'}
+    $taskName='TRELLIS-Studio-'+$taskPackage.version+$taskSuffix
     $taskOut=Join-Path $taskStage $taskName
-    & $Compiler /V3 /INPUTCHARSET UTF8 "/DOUTPUT_EXE=$taskOut" "/DPAYLOAD_ROOT=$taskPayload" "/DINSTALL_FILES=$taskInstallPath" "/DUNINSTALL_FILES=$taskUninstallPath" "/DSTUDIO_VERSION=$($taskPackage.version)" (Join-Path $PSScriptRoot 'StudioSetup.nsi')
+    $taskVariant=@()
+    if ($Preview) { $taskVariant+='/DSETUP_PREVIEW' }
+    & $Compiler /V3 /INPUTCHARSET UTF8 @taskVariant "/DOUTPUT_EXE=$taskOut" "/DPAYLOAD_ROOT=$taskPayload" "/DINSTALL_FILES=$taskInstallPath" "/DUNINSTALL_FILES=$taskUninstallPath" "/DSTUDIO_VERSION=$($taskPackage.version)" (Join-Path $PSScriptRoot 'StudioSetup.nsi')
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $taskOut)) { throw 'NSIS did not produce the installer.' }
     $taskFinal=Join-Path $OutputDirectory $taskName
     Copy-Item -LiteralPath $taskOut -Destination $taskFinal

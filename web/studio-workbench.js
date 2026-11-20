@@ -4,9 +4,9 @@ import {createVersionHistory} from './version-history.js?v=3.4.0';
 import {createModelWorkbench} from './model-workbench.js?v=3.4.0';
 import {createPresentationStudio} from './presentation-studio.js?v=3.4.0';
 import {createCollectionTransfer} from './collection-transfer.js?v=3.4.0';
-import {createFinishingBoard} from './finishing-board.js?v=3.9.0';
+import {createFinishingBoard} from './finishing-board.js?v=detail-refinement-native';
 import {createTextureProjection,createBakedGameCopy} from './texture-projection.js?v=3.9.0';
-import {createHdMasterFinishing} from './hd-master-finishing.js?v=3.9.0';
+import {createHdMasterFinishing} from './hd-master-finishing.js?v=detail-refinement-native';
 import {button,el} from './workbench-ui.js?v=3.4.0';
 export async function createStudioWorkbench(context){
  const {getJob,tools}=context,queue=createQueueStudio(context),workspace=createWorkspaceLibrary({...context,getSelection:()=>tools.selection.ids}),history=createVersionHistory({...context,compare:tools.compare}),prepare=createModelWorkbench({...context,compare:tools.compare}),presentation=createPresentationStudio(context),transfer=createCollectionTransfer({...context,getSelection:()=>tools.selection.ids,workspace,exports:tools.exports});

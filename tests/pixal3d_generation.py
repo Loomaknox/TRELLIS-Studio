@@ -2,10 +2,12 @@
 """Reference previews, Pixal3D multipart, typed REST and queue dispatch without inference."""
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from html.parser import HTMLParser
 import base64
 import io
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -64,9 +66,16 @@ app.status = lambda: dict(original_status(), ready=True)
 app.generation_capabilities = lambda: ([512, 1024], [1024, 2048])
 app.pixal3d_runtime_status = lambda root: {
     'ready': (app.OUTPUT.parent / 'ready').is_file(), 'message': 'Install Pixal3D.',
+    'single_image': {
+        'ready': (app.OUTPUT.parent / 'single-ready').is_file(), 'message': 'Install Pixal3D Single image.',
+    },
     'face_projection': {
         'ready': (app.OUTPUT.parent / 'face-ready').is_file(), 'message': 'Install face detector.',
     },
+}
+app.create_master_finishing_capabilities = lambda: {
+    'studio_768': {'available': True, 'reason': ''},
+    'wtivo_1024': {'available': (app.OUTPUT.parent / 'wtivo-ready').is_file(), 'reason': 'Install WTiVo.'},
 }
 def launch(folder, script, **kwargs):
     app.write_json(folder / 'worker-test.json', {'script': script})
@@ -97,8 +106,25 @@ app.SERVER.run()
             page = request('GET', '/')
             assert page.headers['cache-control'] == 'no-cache, must-revalidate'
             assert status['ui_revision'] in page.text
-            card = page.text.split('<section class="reference-card"', 1)[1].split('</section>', 1)[0]
-            assert card.index('id="image"') < card.index('id="pixalMode"') < card.index('id="supplementalViews"')
+            # The visual refresh adds layout classes to the same source card.
+            card_match = re.search(r'<section\b[^>]*class="[^"]*\breference-card\b[^"]*"[^>]*>', page.text)
+            assert card_match, 'The source reference card is missing.'
+            card = page.text[card_match.end():].split('</section>', 1)[0]
+            class ReferenceControls(HTMLParser):
+                def handle_starttag(self, tag, attrs):
+                    attrs = dict(attrs)
+                    if attrs.get('id'):
+                        controls[attrs['id']] = (tag, attrs)
+            controls = {}
+            ReferenceControls().feed(card)
+            image_tag, image_attrs = controls['image']
+            assert image_tag == 'input' and image_attrs['type'] == 'file' and 'required' in image_attrs
+            button_tag, button_attrs = controls['addReferenceView']
+            assert button_tag == 'button' and button_attrs['type'] == 'button'
+            assert button_attrs['aria-controls'] == 'supplementalViews'
+            extra_tag, extra_attrs = controls['supplementalViews']
+            assert extra_tag == 'fieldset' and 'hidden' in extra_attrs and 'disabled' in extra_attrs
+            assert not status['generation_methods']['pixal3d_single']['ready']
             files = {'image': upload(), 'left_image': upload()}
             request('POST', '/api/generate-multiview', 503, files=files)
             (root/'ready').touch()
@@ -139,6 +165,34 @@ app.SERVER.run()
             request('POST', '/api/reference-preview', 400, files=single_file,
                     data={'reference_edits': '{"front":{"crop":[0,0,0.01,0.01]}}'})
 
+            master = {'engine': 'pixal3d_single', 'preset': 'dense_master', 'master_finishing': 'studio_768',
+                      'queue_only': 'true'}
+            request('POST', '/api/generate', 503, files=single_file, data=master)
+            (root/'single-ready').touch()
+            assert request('GET', '/api/status').json()['generation_methods']['pixal3d_single']['ready']
+            request('POST', '/api/generate', 400, files=single_file, data={**master, 'resolution': 512})
+            request('POST', '/api/generate', 400, files=single_file, data={**master, 'repair_surface': 'true'})
+            request('POST', '/api/generate', 503, files=single_file,
+                    data={**master, 'master_finishing': 'wtivo_1024'})
+            pixal_preview = request('POST', '/api/reference-preview', files=single_file,
+                                    data={**data, 'engine': 'pixal3d_single'}).json()['views'][0]
+            pixal_master = request('POST', '/api/generate', files=single_file, data={**data, **master}).json()['id']
+            route = f'/api/jobs/{pixal_master}'
+            recipe = request('GET', route).json()['settings']
+            assert recipe['engine'] == 'pixal3d' and recipe['view_mode'] == 'single'
+            assert recipe['pipeline_type'] == 'pixal3d_1024_monoview'
+            assert recipe['triangles'] == 1_200_000 and recipe['texture_size'] == 2048
+            assert recipe['master_finishing'] == 'studio_768' and recipe['hd_reconstruction']
+            assert recipe['keep_finishing_source'] and not recipe.get('adaptive_finishing')
+            pixels = image_bytes(request('GET', route + '/files/prepared.png').content).astype(np.float32) / 255
+            assert np.array_equal((pixels[..., :3] * pixels[..., 3:4] * 255).astype(np.uint8),
+                                  preview_image(pixal_preview, 'framed'))
+            request('POST', route + '/cancel')
+            retry = request('POST', '/api/queue/' + pixal_master + '/retry', 202, json={}).json()['id']
+            retried = request('GET', f'/api/jobs/{retry}').json()['settings']
+            assert retried['view_mode'] == 'single' and retried['master_finishing'] == 'studio_768'
+            request('POST', f'/api/jobs/{retry}/cancel')
+
             multi_files = dict(image=front, left_image=left, back_image=back)
             multi = request('POST', '/api/reference-preview', files=multi_files,
                             data={**data, 'engine': 'pixal3d'}).json()['views']
@@ -174,6 +228,21 @@ app.SERVER.run()
 
             front = request('POST','/api/v1/uploads',201,files={'file':upload()}).json()['id']
             right = request('POST','/api/v1/uploads',201,files={'file':upload()}).json()['id']
+            (root/'wtivo-ready').touch()
+            solo = request('POST', '/api/v1/generations', 202, json={
+                'upload_id': front, 'engine': 'pixal3d_single', 'profile_id': 'dense_master',
+                'master_finishing': 'wtivo_1024', 'overrides': {'triangles': 900_000, 'texture_size': 1024},
+            }).json()['id']
+            solo_settings = request('GET', f'/api/jobs/{solo}').json()['settings']
+            assert solo_settings['master_finishing'] == 'wtivo_1024' and solo_settings['wtivo_reconstruction']
+            assert solo_settings['triangles'] == 900_000 and solo_settings['texture_size'] == 1024
+            request('POST', f'/api/jobs/{solo}/cancel')
+            object_job = request('POST', '/api/v1/generations/multiview', 202, json={
+                'upload_id': front, 'right_upload_id': right, 'profile_id': 'game_d', 'asset_type': 'object',
+            }).json()['id']
+            object_settings = request('GET', f'/api/jobs/{object_job}').json()['settings']
+            assert object_settings['asset_type'] == 'object' and object_settings['triangles'] == 28_000
+            request('POST', f'/api/jobs/{object_job}/cancel')
             (root/'face-ready').touch()
             assert request('GET','/api/status').json()['pixal3d']['face_projection']['ready']
             api = request('POST','/api/v1/generations/multiview',202,json={

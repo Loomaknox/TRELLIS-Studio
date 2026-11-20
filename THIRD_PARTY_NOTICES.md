@@ -94,6 +94,10 @@ Additional runtime packages, such as image/HTTP/serialization utilities and tran
 
 **Install Pixal3D.cmd** downloads pinned [ComfyUI](https://github.com/Comfy-Org/ComfyUI) source, preserving its GPL-3.0 license, and model packages from [Comfy-Org/Pixal3D](https://huggingface.co/Comfy-Org/Pixal3D) and [Comfy-Org/TRELLIS.2](https://huggingface.co/Comfy-Org/TRELLIS.2). [Pixal3D](https://github.com/TencentARC/Pixal3D) credits Tencent ARC and its collaborators and provides its own license and notices. The vision weights use DINOv3, with the separate terms linked above. The optional source, model packages and environment are downloaded locally. Pins and hashes are in `installer/pixal3d-manifest.json`.
 
+The optional `--single-image` setup adds the single-image Pixal3D checkpoint and
+the MIT-licensed [MoGe-2 ViT-L weights](https://huggingface.co/Ruicheng/moge-2-vitl)
+for camera estimation. Studio uses the MoGe implementation in the pinned ComfyUI source.
+
 The optional face pass uses the [OpenCV Zoo YuNet face detector](https://github.com/opencv/opencv_zoo/tree/f12e12798e8314f7c074a6656816c048dcc95b7a/models/face_detection_yunet), released under the [MIT license](https://github.com/opencv/opencv_zoo/blob/f12e12798e8314f7c074a6656816c048dcc95b7a/models/face_detection_yunet/LICENSE). The detector is downloaded separately and runs locally.
 
 ## Optional generated-motion runtime
@@ -105,6 +109,12 @@ The separate [Llama-3-Kimodo-GGML encoder](https://huggingface.co/LocalAI-io/Lla
 The CPU installer downloads pinned [Zig](https://ziglang.org/) (MIT), [CMake](https://cmake.org/) (BSD-3-Clause) and [Ninja](https://ninja-build.org/) (Apache-2.0) build tools, with their upstream notices. Source, tool and model pins, sizes and SHA-256 hashes are recorded in `installer/kimodo-manifest.json`. These build tools are local installation dependencies and are not added to the system PATH.
 
 Generated-motion previews reuse the separately credited Quaternius CC0 mannequin when installed, with a procedural preview fallback. No personal character mesh is bundled for this feature.
+
+## Optional Hi3D refinement
+
+**Powered by Hi3D 1.0.** Hi3D is licensed under the [Hi3D Open License Agreement Version 1.0](licenses/Hi3D-1.0-LICENSE.md). Copyright © 2026 OCEANO HK HOLDING LIMITED. Hi3D trademarks belong to OCEANO HK HOLDING LIMITED or its applicable affiliate(s).
+
+Windows Setup requests license acceptance before obtaining the pinned Hi3D runtime and weights. See [Hi3D detail refinement](docs/HI3D.md) for upstream sources and requirements.
 
 ## Local license copies
 

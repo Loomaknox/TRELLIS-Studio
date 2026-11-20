@@ -5,11 +5,11 @@ import json
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError, URLError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from studio_release import FAILURE_TTL, LATEST_RELEASE, MAX_METADATA_BYTES, RELEASE_PAGE, SUCCESS_TTL, ReleaseCheck
+from studio_release import FAILURE_TTL, LATEST_RELEASE, MAX_METADATA_BYTES, RELEASE_PAGE, SUCCESS_TTL, ReleaseCheck, render_studio_version
 
 
 def release(tag, **updates):
@@ -29,6 +29,16 @@ class ReleaseTests(unittest.TestCase):
 
     def checker(self, current='3.9.9'):
         return ReleaseCheck(current, clock=lambda: self.clock, open_url=self.open_url)
+
+    def test_page_revision_and_header_follow_the_runtime_version(self):
+        page = (Path(__file__).resolve().parents[1] / 'web/studio.html').read_text(encoding='utf-8')
+        for version in ('3.10.0', '4.12.3'):
+            with self.subTest(version=version), patch('studio_release.VERSION', version):
+                rendered = render_studio_version(page)
+                self.assertIn(f'<meta name="trellis-ui-revision" content="{version}">', rendered)
+                self.assertIn(f'title="Installed Studio version">{version}</span>', rendered)
+                self.assertNotIn('<!--studio-ui-revision-->', rendered)
+                self.assertNotIn('<!--studio-current-version-->', rendered)
 
     def test_numeric_and_prerelease_versions(self):
         for current, tag, expected in (

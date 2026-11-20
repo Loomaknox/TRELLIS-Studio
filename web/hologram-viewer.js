@@ -1,5 +1,12 @@
 import * as THREE from 'three';
 
+const hologramPalette = {
+  material: '#b8ef69',
+  beam: '174, 229, 91',
+  contact: '230, 255, 172',
+  trail: '191, 235, 133',
+};
+
 export function hologramConstruction(elapsed, reducedMotion = false) {
   const time = reducedMotion ? 0 : Math.max(0, Number.isFinite(elapsed) ? elapsed : 0);
   const progress = reducedMotion ? 1 : Math.min(1, time / 6.5);
@@ -46,18 +53,18 @@ float holoRim = pow(clamp(1.0 - abs(dot(normalize(normal), normalize(vViewPositi
 float holoLines = pow(0.5 + 0.5 * sin(holoY * 640.0), 14.0);
 float holoScan = exp(-pow((fract(holoY - hologramTime * 0.09) - 0.5) / 0.012, 2.0));
 float holoFront = exp(-pow((holoY - hologramReveal) / 0.012, 2.0)) * hologramConstructing;
-float holoLight = 0.045 + holoRim * 0.85 + holoLines * 0.09 + holoScan * 0.12 + holoFront * 0.85;
+float holoLight = 0.042 + holoRim * 0.76 + holoLines * 0.13 + holoScan * 0.16 + holoFront * 0.85;
 outgoingLight = diffuseColor.rgb * 0.20 + hologramColour * holoLight;
 #include <opaque_fragment>`);
   };
-  material.customProgramCacheKey = () => 'trellis-hologram-v2';
+  material.customProgramCacheKey = () => 'trellis-hologram-v3';
   return material;
 }
 
 export function createHologramViewer(viewport, {camera} = {}) {
   const uniforms = {
     hologramTime: {value: 0}, hologramBottom: {value: 0},
-    hologramHeight: {value: 1}, hologramColour: {value: new THREE.Color('#50f4ce')},
+    hologramHeight: {value: 1}, hologramColour: {value: new THREE.Color(hologramPalette.material)},
     hologramReveal: {value: 0}, hologramConstructing: {value: 1},
   };
   const canvas = document.createElement('canvas');
@@ -164,16 +171,16 @@ export function createHologramViewer(viewport, {camera} = {}) {
         const sweep = (Math.sin(frame.time * (1.1 + beam * 0.17) + emitter * 2.1 + beam) + 1) * 0.5;
         const target = targets[Math.min(targets.length - 1, Math.floor(sweep * targets.length))];
         const gradient = context.createLinearGradient(origin[0], origin[1], target.x, target.y);
-        gradient.addColorStop(0, `rgba(61,229,190,${0.035 * strength})`);
-        gradient.addColorStop(0.75, `rgba(61,229,190,${0.28 * strength})`);
-        gradient.addColorStop(1, `rgba(154,255,230,${0.75 * strength})`);
+        gradient.addColorStop(0, `rgba(${hologramPalette.beam}, ${0.03 * strength})`);
+        gradient.addColorStop(0.75, `rgba(${hologramPalette.beam}, ${0.20 * strength})`);
+        gradient.addColorStop(1, `rgba(${hologramPalette.contact}, ${0.62 * strength})`);
         context.strokeStyle = gradient;
         context.lineWidth = 0.85;
         context.beginPath();context.moveTo(...origin);context.lineTo(target.x, target.y);context.stroke();
         const glow = context.createRadialGradient(target.x, target.y, 0, target.x, target.y, 7);
-        glow.addColorStop(0, `rgba(194,255,240,${0.5 * strength})`);
-        glow.addColorStop(0.2, `rgba(78,247,206,${0.28 * strength})`);
-        glow.addColorStop(1, 'rgba(78,247,206,0)');
+        glow.addColorStop(0, `rgba(${hologramPalette.contact}, ${0.48 * strength})`);
+        glow.addColorStop(0.2, `rgba(${hologramPalette.beam}, ${0.22 * strength})`);
+        glow.addColorStop(1, `rgba(${hologramPalette.beam}, 0)`);
         context.fillStyle = glow;context.fillRect(target.x - 7, target.y - 7, 14, 14);
       }
     }
@@ -203,8 +210,8 @@ export function createHologramViewer(viewport, {camera} = {}) {
       for (let row = 0; row < 13; row++) {
         const y = head - row * size * 1.1;
         if (y < 35 || y > h - 45) continue;
-        const alpha = (1 - row / 13) * edge * 0.44;
-        context.fillStyle = `rgba(90,244,207,${alpha})`;
+        const alpha = (1 - row / 13) * edge * 0.32;
+        context.fillStyle = `rgba(${hologramPalette.trail}, ${alpha})`;
         const index = Math.floor(hash(column * 53 + row + Math.floor(time * 3)) * symbols.length);
         context.fillText(symbols[index], x, y);
       }
