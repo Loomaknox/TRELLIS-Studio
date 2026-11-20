@@ -1,11 +1,13 @@
 import {button, dialog, el, field, input, select} from './workbench-ui.js?v=3.4.0';
 import {detailRefinements} from './hd-master-finishing.js?v=detail-refinement-native';
 import {createAdvancedControls, optionHelp} from './advanced-controls.js?v=board-hi3d';
+import {canOpenFinishingBoard} from './card-menu.js?v=texture-variant';
 
 const number = value => Number.isFinite(value) ? value.toLocaleString('en-US') : '—';
 const nameOf = job => job?.metadata?.display_name || job?.settings?.name || 'Source model';
 const canCompare = job => job?.state === 'done' && job.media?.available !== false;
 const labels = {queued: 'Queued', running: 'Finishing', done: 'Completed', error: 'Failed', cancelled: 'Cancelled'};
+const textureEndpoint = id => `/api/v1/models/${encodeURIComponent(id)}/multiview-texture-refinement`;
 const defaults = [
     {label: 'High-detail copy', triangles: 1200000, bake_normals: false},
     {label: 'Game · 14K triangles', triangles: 14000, bake_normals: true},
@@ -13,9 +15,24 @@ const defaults = [
 ];
 
 export function createFinishingBoard({api, getRecords, refresh, compare}) {
-    const ui = dialog('finishingBoard', 'Finishing board', 'CACHED SOURCE',
-        'Queue finishing recipes on one saved source, then compare and keep a result.', 'finishing-board');
+    const ui = dialog('finishingBoard', 'Finishing board', '',
+        'Queue geometry and texture variants, then compare the results.', 'finishing-board');
     const summary = el('p', 'finishing-summary');
+    const texture = el('section', 'finishing-refinement');
+    const textureHead = el('div', 'finishing-refinement-head');
+    const textureTitle = el('h3', '', 'Multiview texture refinement');
+    textureTitle.id = 'finishingBoardTexture';
+    textureHead.append(textureTitle);
+    texture.setAttribute('aria-labelledby', textureTitle.id);
+    const textureHint = el('p', 'hint');
+    textureHint.id = 'finishingBoardTextureHint';
+    textureHint.setAttribute('role', 'status');
+    const textureActions = el('div', 'finishing-refinement-actions');
+    const textureQueue = button('Queue texture refinement', 'image', 'secondary');
+    textureQueue.setAttribute('aria-describedby', textureHint.id);
+    textureActions.append(textureQueue);
+    const textureRows = el('div', 'finishing-rows');
+    texture.append(textureHead, textureHint, textureActions, textureRows);
     const selected = el('p', 'finishing-choice');
     const form = el('form', 'finishing-form');
     form.id = 'finishingBoardRecipes';
@@ -73,14 +90,14 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
     const heading = el('h3', '', 'Source and variants');
     heading.id = 'finishingBoardResults';
     results.append(heading, selected, rows);
-    ui.body.append(summary, refinement, form, results);
+    ui.body.append(summary, texture, refinement, form, results);
     const queue = button('Queue variants', 'layers', 'primary');
     queue.type = 'submit';
     queue.setAttribute('form', form.id);
     const footerHint = el('small', 'wb-footnote', 'Shared cache · Finishing uses the GPU');
     ui.foot.append(footerHint, queue);
 
-    let base = null, board = null, drafts = [], opening = 0, pending = false;
+    let base = null, board = null, textureInfo = null, drafts = [], opening = 0, pending = false;
     let hi3dControls, hi3dControlsPromise;
     let textureDefault, textureChosen;
     const cards = new Map();
@@ -99,6 +116,92 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         variants.sort((left, right) => (right.settings.created || 0) - (left.settings.created || 0));
         return source ? [source, ...variants] : variants;
     }
+
+    function textureVariants() {
+        return getRecords().filter(job => job.settings?.source_kind === 'multiview_texture_refinement'
+            && job.settings.parent_id === base?.id)
+            .sort((left, right) => (right.settings.created || 0) - (left.settings.created || 0));
+    }
+
+    function updateTexture() {
+        const variants = textureVariants();
+        const active = variants.some(job => job.state === 'queued' || job.state === 'running');
+        textureQueue.disabled = pending || textureInfo?.ready !== true || active;
+        let hint = textureInfo?.reason || 'Texture refinement is unavailable for this model.';
+        if (textureInfo?.ready === true) {
+            const size = textureInfo.atlas;
+            const recipe = [Number.isFinite(textureInfo.triangles) ? `${number(textureInfo.triangles)} triangles` : '',
+                Array.isArray(size) && size.length === 2 ? `${size[0]} × ${size[1]} texture` : '']
+                .filter(Boolean).join(' · ');
+            hint = 'Refines the baked texture from six generated views. The copy keeps its mesh, UVs and texture size.';
+            if (recipe) hint += ` ${recipe}.`;
+        } else if (!textureInfo) {
+            hint = 'Checking the saved model and reference…';
+        }
+        if (textureHint.textContent !== hint) textureHint.textContent = hint;
+        textureRows.hidden = !variants.length;
+        const revision = JSON.stringify(variants.map(job => [job.id, nameOf(job), job.state, job.stage,
+            job.error, job.progress, canCompare(job)]));
+        if (revision === textureRows.dataset.revision) return;
+        textureRows.dataset.revision = revision;
+        textureRows.replaceChildren(...variants.map(variant => {
+            const row = el('article', 'finishing-row');
+            const copy = el('div');
+            const running = variant.state === 'queued' || variant.state === 'running';
+            const stage = [labels[variant.state] || variant.state,
+                variant.error || (variant.state === 'done' ? '' : variant.stage)].filter(Boolean).join(' · ');
+            copy.append(el('strong', '', nameOf(variant)), el('small', variant.state === 'error' ? 'finishing-failure' : '', stage));
+            if (running) {
+                const progress = el('progress');
+                progress.max = 100;
+                progress.value = variant.progress || 0;
+                progress.setAttribute('aria-label', 'Progress for ' + nameOf(variant));
+                copy.append(progress);
+            }
+            const actions = el('div', 'finishing-row-actions');
+            const compareCopy = button('Compare', 'compare', 'secondary', () => {
+                const source = getRecords().find(job => job.id === base.id) || base;
+                if (!canCompare(source)) return;
+                ui.close();
+                compare.open(source, variant, {candidates: [source, ...textureVariants().filter(canCompare)],
+                    backToBoard: () => { ui.show(); update(); }});
+            });
+            compareCopy.disabled = !canCompare(variant);
+            actions.append(compareCopy);
+            row.append(copy, actions);
+            return row;
+        }));
+    }
+
+    async function loadTextureCapability(id, token) {
+        try {
+            const capability = await api(textureEndpoint(id));
+            if (token === opening) textureInfo = capability || {ready: false};
+        } catch (error) {
+            if (token === opening) textureInfo = {ready: false, reason: error.message};
+        }
+        if (token === opening) update();
+    }
+
+    textureQueue.onclick = async () => {
+        if (textureQueue.disabled) return;
+        const token = opening;
+        pending = true;
+        ui.notice.textContent = 'Queueing texture refinement…';
+        update();
+        try {
+            await api(textureEndpoint(base.id), {method: 'POST'});
+            if (token === opening) ui.notice.textContent = 'Texture refinement queued. The new copy will appear here.';
+            await refresh();
+        } catch (error) {
+            if (token === opening) ui.notice.textContent = error.message;
+        } finally {
+            if (token === opening) {
+                pending = false;
+                update();
+            }
+        }
+    };
 
     function updateQueueButton() {
         const count = drafts.filter(draft => draft.enabled.checked).length;
@@ -301,6 +404,7 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
     function update() {
         if (!ui.element.open) return;
         updateQueueButton();
+        updateTexture();
         if (!board) return;
         const jobs = family();
         const retained = jobs.find(job => job.id === board.selected_id);
@@ -461,23 +565,31 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
     };
 
     return {
+        canOpen: canOpenFinishingBoard,
         async open(job) {
-            if (!job?.can_refinish) return;
+            if (!canOpenFinishingBoard(job)) return;
             const token = ++opening;
             base = job;
             board = null;
+            textureInfo = null;
             pending = false;
             drafts = [];
             hi3dControls = null;
             cards.clear();
             rows.replaceChildren();
             form.replaceChildren();
+            ui.foot.hidden = true;
             refinement.hidden = true;
             results.hidden = true;
             summary.textContent = nameOf(job);
             ui.show();
-            ui.notice.textContent = 'Loading the saved finishing source…';
+            ui.notice.textContent = job.can_refinish ? 'Loading the saved finishing source…' : '';
             update();
+            const textureCapability = loadTextureCapability(job.id, token);
+            if (!job.can_refinish) {
+                await textureCapability;
+                return;
+            }
             try {
                 const response = await api(`/api/jobs/${job.id}/finishing-board`);
                 if (token !== opening) return;
@@ -489,12 +601,14 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
                 await configureHi3dOptions(token);
                 if (token !== opening) return;
                 recipeForm();
+                ui.foot.hidden = false;
                 results.hidden = false;
                 ui.notice.textContent = '';
                 update();
             } catch (error) {
                 if (token === opening) ui.notice.textContent = error.message;
             }
+            await textureCapability;
         },
         update,
     };

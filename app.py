@@ -152,8 +152,12 @@ def job_path(identifier):
     if not folder.is_dir(): raise HTTPException(404)
     return folder
 
+PREPARED_OUTPUT_KINDS = ('unirig', 'animation_copy', 'texture_projection', 'baked_game_copy',
+                         'multiview_texture_refinement')
+
+
 def prepared_output_ready(settings, status):
-    return (settings.get('source_kind') not in ('unirig', 'animation_copy', 'texture_projection', 'baked_game_copy') or status.get('state') == 'done'
+    return (settings.get('source_kind') not in PREPARED_OUTPUT_KINDS or status.get('state') == 'done'
             or status.get('operation') == 'animation')
 
 
@@ -1516,7 +1520,7 @@ async def files(identifier: str, filename: str):
     if filename not in (*REFERENCE_FILES,*PREPARED_VIEWS.values(),'conditioning.png','model.glb','model.stl','print-report.json','Unity.zip','Blender.zip','settings.json','result.json','heightmap.png','heightmap.raw','original.glb','original.fbx','original.obj','original.stl','original.ply') or not (folder / filename).exists():
         raise HTTPException(404)
     settings = json.loads((folder/'settings.json').read_text(encoding='utf-8'))
-    if settings.get('source_kind') in ('unirig', 'animation_copy', 'texture_projection', 'baked_game_copy') and filename in ('model.glb', 'result.json'):
+    if settings.get('source_kind') in PREPARED_OUTPUT_KINDS and filename in ('model.glb', 'result.json'):
         status = read_workspace_json(folder / 'status.json', {})
         if not prepared_output_ready(settings, status):
             raise HTTPException(409, 'The model is available after preparation completes.')

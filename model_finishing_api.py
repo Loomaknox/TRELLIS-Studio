@@ -14,7 +14,7 @@ from api_contract import (
 from generation_view_projection import (
     digest, generation_reference, generation_reference_name, inspect_generation_reference, inspect_generation_views,
 )
-from studio_workspace import write
+from studio_workspace import ID, finishing_source, write
 
 
 REFERENCE_LABELS = {
@@ -22,6 +22,15 @@ REFERENCE_LABELS = {
     'conditioning': 'Generation reference',
     'input': 'Original reference',
 }
+MULTIVIEW_OPERATION = 'multiview_texture_refinement'
+OPERATION_LABELS = {
+    'texture_projection': 'Texture projection',
+    'baked_game_copy': 'Baked game copy',
+    MULTIVIEW_OPERATION: 'Multiview texture',
+}
+REFERENCE_LINEAGE = {'refinish', 'baked_game_copy', 'texture_projection', MULTIVIEW_OPERATION,
+                     'restored', 'game', 'lod'}
+REFERENCE_LINEAGE_LIMIT = 16
 
 
 def existing_file(folder, name):
@@ -42,6 +51,22 @@ def check_reference_sizes(paths, max_pixels):
             raise HTTPException(400, f'Resize the reference for view {index} to at most 16 megapixels.')
 
 
+def readable_cutout(path, max_pixels):
+    if path is None or path.is_symlink():
+        return False
+    try:
+        if path.stat().st_size > 5 * max_pixels:
+            return False
+        with Image.open(path) as image:
+            if (image.format != 'PNG' or min(image.size) < 2
+                    or image.width * image.height > max_pixels):
+                return False
+            alpha = image.convert('RGBA').getchannel('A').histogram()
+            return sum(alpha[:64]) >= max(8, image.width * image.height * .01) and sum(alpha[97:]) >= 16
+    except (OSError, ValueError, Image.DecompressionBombError):
+        return False
+
+
 def install(router, app, upload):
     services = app['STUDIO']
 
@@ -59,9 +84,9 @@ def install(router, app, upload):
         ]
 
     async def prepare_copy(folder, record, source, operation, *, options=None, projections=(), generation_views=None,
-                           generation_cutout=None):
+                           generation_cutout=None, multiview_reference=None):
         target = app['OUTPUT'] / uuid.uuid4().hex
-        label = 'Texture projection' if operation == 'texture_projection' else 'Baked game copy'
+        label = OPERATION_LABELS[operation]
         settings = {
             **record['settings'],
             'parent_id': folder.name,
@@ -76,6 +101,10 @@ def install(router, app, upload):
             settings.pop(key, None)
         if operation == 'baked_game_copy':
             settings.update(triangles=options['triangles'], texture_size=options['texture_size'])
+        elif operation == MULTIVIEW_OPERATION:
+            source_id = finishing_source(folder, record['settings'])
+            if source_id:
+                settings['finish_source_id'] = source_id
         metadata = {**record['metadata'], 'review_state': 'review', 'favorite': False}
         display = metadata.get('display_name') or settings['name']
         suffix = ' · ' + label
@@ -112,6 +141,11 @@ def install(router, app, upload):
                     shutil.copy2(path, target / path.name)
             for name, reference in staged_references.items():
                 shutil.copy2(reference, target / name)
+            if multiview_reference is not None:
+                prepared = target / 'prepared.png'
+                shutil.copy2(multiview_reference, prepared)
+                request['multiview_reference'] = dict(reference_file=prepared.name,
+                    source_sha256=digest(target / 'source.glb'), reference_sha256=digest(prepared))
             if retained is not None:
                 request['retained_generation_views'] = retained
                 for view in retained['views']:
@@ -130,7 +164,10 @@ def install(router, app, upload):
 
         try:
             await asyncio.to_thread(stage)
-            app['launch_worker'](target, 'model_finishing_worker.py', source_id=folder.name)
+            if operation == MULTIVIEW_OPERATION and not app.get('WORKSPACE_CONFIG'):
+                services.workspace.enqueue(target.name)
+            else:
+                app['launch_worker'](target, 'model_finishing_worker.py', source_id=folder.name)
         except (OSError, ValueError):
             if target.is_dir() and target.resolve() == target and target.parent == app['OUTPUT']:
                 await asyncio.to_thread(shutil.rmtree, target, ignore_errors=True)
@@ -201,6 +238,71 @@ def install(router, app, upload):
                 await asyncio.to_thread(check_reference_sizes, paths, MAX_REFERENCE_PIXELS)
             return await prepare_copy(folder, record, source, 'texture_projection',
                                       projections=list(zip(paths, options, strict=True)))
+
+    async def multiview_cutout(folder, record, max_pixels):
+        output = app['OUTPUT'].resolve()
+        visited = set()
+        for _ in range(REFERENCE_LINEAGE_LIMIT):
+            if folder.resolve() != output / folder.name or folder.name in visited:
+                break
+            visited.add(folder.name)
+            settings = record['settings']
+            views = settings.get('views')
+            if (settings.get('view_mode') not in (None, 'single')
+                    or settings.get('engine') == 'pixal3d' and isinstance(views, list) and len(views) > 1):
+                return None, 'Choose a model from a single reference for multiview texture refinement.'
+            path = existing_file(folder, 'prepared.png')
+            if await asyncio.to_thread(readable_cutout, path, max_pixels):
+                return path, ''
+            if settings.get('source_kind') not in REFERENCE_LINEAGE:
+                break
+            parent = settings.get('parent_id')
+            if not isinstance(parent, str) or not ID.fullmatch(parent) or parent in visited:
+                break
+            try:
+                folder, record = services.available(parent)
+            except HTTPException as error:
+                if error.status_code not in (403, 404, 409):
+                    raise
+                break
+        return None, 'This model has no saved cutout with a transparent background in its source lineage.'
+
+    async def multiview_options(folder, record, source):
+        from multiview_texture_runtime import availability
+        from texture_projection import MAX_REFERENCE_PIXELS, inspect_texture_projection
+        support = await asyncio.to_thread(inspect_texture_projection, source)
+        if not support['supported']:
+            return {**support, 'ready': False}, None
+        support = {key: support[key] for key in ('supported', 'reason', 'atlas', 'triangles')}
+        if support['atlas'] not in ([1024, 1024], [2048, 2048], [4096, 4096]):
+            return {**support, 'supported': False, 'ready': False,
+                    'reason': 'Use a square 1K, 2K or 4K color atlas for multiview texture refinement.'}, None
+        reference, reason = await multiview_cutout(folder, record, MAX_REFERENCE_PIXELS)
+        if reference is None:
+            return {**support, 'supported': False, 'ready': False, 'reason': reason}, None
+        runtime = await asyncio.to_thread(availability, app['ROOT'])
+        return {**support, 'ready': runtime['available'], 'reason': runtime['reason']}, reference
+
+    @router.get('/models/{identifier}/multiview-texture-refinement', tags=['Models'],
+                summary='Check multiview texture support for a completed model')
+    async def multiview_texture_options(identifier: Identifier):
+        support, _ = await multiview_options(*model(identifier))
+        return support
+
+    @router.post('/models/{identifier}/multiview-texture-refinement', tags=['Models'], status_code=202,
+                 response_model=JobAccepted, summary='Queue multiview texture refinement on a linked copy')
+    async def make_multiview_texture_copy(identifier: Identifier):
+        async with app['LOCK']:
+            if app.get('SHUTTING_DOWN'):
+                raise HTTPException(503, 'Studio is stopping.')
+            folder, record, source = model(identifier)
+            support, reference = await multiview_options(folder, record, source)
+            if not support['supported']:
+                raise HTTPException(400, support['reason'])
+            if not support['ready']:
+                raise HTTPException(503, support['reason'])
+            return await prepare_copy(folder, record, source, MULTIVIEW_OPERATION,
+                                      multiview_reference=reference)
 
     @router.get('/models/{identifier}/baked-game-copy', tags=['Models'],
                 summary='Check support for a reduced and baked copy of the selected master')

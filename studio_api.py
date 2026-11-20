@@ -205,6 +205,8 @@ class StudioServices:
                     try:
                         if settings.get('generated_animation_action') in ('generate','apply'):
                             self.g['launch_worker'](folder,'generated_animation_worker.py')
+                        elif settings.get('source_kind') == 'multiview_texture_refinement':
+                            self.g['launch_worker'](folder, 'model_finishing_worker.py', source_id=settings.get('parent_id'))
                         elif settings.get('source_kind') == 'refinish':
                             source_id = finishing_source(folder, settings)
                             if not source_id:
@@ -475,6 +477,8 @@ class StudioServices:
         return identifiers
 
     def retry_recipe(self, folder, saved, priority, changes):
+        if saved.get('source_kind') == 'multiview_texture_refinement':
+            raise ValueError('Open the original model in Finishing board to queue a new multiview texture copy.')
         if not isinstance(changes, dict) or set(changes) - RETRY_FIELDS:
             raise ValueError('Choose only editable queue settings.')
         if saved.get('master_finishing') and set(changes) - {

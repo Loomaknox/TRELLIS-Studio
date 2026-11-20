@@ -1,4 +1,4 @@
-import {createStudioWorkbench} from './studio-workbench.js?v=multiview-texture-refinement';
+import {createStudioWorkbench} from './studio-workbench.js?v=texture-variant';
 import {createViewerLighting,createViewerStage} from './viewer-lighting.js?v=visual-refresh-2';
 import {createHologramViewer} from './hologram-viewer.js?v=visual-refresh-2';
 import {createGenerationWait} from './generation-wait.js?v=studio-visual-refinement';
@@ -15,8 +15,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createAdvancedControls } from './advanced-controls.js?v=board-hi3d';
-import { createProfileControls } from './profiles.js?v=multiview-texture-refinement';
-import {createCardMenu,updateCardStatus,icon} from './card-menu.js?v=3.4.0';
+import { createProfileControls } from './profiles.js?v=texture-variant';
+import {createCardMenu,updateCardStatus,icon} from './card-menu.js?v=texture-variant';
 import {createCardTurntables} from './card-turntable.js?v=3.4.0';
 const $=id=>document.getElementById(id);
 const cardTurntables=createCardTurntables($('libraryGrid'));

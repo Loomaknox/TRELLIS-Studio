@@ -36,7 +36,8 @@ def calibrate(source):
 
 
 def run():
-    support = lambda _: {'supported': True, 'reason': None}
+    support = lambda _: {'supported': True, 'reason': '', 'triangles': 1200, 'atlas': [2048, 2048]}
+    texture_runtime = {'available': True, 'reason': ''}
     prototype = {
         'texture_projection': SimpleNamespace(MAX_REFERENCE_PIXELS=16_777_216,
                                               inspect_texture_projection=support,
@@ -44,6 +45,7 @@ def run():
         'baked_game_copy': SimpleNamespace(inspect_baked_game_copy=lambda _: {
                                                **support(None), 'protected_region_limit': PROTECTED_REGION_LIMIT},
                                            normalize_game_copy_options=lambda options: options),
+        'multiview_texture_runtime': SimpleNamespace(availability=lambda _: texture_runtime),
     }
     with TemporaryDirectory(prefix='trellis-model-finishing-') as directory, patch.dict(sys.modules, prototype):
         root = Path(directory)
@@ -238,6 +240,55 @@ def run():
             call(base, 'POST', projection_url, 202, alice, json=aligned)
             write(source / 'settings.json', {**source_settings, 'source_kind': 'import'})
             call(base, 'POST', projection_url, 400, alice, json=aligned)
+
+            # The texture-only job uses the completed GLB. A cache is optional and
+            # a cutout may only come from the selected model's own source lineage.
+            write(source / 'settings.json', {**source_settings, 'engine': 'trellis2'})
+            (source / 'raw_state.pt').touch()
+            texture_url = url + '/multiview-texture-refinement'
+            call(base, 'GET', texture_url, 404, bob)
+            call(base, 'POST', texture_url, 404, bob)
+            texture_runtime.update(available=False, reason='Install the local texture runtime.')
+            assert not call(base, 'GET', texture_url, client=alice).json()['ready']
+            call(base, 'POST', texture_url, 503, alice)
+            texture_runtime.update(available=True, reason='')
+            assert call(base, 'GET', texture_url, client=alice).json() == dict(
+                supported=True, ready=True, reason='', triangles=1200, atlas=[2048, 2048])
+            accepted = call(base, 'POST', texture_url, 202, alice).json()
+            variant = source.parent / accepted['id']
+            recipe = read(variant / 'finishing-request.json')
+            child_settings = read(variant / 'settings.json')
+            assert recipe['operation'] == child_settings['source_kind'] == 'multiview_texture_refinement'
+            assert child_settings['parent_id'] == child_settings['finish_source_id'] == identifier
+            assert recipe['multiview_reference'] == dict(reference_file='prepared.png',
+                source_sha256=digest(source / 'model.glb'), reference_sha256=digest(prepared))
+            assert (variant / 'prepared.png').read_bytes() == prepared.read_bytes()
+            assert (variant / 'source.glb').read_bytes() == glb and (source / 'model.glb').read_bytes() == glb
+            assert not (variant / 'raw_state.pt').exists()
+            assert call(base, 'GET', accepted['status_url'], client=alice).json()['state'] == 'queued'
+            call(base, 'GET', accepted['status_url'], 404, bob)
+
+            linked = source.parent / ('a' * 32)
+            linked.mkdir()
+            (linked / 'model.glb').write_bytes(glb)
+            lineage = dict(name='Linked', source_kind='baked_game_copy', parent_id=identifier)
+            write(linked / 'settings.json', lineage)
+            write(linked / 'status.json', dict(state='done', progress=100))
+            linked_url = f'/api/v1/models/{linked.name}/multiview-texture-refinement'
+            recovered = call(base, 'POST', linked_url, 202, alice).json()
+            assert (source.parent / recovered['id'] / 'prepared.png').read_bytes() == prepared.read_bytes()
+            write(source / 'settings.json', {**source_settings, 'engine': 'pixal3d', 'view_mode': 'multi'})
+            call(base, 'POST', linked_url, 400, alice)
+
+            foreign = root / 'users' / users[1]['id'] / 'outputs' / ('b' * 32)
+            foreign.mkdir(parents=True, exist_ok=True)
+            (foreign / 'model.glb').write_bytes(glb)
+            (foreign / 'prepared.png').write_bytes(prepared.read_bytes())
+            write(foreign / 'settings.json', dict(name='Foreign', engine='trellis2'))
+            write(foreign / 'status.json', dict(state='done', progress=100))
+            write(linked / 'settings.json', {**lineage, 'parent_id': foreign.name})
+            assert not call(base, 'GET', linked_url, client=alice).json()['supported']
+            call(base, 'POST', linked_url, 400, alice)
             assert state.store.get_user(users[0]['id'])['credits'] == 0
     print('PASS: local derived model requests, source preservation, parent links, queue, credits and isolation.')
 

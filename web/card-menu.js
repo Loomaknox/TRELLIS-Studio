@@ -1,10 +1,11 @@
 export function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.classList.add('ui-icon');svg.setAttribute('aria-hidden','true');const use=document.createElementNS(svg.namespaceURI,'use');use.setAttribute('href',`/web/icons.svg#${name}`);svg.append(use);return svg;}
+export function canOpenFinishingBoard(job){return Boolean(job?.can_refinish)||(job?.state==='done'&&job.media?.available!==false);}
 export function createCardMenu({version,remove,details,print,compare,diagnostics,export:exportModel,history,folder,lod,game,refinish,finishingBoard}){
   const menu=document.getElementById('assetMenu');let trigger=null,job=null;
   const boardItem=document.createElement('button');
   boardItem.type='button';boardItem.setAttribute('role','menuitem');boardItem.hidden=true;
   const boardLabel=document.createElement('span'),boardHint=document.createElement('small');
-  boardLabel.textContent='Finishing board';boardHint.textContent='Queue and compare cached variants';
+  boardLabel.textContent='Finishing board';boardHint.textContent='Compare geometry and texture variants';
   boardLabel.append(boardHint);boardItem.append(icon('layers'),boardLabel);
   menu.querySelector('[data-action=refinish]').after(boardItem);
   boardItem.onclick=()=>{const selected=job;close();finishingBoard?.(selected);};
@@ -44,7 +45,7 @@ export function createCardMenu({version,remove,details,print,compare,diagnostics
       const refinishItem=menu.querySelector('[data-action=refinish]');
       refinishItem.hidden=!j.can_refinish;
       refinishItem.disabled=busy||!j.can_refinish;
-      boardItem.hidden=!finishingBoard||!j.can_refinish;
+      boardItem.hidden=!finishingBoard||!canOpenFinishingBoard(j);
       menu.querySelector('[data-action=remove]').disabled=!features||j.id===activeId;
       menu.showPopover({source:b});b.setAttribute('aria-expanded','true');placeMenu();
       menu.scrollTop=0;menu.querySelector('button:not([hidden]):not(:disabled)')?.focus({preventScroll:true});
