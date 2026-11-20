@@ -154,12 +154,12 @@ async def upload_source(file_path:str)->dict[str,Any]:
 
 @tool()
 async def queue_generation(recipe:Generation)->dict[str,Any]:
-    """Queue an uploaded image with TRELLIS.2 or engine='pixal3d_single' (MoGe camera estimation). With profile_id='dense_master', select studio_768, wtivo_1024 or optional hi3d_512/hi3d_1024 using master_finishing. Hi3D refines the chosen TRELLIS.2 single-image resolution using its prepared transparent cutout. The Hi3D output resolution is independent of the generation resolution. Check studio_status and poll get_model."""
+    """Queue an uploaded image with TRELLIS.2 or engine='pixal3d_single' (MoGe camera estimation). Select master_finishing='none' to export the decoded geometry without reduction and keep the source cache, or select an available reconstruction. Hi3D refines the chosen TRELLIS.2 single-image resolution using its prepared transparent cutout. Check studio_status and poll get_model."""
     return await api('POST','/generations',recipe.model_dump())
 
 @tool()
 async def queue_multiview_generation(recipe:MultiViewGeneration)->dict[str,Any]:
-    """Queue Pixal3D from a front image and at least one matching side or back image. Choose a generation profile, then optionally select master_finishing with dense_master. Upload images first and poll get_model."""
+    """Queue Pixal3D from a front image and at least one matching side or back image. Choose a generation profile and optionally select master_finishing='none' for the full decoded surface, or an available reconstruction. Upload images first and poll get_model."""
     return await api('POST','/generations/multiview',recipe.model_dump(exclude_none=True))
 
 @tool()
@@ -174,7 +174,7 @@ async def get_finishing_options(model_id: Identifier) -> dict[str, Any]:
 
 @tool()
 async def queue_refinish(model_id: Identifier, recipe: Refinish) -> dict[str, Any]:
-    """Create a linked variant from the saved cache. For a dense PBR master, pass master_finishing='wtivo_1024', 'studio_768', 'hi3d_512' or 'hi3d_1024' and optionally texture_size. Hi3D refines a saved TRELLIS.2 single-image source at its original resolution using the prepared cutout. Read get_finishing_options for eligibility and runtime availability, then poll get_model."""
+    """Create a linked variant from the saved cache. For a dense PBR master, pass master_finishing='wtivo_1024', 'studio_768', 'hi3d_512' or 'hi3d_1024' and optionally texture_size. With Hi3D, pass hi3d_options to override refinement settings or retexture_after_refinement=True to generate new materials at 12 steps using the chosen texture size. Read get_finishing_options for eligibility and runtime availability, then poll get_model."""
     return await api('POST', f'/models/{model_id}/refinish', recipe.model_dump(exclude_none=True))
 
 @tool(read=True)

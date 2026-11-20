@@ -205,6 +205,8 @@ def app_for(data, public_url, setup_token=None, on_setup=None):
         response.headers['Referrer-Policy'] = 'same-origin'
         if path in ('/', '/developers') or path.startswith(('/api/', '/server/')):
             response.headers['Cache-Control'] = 'private, no-store'
+        elif path.startswith('/web/') and path.endswith(('.html', '.js', '.css')):
+            response.headers['Cache-Control'] = 'no-cache, must-revalidate'
         return response
 
     @app.exception_handler(StoreError)

@@ -19,7 +19,8 @@ def name(value,limit=80):
     return value.strip()
 
 def finishing_source(folder, settings):
-    identifier = settings.get('finish_source_id') if settings.get('source_kind') == 'refinish' else folder.name
+    linked_cache = settings.get('source_kind') in ('refinish', 'multiview_texture_refinement')
+    identifier = settings.get('finish_source_id') if linked_cache else folder.name
     if not isinstance(identifier, str) or not ID.fullmatch(identifier):
         return None
     source = folder.parent / identifier

@@ -69,7 +69,8 @@ def children(folder):
 def reserve_bytes(settings, script, folder):
     if script == 'model_finishing_worker.py':
         source_bytes = (folder / 'source.glb').stat().st_size
-        return 128 * MIB + 2 * source_bytes
+        copies = 3 if settings.get('source_kind') == 'multiview_texture_refinement' else 2
+        return 128 * MIB + copies * source_bytes
     if script=='generated_animation_worker.py' and settings.get('generated_animation_action')=='apply':
         return 32*MIB+3*(folder/'source.glb').stat().st_size+tree_bytes(folder/'LODs')
     if script == 'worker.py' and settings.get('source_kind') == 'refinish':
@@ -150,6 +151,8 @@ class PrivateStudio:
             return 'worker.py', finishing_source(folder, settings), settings
         if work.get('script') in SAFE_SCRIPTS:
             return work['script'], work.get('source_id'), settings
+        if settings.get('source_kind') == 'multiview_texture_refinement':
+            return 'model_finishing_worker.py', settings.get('parent_id'), settings
         script = 'pixal3d_worker.py' if settings.get('engine') == 'pixal3d' else 'worker.py'
         return script, None, settings
 

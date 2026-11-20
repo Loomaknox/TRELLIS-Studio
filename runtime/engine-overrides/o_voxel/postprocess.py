@@ -29,8 +29,9 @@ def within_repair_bounds(vertices, bounds, margin):
     return bool(((lower >= bounds[0] - margin) & (upper <= bounds[1] + margin)).all())
 
 
-def bake_master_material(positions, mask, vertices, faces, bvh, attr_volume, coords, aabb, voxel_size, grid_size):
-    """Project covered texels in batches and normalize over occupied material voxels."""
+def bake_master_material(positions, mask, vertices, faces, bvh, attr_volume, coords, aabb, voxel_size, grid_size,
+                         texture_sampling='trilinear'):
+    """Sample covered texels in batches and normalize over occupied material voxels."""
     channel_count = attr_volume.shape[1]
     occupied_volume = torch.cat([attr_volume, torch.ones_like(attr_volume[:, :1])], dim=1)
     batch_coords = torch.cat([torch.zeros_like(coords[:, :1]), coords], dim=-1)
@@ -41,10 +42,11 @@ def bake_master_material(positions, mask, vertices, faces, bvh, attr_volume, coo
     occupied_count = 0
     partial_count = 0
     for points, indices in zip(positions.split(1_000_000), texels.split(1_000_000), strict=True):
-        _, face_id, weights = bvh.unsigned_distance(points, return_uvw=True)
-        projected = (vertices[faces[face_id.long()]] * weights.unsqueeze(-1)).sum(dim=1)
-        grid = ((projected - aabb[0]) / voxel_size).reshape(1, -1, 3)
-        sampled = grid_sample_3d(occupied_volume, batch_coords, shape=shape, grid=grid, mode='trilinear')[0]
+        if bvh is not None:
+            _, face_id, weights = bvh.unsigned_distance(points, return_uvw=True)
+            points = (vertices[faces[face_id.long()]] * weights.unsqueeze(-1)).sum(dim=1)
+        grid = ((points - aabb[0]) / voxel_size).reshape(1, -1, 3)
+        sampled = grid_sample_3d(occupied_volume, batch_coords, shape=shape, grid=grid, mode=texture_sampling)[0]
         support = sampled[:, -1]
         valid = support >= 1e-4
         valid_indices = indices[valid]
@@ -56,7 +58,7 @@ def bake_master_material(positions, mask, vertices, faces, bvh, attr_volume, coo
         raise ValueError('The decoded material volume has no coverage on the master mesh.')
     coverage = dict(rasterized_texels=len(texels), supported_texels=occupied_count,
                     partially_supported_texels=partial_count, inpainted_texels=len(texels) - occupied_count,
-                    source='decoded sparse material volume', interpolation='occupancy-normalized trilinear')
+                    source='decoded sparse material volume', interpolation=f'occupancy-normalized {texture_sampling}')
     return attrs.view(*mask.shape, channel_count), supported_mask.view_as(mask), coverage
 
 
@@ -87,6 +89,7 @@ def to_glb(
     texture_sampling: str = 'trilinear',
     reconstructed_mesh: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     master_finishing: bool = False,
+    preserve_decoded_mesh: bool = False,
 ):
     """
     Convert an extracted mesh to a GLB file.
@@ -112,6 +115,7 @@ def to_glb(
         texture_sampling: interpolation in the material voxel volume, after nearest-surface projection
         reconstructed_mesh: optional replacement geometry in decoded coordinates; source vertices still donate the material
         master_finishing: bake material from occupied voxels using bounded-size texel batches
+        preserve_decoded_mesh: unwrap and bake the original decoded triangles without geometry finishing
         mesh_cluster_threshold_cone_half_angle_rad: threshold for cone-based clustering in uv unwrapping
         mesh_cluster_refine_iterations: number of iterations for refining clusters in uv unwrapping
         mesh_cluster_global_iterations: number of global iterations for clustering in uv unwrapping
@@ -119,6 +123,9 @@ def to_glb(
         verbose: whether to print verbose messages
         use_tqdm: whether to use tqdm to display progress bar
     """
+    if preserve_decoded_mesh and (remesh or repair_holes or repair_surface or master_finishing
+                                  or reconstructed_mesh is not None or adaptive_mesh is not None):
+        raise ValueError('Exporting decoded geometry cannot be combined with mesh finishing.')
     if repair_surface and not remesh:
         raise ValueError('Surface repair requires reconstruction.')
     if reconstructed_mesh is not None and (remesh or repair_holes or adaptive_mesh is not None):
@@ -206,21 +213,23 @@ def to_glb(
     if use_tqdm:
         pbar.update(1)
         
-    # Build BVH for the current mesh to guide remeshing
-    if use_tqdm:
-        pbar.set_description("Building BVH")
-    if verbose:
-        print(f"Building BVH for current mesh...", end='', flush=True)
-    bvh = cumesh.cuBVH(vertices, faces)
+    # The raw UV surface already matches the decoded material coordinates.
+    bvh = None
+    if not preserve_decoded_mesh:
+        if use_tqdm:
+            pbar.set_description("Building BVH")
+        if verbose:
+            print("Building BVH for current mesh...", end='', flush=True)
+        bvh = cumesh.cuBVH(vertices, faces)
+        if verbose:
+            print("Done")
     _mesh_offloaded = False
     if use_tqdm:
         pbar.update(1)
-    if verbose:
-        print("Done")
         
     if use_tqdm:
         pbar.set_description("Cleaning mesh")
-    if verbose:
+    if verbose and not preserve_decoded_mesh:
         print("Cleaning mesh...")
     
     # DIAGNOSTIC: What's on GPU right now?
@@ -237,7 +246,7 @@ def to_glb(
             vertices, faces, bvh, decimation_target, float(voxel_size.min()), verbose,
         )
         adaptive_report['reference'] = 'input surface after initial cleanup'
-    elif not remesh and reconstructed_mesh is None:
+    elif not preserve_decoded_mesh and not remesh and reconstructed_mesh is None:
         # Step 1: Aggressive simplification (3x target)
         mesh.simplify(decimation_target * 3, verbose=verbose)
         if verbose:
@@ -266,7 +275,7 @@ def to_glb(
         mesh.unify_face_orientations()
     
     # --- Branch 2: Remeshing Pipeline ---
-    else:
+    elif not preserve_decoded_mesh:
         # Free CuMesh internal buffers before the heavy remesh allocation —
         # vertices/faces are still held separately for BVH texture baking later
         del mesh
@@ -329,7 +338,7 @@ def to_glb(
     
     if use_tqdm:
         pbar.update(1)
-    if verbose:
+    if verbose and not preserve_decoded_mesh:
         print("Done")
         
     
@@ -339,7 +348,7 @@ def to_glb(
     if verbose:
         print("Parameterizing new mesh...")
     
-    # Remove degenerate (zero-area) faces that cause xatlas normal assertion failures
+    # Remove UV-unsafe degenerate triangles before xatlas computes normals.
     verts_tmp, faces_tmp = mesh.read()
     if repair_surface:
         # The reconstruction grid can be coarser than the decoded voxel grid.
@@ -373,6 +382,9 @@ def to_glb(
         return_vmaps=True,
         verbose=verbose,
     )
+    if preserve_decoded_mesh and (not len(out_faces) or len(out_faces) != mesh.num_faces):
+        raise ValueError('UV unwrapping did not preserve the decoded triangles.')
+    uv_degenerate_triangles = input_triangles - len(out_faces) if preserve_decoded_mesh else None
     out_vertices = out_vertices.cuda()
     out_faces = out_faces.cuda()
     out_uvs = out_uvs.cuda()
@@ -453,9 +465,10 @@ def to_glb(
             print("Done")
 
     material_coverage = None
-    if master_finishing:
+    if master_finishing or preserve_decoded_mesh:
         attrs, mask, material_coverage = bake_master_material(
-            valid_pos, mask, vertices, faces, bvh, attr_volume_cpu.cuda(), coords_cpu.cuda(), aabb, voxel_size, grid_size)
+            valid_pos, mask, vertices, faces, bvh, attr_volume_cpu.cuda(), coords_cpu.cuda(), aabb, voxel_size, grid_size,
+            texture_sampling if preserve_decoded_mesh else 'trilinear')
         del vertices, faces, bvh
     else:
         _, face_id, uvw = bvh.unsigned_distance(valid_pos, return_uvw=True)
@@ -537,17 +550,21 @@ def to_glb(
         process=False,
         visual=trimesh.visual.TextureVisuals(uv=uvs_np, material=material)
     )
+    method = 'none' if preserve_decoded_mesh else 'wtivo' if reconstructed_mesh is not None else 'remesh' if remesh else 'direct'
     textured_mesh.metadata['finishing'] = dict(
-        method='wtivo' if reconstructed_mesh is not None else 'remesh' if remesh else 'direct',
+        method=method,
         input_triangles=input_triangles,
         cleaned_source_triangles=cleaned_source_triangles,
         generated_grid_resolution=int(grid_size.max()),
         remesh_resolution_requested=remesh_resolution if remesh else None,
         remesh_resolution_actual=dc_resolution, reconstructed_triangles=reconstructed_triangles,
         output_triangles=len(faces_np), texture_size=texture_size,
-        texture_sampling=texture_sampling, texture_projection='nearest point on source surface',
+        texture_sampling=texture_sampling,
+        texture_projection='decoded surface without reprojection' if preserve_decoded_mesh else 'nearest point on source surface',
         initial_fill_used=initial_fill_used,
     )
+    if uv_degenerate_triangles is not None:
+        textured_mesh.metadata['finishing']['uv_degenerate_triangles_removed'] = uv_degenerate_triangles
     if material_coverage is not None:
         textured_mesh.metadata['finishing']['material_coverage'] = material_coverage
     if master_diagnostics is not None:

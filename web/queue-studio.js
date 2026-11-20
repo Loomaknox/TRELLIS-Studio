@@ -1,7 +1,11 @@
 import {button, dialog, el, field, input, select, action} from './workbench-ui.js?v=3.4.0';
+import {optionHelp} from './advanced-controls.js?v=board-hi3d';
 
 const PRIORITIES = [['2', 'Highest'], ['1', 'High'], ['0', 'Normal'], ['-1', 'Low'], ['-2', 'Lowest']];
 const STATE_ORDER = {running: 0, queued: 1, error: 2, cancelled: 2, done: 3};
+const fullMeshNote = 'Master finishing · None. Exports the decoded mesh at its original triangle count.';
+const textureRefinementLabel = 'Multiview texture refinement';
+const textureRefinementDescription = 'Harmonizes colors and refines the baked texture from six generated views.';
 const json = (method, data) => ({
   method,
   headers: {'Content-Type': 'application/json'},
@@ -81,27 +85,78 @@ export function createQueueStudio({api, refresh}) {
     return {runtime, schema};
   }
 
+  function appendTextureRefinement(container, capability, checked, id) {
+    const control = checkbox(checked);
+    control.id = id;
+    control.disabled = capability.available !== true;
+    const label = field(textureRefinementLabel, control, control.disabled
+      ? capability.reason || 'The local multiview texture runtime is unavailable.' : textureRefinementDescription);
+    container.append(label);
+    optionHelp(label, textureRefinementLabel, 'Runs after the texture is baked and adds processing time.');
+    return control;
+  }
+
   async function editDraft(row) {
     const {runtime, schema} = await capabilities();
+    const profileSettings = profiles.find(profile => profile.id === row.profile_id)?.settings;
+    const preset = profileSettings?.preset;
     const removeBg = checkbox(row.remove_bg);
-    const triangles = triangleInput(row.triangles, schema);
+    const requiredSource = !!row.master_finishing || ['dense_master', 'humanoid_experimental'].includes(preset);
+    const keepSource = checkbox(requiredSource || row.keep_finishing_source);
+    keepSource.disabled = requiredSource;
+    const fullMesh = row.master_finishing === 'none';
+    const triangles = fullMesh ? null : triangleInput(row.triangles, schema);
     const texture = select(textureChoices(runtime.texture_sizes), String(row.texture_size));
     const resolution = select(resolutionChoices(runtime.supported_resolutions), String(row.resolution));
+    const supportsRetexture = row.master_finishing === 'hi3d_1024';
+    const retexture = checkbox(row.retexture_after_refinement);
+    retexture.id = 'queueRetextureAfterRefinement';
+    const retextureField = field('Retexture after Hi3D', retexture);
+    const retextureStatus = el('p', 'hint');
+    let textureRefinement;
+    const syncRetexture = () => {
+      retexture.disabled = Number(resolution.value) !== 1024;
+      retextureStatus.textContent = retexture.disabled
+        ? 'Choose 1024³ for the geometry resolution to use this option.'
+        : runtime.detail_texturing?.available !== true ? runtime.detail_texturing?.reason || 'The local texturing pipeline is unavailable.' : '';
+      retextureStatus.hidden = !retextureStatus.textContent;
+    };
     const apply = button('Apply settings', 'check', 'primary', () => {
-      if (!triangles.reportValidity()) return;
+      if (triangles && !triangles.reportValidity()) return;
       if (!texture.value || !resolution.value) {
         recipe.notice.textContent = 'Choose a supported texture size and geometry resolution.';
         return;
       }
-      Object.assign(row, {triangles: triangles.valueAsNumber, texture_size: Number(texture.value),
-        resolution: Number(resolution.value), remove_bg: removeBg.checked});
+      if (supportsRetexture && !retexture.disabled && retexture.checked && runtime.detail_texturing?.available !== true) {
+        recipe.notice.textContent = retextureStatus.textContent;
+        return;
+      }
+      Object.assign(row, {texture_size: Number(texture.value), resolution: Number(resolution.value),
+        remove_bg: removeBg.checked, keep_finishing_source: keepSource.checked});
+      if (triangles) row.triangles = triangles.valueAsNumber;
+      if (supportsRetexture) row.retexture_after_refinement = !retexture.disabled && retexture.checked;
+      if (textureRefinement && !textureRefinement.disabled) row.multiview_texture_refinement = textureRefinement.checked;
       recipe.close();
     });
-    const dense = profiles.find(profile => profile.id === row.profile_id)?.settings.preset === 'dense_master';
     recipe.body.replaceChildren(field('Geometry resolution', resolution),
-      field(dense ? 'Maximum triangles' : 'Triangle target', triangles),
-      field('Texture size', texture), field('Remove image background', removeBg), el('p', 'hint',
-        'Sampling and finishing controls come from this image’s profile. Save a custom profile in Create for a different recipe.'));
+      fullMesh ? el('p', 'hint', fullMeshNote)
+        : field(preset === 'dense_master' ? 'Maximum triangles' : 'Triangle target', triangles),
+      field('Texture size', texture), field('Remove image background', removeBg),
+      field('Keep source for finishing variants', keepSource));
+    if (supportsRetexture) {
+      recipe.body.append(retextureField, retextureStatus);
+      optionHelp(retextureField, 'Retexture after Hi3D',
+        'Generates new PBR materials from the reference on the refined geometry, using the profile’s texture settings.');
+      syncRetexture();
+      resolution.addEventListener('change', syncRetexture);
+    }
+    if (runtime.multiview_texture_refinement) {
+      textureRefinement = appendTextureRefinement(recipe.body, runtime.multiview_texture_refinement,
+        row.multiview_texture_refinement ?? (profileSettings?.multiview_texture_refinement === true),
+        'queueMultiviewTextureRefinement');
+    }
+    recipe.body.append(el('p', 'hint',
+      'Sampling and finishing controls come from this image’s profile. Save a custom profile in Create for a different recipe.'));
     recipe.foot.replaceChildren(apply);
     recipe.show();
   }
@@ -109,9 +164,15 @@ export function createQueueStudio({api, refresh}) {
   function applyProfile(row, id) {
     const profile = profiles.find(item => item.id === id);
     if (!profile) return;
-    const {remove_bg, triangles, texture_size, resolution, advanced} = profile.settings;
+    const {remove_bg, triangles, texture_size, resolution, advanced, master_finishing, retexture_after_refinement} = profile.settings;
     Object.assign(row, {profile_id: id, remove_bg, triangles, texture_size, resolution,
+      keep_finishing_source: profile.keep_finishing_source === true,
       advanced_settings: structuredClone(advanced)});
+    if (master_finishing) row.master_finishing = master_finishing;
+    else delete row.master_finishing;
+    if (retexture_after_refinement !== undefined) row.retexture_after_refinement = retexture_after_refinement;
+    else delete row.retexture_after_refinement;
+    delete row.multiview_texture_refinement; // A new profile restores its texture refinement preference.
   }
 
   function renderDrafts() {
@@ -179,7 +240,10 @@ export function createQueueStudio({api, refresh}) {
       return;
     }
     const form = new FormData();
-    form.set('specifications', JSON.stringify(drafts.map(({file, url, ...spec}) => spec)));
+    form.set('specifications', JSON.stringify(drafts.map(({file, url, ...spec}) => {
+      if (spec.master_finishing === 'none') delete spec.triangles;
+      return spec;
+    })));
     for (const row of drafts) form.append('images', row.file);
     await api('/api/queue/batch', {method: 'POST', body: form});
     drafts.forEach(row => URL.revokeObjectURL(row.url));
@@ -200,14 +264,15 @@ export function createQueueStudio({api, refresh}) {
     const pixal = saved.engine === 'pixal3d';
     const refinish = saved.source_kind === 'refinish';
     const master = saved.master_finishing;
+    const fullMesh = master === 'none';
     const adaptiveRefinish = refinish && saved.adaptive_finishing;
     const [{runtime, schema}, components] = await Promise.all([
       capabilities(),
       refinish ? api('/api/components') : null,
     ]);
     const canBakeNormals = !!components?.blender;
-    const fixedResolution = refinish || pixal;
-    const resolutions = refinish ? [saved.resolution ?? 512] : pixal ? [1024] : runtime.supported_resolutions;
+    const fixedResolution = refinish || pixal || saved.retexture_after_refinement;
+    const resolutions = refinish ? [saved.resolution ?? 512] : fixedResolution ? [1024] : runtime.supported_resolutions;
     const textures = pixal && !refinish ? runtime.pixal3d.texture_sizes : runtime.texture_sizes;
     const resolution = select(resolutionChoices(resolutions), String(saved.resolution ?? 512));
     resolution.disabled = fixedResolution;
@@ -235,9 +300,11 @@ export function createQueueStudio({api, refresh}) {
     const failure = el('p', 'queue-failure', item.error || item.stage);
     const context = 'Seed ' + saved.seed + (pixal ? ' · ' + (saved.views?.length ?? 0) + ' saved views' : ' · Saved reference');
     retry.body.replaceChildren(title, failure, el('p', 'hint', context),
-      field('Geometry resolution', resolution, refinish ? 'Uses the saved geometry cache.' : pixal ? 'Pixal3D uses 1024³.' : ''),
-      field(saved.adaptive_finishing || master ? 'Maximum triangles' : 'Triangle target', triangles,
-        master ? 'Fixed by HD Master Finishing.' : ''), field('Texture size', texture), field('Height · m', height),
+      field('Geometry resolution', resolution, refinish ? 'Uses the saved geometry cache.' : pixal ? 'Pixal3D uses 1024³.'
+        : saved.retexture_after_refinement ? 'The saved texture pass requires a 1024³ source.' : ''),
+      fullMesh ? el('p', 'hint', fullMeshNote)
+        : field(saved.adaptive_finishing || master ? 'Maximum triangles' : 'Triangle target', triangles,
+          master ? 'Fixed by HD Master Finishing.' : ''), field('Texture size', texture), field('Height · m', height),
       field('Priority', priority));
     if (finishingModes.length > 1) {
       retry.body.append(field('Surface treatment', surfaceMode, 'HD Reconstruction requires a 1024 or higher geometry source.'));
@@ -265,6 +332,10 @@ export function createQueueStudio({api, refresh}) {
       retry.body.append(field('Transfer master detail to a normal map', bakeNormals,
         canBakeNormals ? '' : 'Blender is unavailable. Clear this option to retry without a normal map.'));
     }
+    const singleImage = pixal ? saved.view_mode === 'single' : (saved.view_mode ?? 'single') === 'single';
+    const textureRefinement = !refinish && singleImage && runtime.multiview_texture_refinement
+      ? appendTextureRefinement(retry.body, runtime.multiview_texture_refinement,
+          saved.multiview_texture_refinement === true, 'retryMultiviewTextureRefinement') : null;
 
     const log = el('pre', 'queue-log');
     log.hidden = true;
@@ -289,6 +360,10 @@ export function createQueueStudio({api, refresh}) {
         return;
       }
       const changes = {texture_size: Number(texture.value), height_m: height.valueAsNumber, priority: Number(priority.value)};
+      if (textureRefinement) {
+        const enabled = !textureRefinement.disabled && textureRefinement.checked;
+        if (enabled !== (saved.multiview_texture_refinement === true)) changes.multiview_texture_refinement = enabled;
+      }
       if (!master) changes.triangles = triangles.valueAsNumber;
       if (!fixedResolution) changes.resolution = Number(resolution.value);
       if (refinish && bakeNormals.checked !== !!saved.bake_normals) changes.bake_normals = bakeNormals.checked;
@@ -324,7 +399,8 @@ export function createQueueStudio({api, refresh}) {
       generatedMotion && Number.isFinite(item.duration) ? item.duration + ' s' : null,
       generatedMotion && Number.isFinite(item.fps) ? item.fps + ' fps' : null,
       !animation && item.settings.resolution ? item.settings.resolution + '³' : null,
-      !animation && item.settings.triangles ? Number(item.settings.triangles).toLocaleString('en-US') + ' triangles' : null,
+      !animation && (item.settings.master_finishing === 'none' ? 'Full mesh'
+        : item.settings.triangles ? Number(item.settings.triangles).toLocaleString('en-US') + ' triangles' : null),
       !animation && item.settings.texture_size ? item.settings.texture_size / 1024 + 'K' : null,
       progress + '%',
     ].filter(Boolean).join(' · ');

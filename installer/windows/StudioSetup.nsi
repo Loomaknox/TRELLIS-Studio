@@ -84,6 +84,12 @@ Var SkipHi3d
 Var Hi3dCheckbox
 Var AcceptHi3dLicenses
 Var Hi3dLicenseCheckbox
+Var InstallMultiviewTexture
+Var MultiviewTextureSupported
+Var SkipMultiviewTexture
+Var MultiviewTextureCheckbox
+Var AcceptMultiviewTextureLicenses
+Var MultiviewTextureLicenseCheckbox
 Var InstallKimodo
 Var KimodoCheckbox
 Var AcceptKimodoLicenses
@@ -100,6 +106,7 @@ Page custom ShowInstallMode SaveInstallMode
 Page custom ShowHardware SaveHardware
 Page custom ShowComponentMode SaveComponentMode
 Page custom ShowHi3dOptions SaveHi3dOptions
+Page custom ShowMultiviewTextureOptions SaveMultiviewTextureOptions
 Page custom ShowKimodoOptions SaveKimodoOptions
 Page custom ShowShortcutOptions SaveShortcutOptions
 !insertmacro MUI_PAGE_INSTFILES
@@ -170,6 +177,9 @@ Function .onInit
   StrCpy $InstallHi3d "0"
   StrCpy $SkipHi3d "0"
   StrCpy $AcceptHi3dLicenses "0"
+  StrCpy $InstallMultiviewTexture "0"
+  StrCpy $SkipMultiviewTexture "0"
+  StrCpy $AcceptMultiviewTextureLicenses "0"
   StrCpy $InstallKimodo "0"
   StrCpy $AcceptKimodoLicenses "0"
   ${IfNot} ${IsNativeAMD64}
@@ -277,6 +287,14 @@ Function ShowHardware
     ReadINIStr $InstallUniRig "$PLUGINSDIR\preflight.ini" "Plan" "UniRig"
     ReadINIStr $InstallHi3d "$PLUGINSDIR\preflight.ini" "Plan" "Hi3D"
     ReadINIStr $AcceptHi3dLicenses "$PLUGINSDIR\preflight.ini" "Plan" "Hi3DLicenseAccepted"
+    ReadINIStr $InstallMultiviewTexture "$PLUGINSDIR\preflight.ini" "Plan" "MultiviewTexture"
+    ReadINIStr $AcceptMultiviewTextureLicenses "$PLUGINSDIR\preflight.ini" "Plan" "MultiviewTextureLicenseAccepted"
+    ${If} $InstallMultiviewTexture != "1"
+      StrCpy $InstallMultiviewTexture "0"
+    ${EndIf}
+    ${If} $AcceptMultiviewTextureLicenses != "1"
+      StrCpy $AcceptMultiviewTextureLicenses "0"
+    ${EndIf}
     ${If} $InstallHi3d != "1"
       StrCpy $InstallHi3d "0"
     ${EndIf}
@@ -562,6 +580,76 @@ Function SaveHi3dOptions
   ${EndIf}
 FunctionEnd
 
+Function MultiviewTextureChoiceChanged
+  ${NSD_GetState} $MultiviewTextureCheckbox $InstallMultiviewTexture
+  EnableWindow $MultiviewTextureLicenseCheckbox $InstallMultiviewTexture
+FunctionEnd
+
+Function OpenMultiviewTextureBaseLicense
+  ExecShell "open" "$PLUGINSDIR\Stable-Diffusion-2.1-OpenRAIL++-M.txt"
+FunctionEnd
+
+Function OpenMultiviewTextureAdapterLicense
+  ExecShell "open" "https://github.com/huanngzh/MV-Adapter/blob/4277e0018232bac82bb2c103caf0893cedb711be/LICENSE"
+FunctionEnd
+
+Function ShowMultiviewTextureOptions
+  !insertmacro MUI_HEADER_TEXT "Optional multiview texture refinement" "Available with Desktop or Server on supported NVIDIA hardware."
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\Stable-Diffusion-2.1-OpenRAIL++-M.txt "${PAYLOAD_ROOT}\licenses\Stable-Diffusion-2.1-OpenRAIL++-M.txt"
+  nsDialogs::Create 1018
+  Pop $0
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+  ${NSD_CreateCheckbox} 0 3u 100% 15u "Install multiview texture refinement (optional)"
+  Pop $MultiviewTextureCheckbox
+  ${NSD_OnClick} $MultiviewTextureCheckbox MultiviewTextureChoiceChanged
+  ${NSD_CreateLabel} 13u 20u -13u 25u "Refine baked colors from six generated views. Requires TRELLIS.2 generation and downloads about 3.3 GB of model files."
+  Pop $0
+  ReadINIStr $1 "$PLUGINSDIR\preflight.ini" "MultiviewTexture" "Status"
+  ReadINIStr $2 "$PLUGINSDIR\preflight.ini" "MultiviewTexture" "VramNotice"
+  ReadINIStr $MultiviewTextureSupported "$PLUGINSDIR\preflight.ini" "MultiviewTexture" "Supported"
+  ${If} $1 == ""
+    StrCpy $1 "NVIDIA hardware could not be checked. You can continue with the other components."
+  ${EndIf}
+  ${NSD_CreateLabel} 13u 47u -13u 22u "$1"
+  Pop $0
+  ${NSD_CreateLabel} 13u 70u -13u 25u "$2"
+  Pop $0
+  ${NSD_CreateLink} 13u 96u 50% 11u "Stable Diffusion 2.1 terms"
+  Pop $0
+  ${NSD_OnClick} $0 OpenMultiviewTextureBaseLicense
+  ${NSD_CreateLink} 65% 96u 34% 11u "MV-Adapter terms"
+  Pop $0
+  ${NSD_OnClick} $0 OpenMultiviewTextureAdapterLicense
+  ${NSD_CreateCheckbox} 0 110u 100% 20u "I have read and accept the Open RAIL++-M and MV-Adapter terms."
+  Pop $MultiviewTextureLicenseCheckbox
+  ${If} $MultiviewTextureSupported != "1"
+    StrCpy $InstallMultiviewTexture "0"
+    EnableWindow $MultiviewTextureCheckbox 0
+  ${EndIf}
+  ${NSD_SetState} $MultiviewTextureCheckbox $InstallMultiviewTexture
+  ${NSD_SetState} $MultiviewTextureLicenseCheckbox $AcceptMultiviewTextureLicenses
+  EnableWindow $MultiviewTextureLicenseCheckbox $InstallMultiviewTexture
+  nsDialogs::Show
+FunctionEnd
+
+Function SaveMultiviewTextureOptions
+  ${NSD_GetState} $MultiviewTextureCheckbox $InstallMultiviewTexture
+  ${NSD_GetState} $MultiviewTextureLicenseCheckbox $AcceptMultiviewTextureLicenses
+  StrCpy $SkipMultiviewTexture "0"
+  ${If} $MultiviewTextureSupported == "1"
+  ${AndIf} $InstallMultiviewTexture == "0"
+    StrCpy $SkipMultiviewTexture "1"
+  ${EndIf}
+  ${If} $InstallMultiviewTexture == "1"
+  ${AndIf} $AcceptMultiviewTextureLicenses != "1"
+    MessageBox MB_ICONEXCLAMATION "Accept both model terms or clear the optional multiview texture refinement selection." /SD IDOK
+    Abort
+  ${EndIf}
+FunctionEnd
+
 Function OpenKimodoNvidiaLicense
   ExecShell "open" "https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/"
 FunctionEnd
@@ -773,6 +861,13 @@ Section "${SETUP_NAME}"
       StrCpy $ComponentsArgument "$ComponentsArgument,hi3d"
     ${EndIf}
   ${EndIf}
+  ${If} $InstallMultiviewTexture == "1"
+    ${If} $ComponentsArgument == ""
+      StrCpy $ComponentsArgument "multiview-texture"
+    ${Else}
+      StrCpy $ComponentsArgument "$ComponentsArgument,multiview-texture"
+    ${EndIf}
+  ${EndIf}
   ${If} $ComponentsArgument != ""
     StrCpy $HardwareArguments '-Components "$ComponentsArgument"'
     ${If} $GpuUuid != ""
@@ -788,6 +883,12 @@ Section "${SETUP_NAME}"
     StrCpy $HardwareArguments "$HardwareArguments -AcceptHi3dModelLicenses"
   ${ElseIf} $SkipHi3d == "1"
     StrCpy $HardwareArguments "$HardwareArguments -SkipHi3d"
+  ${EndIf}
+  ${If} $InstallMultiviewTexture == "1"
+  ${AndIf} $AcceptMultiviewTextureLicenses == "1"
+    StrCpy $HardwareArguments "$HardwareArguments -AcceptMultiviewTextureModelLicenses"
+  ${ElseIf} $SkipMultiviewTexture == "1"
+    StrCpy $HardwareArguments "$HardwareArguments -SkipMultiviewTexture"
   ${EndIf}
   ${If} $BlenderReady == "1"
   ${AndIf} $BlenderPath != ""

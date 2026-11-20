@@ -9,12 +9,11 @@ import sys
 from types import ModuleType
 
 
-def load_pipeline(source, weights, triangle_target):
+def load_pipeline(source, weights, triangle_target, options):
     import torch
 
     import hi3d_attention
-    from hi3d_runtime import (HI3D_FLOATER_FACE_RATIO, HI3D_MAX_HOLE_EDGES,
-                              REQUIRED_PACKAGES, verify_port_source)
+    from hi3d_runtime import REQUIRED_PACKAGES, verify_port_source
 
     verify_port_source(source)
     if not torch.cuda.is_available():
@@ -39,9 +38,11 @@ def load_pipeline(source, weights, triangle_target):
     )
     pipeline.setup_device(torch.device('cuda'), 'model_swap')
     pipeline.configure(port.RefineOptions(
-        scheduler='heun', target_face_count=triangle_target, reduce_faces=True, tiled_decode=True,
-        remove_floaters=True, floater_face_ratio=HI3D_FLOATER_FACE_RATIO,
-        fill_holes_max_edges=HI3D_MAX_HOLE_EDGES,
+        scheduler=options['hi3d_scheduler'], target_face_count=triangle_target, reduce_faces=True,
+        guidance_strength=options['hi3d_guidance_strength'], guidance_cutoff=options['hi3d_guidance_cutoff'],
+        voxel_budget_scale=options['hi3d_voxel_budget_scale'], tiled_decode=options['hi3d_tiled_decode'],
+        remove_floaters=options['hi3d_remove_floaters'], floater_face_ratio=options['hi3d_floater_face_ratio'],
+        fill_holes_max_edges=options['hi3d_fill_holes_max_edges'],
     ))
     return pipeline
 
@@ -52,7 +53,7 @@ def refine(args):
     import torch
     import trimesh
 
-    from hi3d_runtime import HI3D_SEED, HI3D_STEPS, HI3D_VOXEL_TOKENS, check_mesh
+    from hi3d_runtime import HI3D_VOXEL_TOKENS, check_mesh
 
     torch.set_num_threads(4)
     native = np.load('vertices.npy', allow_pickle=False)
@@ -63,19 +64,21 @@ def refine(args):
     world = native[:, [0, 2, 1]].astype(np.float64)
     world[:, 2] *= -1
     coarse = trimesh.Trimesh(vertices=world, faces=faces, process=False)
-    pipeline = load_pipeline(args.source, args.weights, args.triangles)
+    options = args.refinement_options
+    steps = options['hi3d_steps']
+    pipeline = load_pipeline(args.source, args.weights, args.triangles, options)
 
     def progress(event):
         if event.step == 1 or event.step % 5 == 0:
-            print(f'Hi3D pass {event.pass_index + 1} step {event.step}/{HI3D_STEPS}', flush=True)
+            print(f'Hi3D pass {event.pass_index + 1} step {event.step}/{steps}', flush=True)
 
     pipeline.progress_callback = progress
     torch.cuda.reset_peak_memory_stats()
     with Image.open('source.png') as image:
         if image.mode != 'RGBA':
             raise ValueError('The Hi3D source needs a prepared RGBA cutout.')
-        result = pipeline(image, coarse, resolution=args.resolution, num_inference_steps=HI3D_STEPS,
-                          seed=HI3D_SEED, max_tokens=HI3D_VOXEL_TOKENS).mesh
+        result = pipeline(image, coarse, resolution=args.resolution, num_inference_steps=steps,
+                          seed=options['hi3d_seed'], max_tokens=HI3D_VOXEL_TOKENS).mesh
     torch.cuda.synchronize()
 
     # Undo the port's unit-radius normalization before the native voxel material transfer.
@@ -102,10 +105,15 @@ def main():
     parser.add_argument('--dependency', action='append', default=[])
     parser.add_argument('--resolution', type=int, choices=(512, 1024), required=True)
     parser.add_argument('--triangles', type=int, required=True)
+    parser.add_argument('--refinement-options', type=json.loads)
     args = parser.parse_args()
     # The Python executable runs with -I; only the bridge and configured dependency roots are added.
     sys.path[:0] = [str(Path(__file__).resolve().parent), *args.dependency]
     sys.pycache_prefix = str(Path.cwd() / 'python-cache')
+
+    from generation_options import hi3d_refinement_options
+
+    args.refinement_options = hi3d_refinement_options(args.refinement_options)
     logging.basicConfig(level=logging.INFO)
     try:
         refine(args)

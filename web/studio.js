@@ -1,22 +1,22 @@
-import {createStudioWorkbench} from './studio-workbench.js?v=detail-refinement-native';
+import {createStudioWorkbench} from './studio-workbench.js?v=texture-variant';
 import {createViewerLighting,createViewerStage} from './viewer-lighting.js?v=visual-refresh-2';
 import {createHologramViewer} from './hologram-viewer.js?v=visual-refresh-2';
 import {createGenerationWait} from './generation-wait.js?v=studio-visual-refinement';
-import {createStudioTools} from './studio-tools.js?v=3.4.0';
-import {createAssetDetails,assetTypeName} from './asset-details.js?v=3.4.0';
+import {createStudioTools} from './studio-tools.js?v=option-help';
+import {createAssetDetails,assetTypeName} from './asset-details.js?v=detail-study';
 import {createPrintCopy} from './print-copy.js?v=3.4.0';
 import {createAnimationStudio} from './animation-studio.js?v=3.4.0-motion2';
 import {createRigSetupViewer} from './rig-setup-viewer.js?v=3.4.0';
 import {createModelImport} from './import-model.js?v=3.4.0';
-import {createMultiviewInputs} from './multiview-inputs.js?v=studio-visual-refinement';
+import {createMultiviewInputs} from './multiview-inputs.js?v=detail-study';
 import {createReferencePreview} from './reference-preview.js?v=studio-visual-refinement';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { createAdvancedControls } from './advanced-controls.js?v=3.4.0-quality2';
-import { createProfileControls } from './profiles.js?v=detail-refinement-native';
-import {createCardMenu,updateCardStatus,icon} from './card-menu.js?v=3.4.0';
+import { createAdvancedControls } from './advanced-controls.js?v=board-hi3d';
+import { createProfileControls } from './profiles.js?v=texture-variant';
+import {createCardMenu,updateCardStatus,icon} from './card-menu.js?v=texture-variant';
 import {createCardTurntables} from './card-turntable.js?v=3.4.0';
 const $=id=>document.getElementById(id);
 const cardTurntables=createCardTurntables($('libraryGrid'));
@@ -85,7 +85,8 @@ function syncCapabilities(status){
   availableTextures=status.texture_sizes||[1024,2048];
   for(const option of $('resolution').options)option.disabled=!availableResolutions.includes(Number(option.value));
   profileControls?.setFinishingCapabilities(status.features?.includes('repair_surface')===true,
-    status.features?.includes('hd_reconstruction')===true,status.create_master_finishing);
+    status.features?.includes('hd_reconstruction')===true,status.create_master_finishing,status.detail_texturing,
+    status.multiview_texture_refinement);
   explainCost();
 }
 function explainCost(){const hint=$('qualityHint');if(!hint)return;const notes=[];if(Number($('resolution').value)===1536)notes.push('1536³ requires more processing time and memory.');if(Number($('textureSize').value)===4096)notes.push('4K uses larger textures; reserve it for close-up objects and large surfaces.');hint.textContent=notes.join(' ');hint.hidden=!notes.length;}
@@ -93,7 +94,9 @@ $('resolution').addEventListener('change',explainCost);$('textureSize').addEvent
 profileControls=await createProfileControls(advancedControls,{
   changed:()=>{explainCost();updateButtons();},
   usePixal:()=>multiview.usesPixal,
+  isMultiview:()=>multiview.active,
   describeMethod:()=>multiview.methodLabel,
+  useNativeMethod:()=>multiview.applyMethod('trellis2'),
 });
 
 function node(tag,className,value){const el=document.createElement(tag);if(className)el.className=className;if(value!==undefined)el.textContent=value;return el;}
@@ -381,7 +384,7 @@ $('form').onsubmit=async event=>{
     multiview.appendRequest(form);
     form.set('remove_bg',String(multiview.usesPixal||$('removeBg').checked));
     form.set('queue_only','true');
-    if($('keepFinishingSource').checked)form.set('keep_finishing_source','true');
+    form.set('keep_finishing_source',String($('keepFinishingSource').checked));
     if(!multiview.usesPixal)form.set('advanced_settings',JSON.stringify(advancedControls.read()));
     profileControls.appendFinishing(form);
     referencePreview.append(form);

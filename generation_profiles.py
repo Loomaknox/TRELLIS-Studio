@@ -4,10 +4,13 @@ import json
 import time
 import uuid
 from generation_options import (DENSE_MASTER, DENSE_MASTER_NAME, GENERATION_PRESETS, HUMANOID_EXPERIMENTAL,
-                                PROFILE_ADVANCED, TRIANGLE_MIN, TRIANGLE_MAX, normalize_options)
+                                PROFILE_ADVANCED, TRIANGLE_MIN, TRIANGLE_MAX, normalize_options,
+                                validate_create_master_finishing, validate_post_refinement_texturing)
 
 DENSE_MASTER_DESCRIPTION = ('Keeps the complete decoded geometry and materials before finishing. '
                             'Adapts the working copy to the surface, with a default ceiling of 1.2 million triangles.')
+DETAIL_STUDY = 'detail_study'
+STARTUP_PROFILE = 'high_detail'
 
 
 def profile_options(overrides, steps):
@@ -20,7 +23,7 @@ def builtin_profiles():
     # Historical presets stay readable by old jobs, but are no longer offered.
     recipes = [
         ('game_d', 'Game - Default', {}),
-        ('high_detail', 'High Detail', {}),
+        (STARTUP_PROFILE, 'High Detail', dict(keep_finishing_source=True)),
         (HUMANOID_EXPERIMENTAL, 'Humanoid · Experimental', dict(
             experimental=True, asset_type='humanoid', keep_finishing_source=True,
             description='Dense comparison master. Keeps the finishing source; review anatomy before reducing. No automatic local reconstruction or rig.')),
@@ -30,8 +33,22 @@ def builtin_profiles():
     for key, name, flags in recipes:
         steps, triangles, texture_size = GENERATION_PRESETS[key]
         settings = dict(preset=key, resolution=1024, triangles=triangles, texture_size=texture_size,
-                        remove_bg=True, advanced=profile_options(PROFILE_ADVANCED[key], steps))
+                        remove_bg=True, multiview_texture_refinement=key == STARTUP_PROFILE,
+                        advanced=profile_options(PROFILE_ADVANCED[key], steps))
+        if key == STARTUP_PROFILE:
+            settings['triangles'] = 300_000
+            settings['advanced'].update(structure_steps=12, shape_steps=25, texture_steps=12,
+                                        mesh_mode='remesh', remesh_resolution=1024)
         profiles.append(dict(id=key, name=name, builtin=True, settings=settings, **flags))
+    profiles.append(dict(id=DETAIL_STUDY, name='Detail Study', builtin=True, experimental=True,
+                         keep_finishing_source=True,
+                         description='TRELLIS.2 12 / 24 / 12, Hi3D 1024 and a 4K texture pass after refinement.',
+                         settings=dict(preset=DENSE_MASTER, resolution=1024, triangles=1_000_000, texture_size=4096,
+                                       remove_bg=True, master_finishing='hi3d_1024', retexture_after_refinement=True,
+                                       multiview_texture_refinement=False,
+                                       advanced=profile_options({**PROFILE_ADVANCED[DENSE_MASTER],
+                                           'structure_steps': 12, 'shape_steps': 24, 'texture_steps': 12,
+                                           'texture_guidance': 1}, 12))))
     return profiles
 
 
@@ -43,7 +60,8 @@ def validate_recipe(data):
         raise ValueError('Choose a single-line name of 1–60 characters.')
     s = data['settings']
     keys = {'preset', 'resolution', 'triangles', 'texture_size', 'remove_bg', 'advanced'}
-    if not isinstance(s, dict) or set(s) != keys:
+    optional = {'master_finishing', 'retexture_after_refinement', 'multiview_texture_refinement'}
+    if not isinstance(s, dict) or not keys <= set(s) <= keys | optional:
         raise ValueError('Incomplete or unknown profile settings.')
     if not isinstance(s['preset'], str) or s['preset'] not in GENERATION_PRESETS:
         raise ValueError('Unknown base preset.')
@@ -54,7 +72,17 @@ def validate_recipe(data):
         raise ValueError(f'Target must be between {TRIANGLE_MIN:,} and {TRIANGLE_MAX:,} triangles.')
     if type(s['remove_bg']) is not bool:
         raise ValueError('Background removal must be true or false.')
-    s = dict(s, advanced=profile_options(s['advanced'], GENERATION_PRESETS[s['preset']][0]))
+    multiview_texture_refinement = s.get('multiview_texture_refinement', False)
+    if type(multiview_texture_refinement) is not bool:
+        raise ValueError('Multiview texture refinement must be true or false.')
+    finishing = s.get('master_finishing')
+    if finishing is not None and not isinstance(finishing, str):
+        raise ValueError('Choose a supported master finishing method.')
+    validate_create_master_finishing(finishing, preset=s['preset'], resolution=s['resolution'], triangles=s['triangles'])
+    validate_post_refinement_texturing(s.get('retexture_after_refinement', False), preset=s['preset'],
+                                       resolution=s['resolution'], master_finishing=finishing)
+    s = dict(s, multiview_texture_refinement=multiview_texture_refinement,
+             advanced=profile_options(s['advanced'], GENERATION_PRESETS[s['preset']][0]))
     return dict(name=name.strip(), settings=s)
 
 
@@ -95,6 +123,17 @@ class ProfileStore:
         record = dict(recipe, id=identifier or 'user_' + uuid.uuid4().hex,
                       builtin=False, updated=time.time())
         profiles = [record if p['id'] == identifier else p for p in profiles] if identifier else profiles + [record]
+        self._write(profiles)
+        return record
+
+    def delete(self, identifier):
+        profiles = self._read()
+        remaining = [profile for profile in profiles if profile['id'] != identifier]
+        if len(remaining) == len(profiles):
+            raise KeyError(identifier)
+        self._write(remaining)
+
+    def _write(self, profiles):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Keep one last-good store, and replace atomically. Never touch generations.
         if self.path.exists():
@@ -102,4 +141,3 @@ class ProfileStore:
         temp = self.path.with_name(self.path.name + '.' + uuid.uuid4().hex + '.tmp')
         temp.write_text(json.dumps(dict(version=1, profiles=profiles), indent=2, ensure_ascii=False), encoding='utf-8')
         temp.replace(self.path)
-        return record

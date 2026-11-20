@@ -1,10 +1,10 @@
-import {createQueueStudio} from './queue-studio.js?v=3.9.0';
+import {createQueueStudio} from './queue-studio.js?v=multiview-texture-refinement';
 import {createWorkspaceLibrary} from './workspace-library.js?v=3.4.0';
 import {createVersionHistory} from './version-history.js?v=3.4.0';
 import {createModelWorkbench} from './model-workbench.js?v=3.4.0';
 import {createPresentationStudio} from './presentation-studio.js?v=3.4.0';
 import {createCollectionTransfer} from './collection-transfer.js?v=3.4.0';
-import {createFinishingBoard} from './finishing-board.js?v=detail-refinement-native';
+import {createFinishingBoard} from './finishing-board.js?v=texture-variant';
 import {createTextureProjection,createBakedGameCopy} from './texture-projection.js?v=3.9.0';
 import {createHdMasterFinishing} from './hd-master-finishing.js?v=detail-refinement-native';
 import {button,el} from './workbench-ui.js?v=3.4.0';
@@ -15,7 +15,7 @@ export async function createStudioWorkbench(context){
  const hdMasterFinishing=createHdMasterFinishing(context);
  const queueButton=button('Queue','list','rail-button',()=>queue.open());queueButton.id='queueTab';queueButton.append(el('b','',''));queueButton.lastChild.id='queueCount';document.querySelector('.rail-status')?.before(queueButton);if(!queueButton.parentNode)document.getElementById('rigTab').after(queueButton);
  const prepareButton=button('Prepare','sliders','secondary');prepareButton.id='prepareModel';prepareButton.setAttribute('aria-haspopup','menu');document.getElementById('compareModel').before(prepareButton);const menu=el('div','wb-popover');menu.id='prepareMenu';menu.setAttribute('popover','auto');menu.setAttribute('role','menu');document.body.append(menu);for(const[mode,title,glyph,desc]of [['lod','Automatic LODs','layers','Reduce detail for distance'],['game','Game preparation','cube','Pivot, scale and collisions'],['motion','Motion workshop','motion','Loops, root motion and contacts']]){const b=button(title,glyph,'wb-menu-item',()=>{menu.hidePopover();prepare.open(getJob(),mode);});b.append(el('small','',desc));menu.append(b);}prepareButton.onclick=()=>{menu.showPopover();const rect=prepareButton.getBoundingClientRect();menu.style.left=Math.min(innerWidth-280,rect.left)+'px';menu.style.top=rect.bottom+8+'px';};
- const finishButton=button('Finishing board','layers','wb-menu-item',()=>{menu.hidePopover();finishingBoard.open(getJob());});finishButton.append(el('small','','Compare recipes from one cache'));finishButton.hidden=true;menu.append(finishButton);
+ const finishButton=button('Finishing board','layers','wb-menu-item',()=>{menu.hidePopover();finishingBoard.open(getJob());});finishButton.append(el('small','','Compare geometry and texture variants'));finishButton.hidden=true;menu.append(finishButton);
  const projectionButton=button('Texture Projection','image','wb-menu-item',()=>{menu.hidePopover();textureProjection.open(getJob());});projectionButton.append(el('small','','Align references or use saved views'));projectionButton.hidden=true;menu.append(projectionButton);
  const masterButton=button('HD Master Finishing','layers','wb-menu-item',()=>{menu.hidePopover();hdMasterFinishing.open(getJob());});
  const masterHint=el('small','','Requires a reusable generation cache');
@@ -32,7 +32,7 @@ export async function createStudioWorkbench(context){
   },
   update(job){
    for(const b of[prepareButton,historyButton,capture])b.disabled=!job||job.state!=='done';
-   finishButton.hidden=!job?.can_refinish;
+   finishButton.hidden=!finishingBoard.canOpen(job);
    masterButton.disabled=!job?.can_refinish;
    masterHint.textContent=job?.can_refinish?'Reconstruct a dense master from the generation cache':'Requires a reusable generation cache';
    finishingBoard.update();workspace.update();if(++queueTick%3===0)queue.update();

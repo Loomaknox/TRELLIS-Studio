@@ -69,6 +69,20 @@
       "group": "generation"
     },
     {
+      "url": "https://huggingface.co/microsoft/TRELLIS.2-4B/resolve/af44b45f2e35a493886929c6d786e563ec68364d/ckpts/shape_enc_next_dc_f16c32_fp16.json",
+      "sha256": "5a960a5c419d70f8d4a7a6b6e52ae689cd948c88bd7ed92346adfbf82cd12007",
+      "bytes": 653,
+      "path": "models/trellis2/ckpts/shape_enc_next_dc_f16c32_fp16.json",
+      "group": "generation"
+    },
+    {
+      "url": "https://huggingface.co/microsoft/TRELLIS.2-4B/resolve/af44b45f2e35a493886929c6d786e563ec68364d/ckpts/shape_enc_next_dc_f16c32_fp16.safetensors",
+      "sha256": "f37c5ff5b983b68e9946060000f09bc131f3e84318a2c8b7430a81e4b4636c41",
+      "bytes": 708797208,
+      "path": "models/trellis2/ckpts/shape_enc_next_dc_f16c32_fp16.safetensors",
+      "group": "generation"
+    },
+    {
       "url": "https://huggingface.co/microsoft/TRELLIS.2-4B/resolve/af44b45f2e35a493886929c6d786e563ec68364d/ckpts/slat_flow_img2shape_dit_1_3B_512_bf16.json",
       "sha256": "ddbd7a1d34ce9a8e7af2f6ef9ae686d9ab49f69e62dacb98d8409b511cdbd5e2",
       "bytes": 458,

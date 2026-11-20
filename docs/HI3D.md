@@ -10,13 +10,15 @@ available on the host.
 
 ## Studio workflow
 
-- In **Create**, choose **HD Master** and **TRELLIS.2 · Single image**, then
+- In **Create**, choose **TRELLIS.2 · Single image** and a compatible profile, then
   choose **Detail Refinement (512)** or **Detail Refinement (1024)** under
   **Master finishing**. Studio keeps the selected 3D resolution and its
   decoded cache.
 - In **Prepare → Finishing board**, choose a detail refinement on a compatible
   model with a saved native TRELLIS.2 source and its cutout. Each result is a linked
-  model with its own job. Use the board to compare it with the original.
+  model with its own job. Open **Advanced Hi3D** to edit the refinement settings
+  or enable **Retexture after Hi3D** to generate new materials for the refined surface.
+  Use the board to compare it with the original.
 - Open the finished master for **Texture Projection** or use
   **Game Copy from HD** to reduce it and bake a game copy.
 
@@ -49,13 +51,34 @@ available memory affect the result. On a 12 GB RTX 4070 Ti, the checked meshes
 peaked at 4.01 GiB of PyTorch allocation in 512 and 9.85 GiB in 1024.
 
 Setup verifies a sparse convolution and a mesh voxelization on the GPU before
-downloading roughly 10.7 GB of pinned weights. It keeps the model files and
-extra Python packages in an optional runtime directory. Both refinement
-resolutions use the same installation. Use **Repair or resume components**
+downloading roughly 10.7 GB of pinned weights. New installations store the
+model files in `models/hi3d` and the source and Python packages in
+`.tools/hi3d`. Both refinement resolutions use the same installation.
+Use **Repair or resume components**
 from the Start menu for an interrupted installation. Setup reuses verified
 files and preserves an existing configured Hi3D runtime. Clearing the Hi3D
 option in Setup leaves its files installed and removes any pending Hi3D
 request from the Repair list.
+
+### Move an existing default weight store
+
+Stop Studio or Server and exit any running component installers. From the
+installation folder, run:
+
+```powershell
+.\.venv\Scripts\python.exe -B installer\install_hi3d.py --migrate-weights
+```
+
+The command verifies the local files against the pinned manifest, then moves
+`.tools/hi3d/weights` to `models/hi3d` on the same volume. It updates the
+weight path in `config/hi3d-runtime.json`. The operation uses the existing
+files without downloading them again or starting the GPU. Restart Studio or
+Server after verification succeeds.
+
+Setup can also migrate a complete legacy default store while repairing or
+upgrading Hi3D. Finish an interrupted legacy installation before moving its
+store. Custom weight paths remain supported. If both default directories already
+exist, review their files before running the migration.
 
 ## Configure a separate runtime manually
 

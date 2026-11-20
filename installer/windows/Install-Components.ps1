@@ -32,7 +32,7 @@ function Invoke-GuidedSetupCommand([string]$Executable,[string[]]$Arguments) {
             if ($_ -is [Management.Automation.ErrorRecord] -and $_.FullyQualifiedErrorId -notmatch '^NativeCommandErrorMessage') {
                 $lastError=$line
             }
-            if ($line -match '^(INSTALLATION STOPPED|PIXAL3D SETUP STOPPED|HI3D SETUP STOPPED|Kimodo installation failed)\s*:') {
+            if ($line -match '^(INSTALLATION STOPPED|PIXAL3D SETUP STOPPED|HI3D SETUP STOPPED|MULTIVIEW TEXTURE SETUP STOPPED|Kimodo installation failed)\s*:') {
                 $lastError=$line
             }
             Write-Host $line
@@ -83,10 +83,12 @@ function Invoke-GuidedSetup {
         [switch]$WithKimodo,
         [switch]$AcceptKimodoModelLicenses,
         [switch]$AcceptHi3dModelLicenses,
-        [switch]$SkipHi3d
+        [switch]$SkipHi3d,
+        [switch]$AcceptMultiviewTextureModelLicenses,
+        [switch]$SkipMultiviewTexture
     )
     . (Join-Path $PSScriptRoot 'Setup-Preflight.ps1')
-    $setupOrder=@('trellis','pixal3d','hi3d','unirig','kimodo')
+    $setupOrder=@('trellis','pixal3d','hi3d','multiview-texture','unirig','kimodo')
     $setupStatePath=Join-Path $InstallRoot 'config\component-install.json'
     $setupState=Read-GuidedSetupJson $setupStatePath
     if ($setupState.Count -and $setupState.schema -ne 1) { throw 'Unsupported component setup receipt. Existing settings were preserved.' }
@@ -105,10 +107,14 @@ function Invoke-GuidedSetup {
         $requested=@($requested | Where-Object { $_ -ne 'hi3d' })
         $setupState.requested=@($setupState.requested | Where-Object { $_ -ne 'hi3d' })
     }
+    if ($SkipMultiviewTexture) {
+        $requested=@($requested | Where-Object { $_ -ne 'multiview-texture' })
+        $setupState.requested=@($setupState.requested | Where-Object { $_ -ne 'multiview-texture' })
+    }
     foreach ($name in $requested) {
         if ($name -notin $setupOrder) { throw "Unknown setup component: $name." }
     }
-    if ('pixal3d' -in $requested -or 'hi3d' -in $requested) { $requested+=@('trellis') }
+    if ('pixal3d' -in $requested -or 'hi3d' -in $requested -or 'multiview-texture' -in $requested) { $requested+=@('trellis') }
     $selected=@($setupOrder | Where-Object {$_ -in $requested})
     $setupState.requested=@($setupOrder | Where-Object {$_ -in $selected -or $_ -in $setupState.requested})
     Save-GuidedSetupJson $setupStatePath $setupState
@@ -125,7 +131,7 @@ function Invoke-GuidedSetup {
     if ($probe.WSL.Ready) { $config.wsl_distribution=$probe.WSL.Distribution }
     if ($probe.Gpu.Supported -and @($selected | Where-Object {$_ -ne 'kimodo'}).Count) {
         if ($config.gpu_uuid -and $config.gpu_uuid -cne $probe.Gpu.Uuid) {
-            foreach ($name in @('trellis','pixal3d','hi3d','unirig')) {
+            foreach ($name in @('trellis','pixal3d','hi3d','multiview-texture','unirig')) {
                 if ($setupState.components.ContainsKey($name)) {
                     Set-GuidedComponentResult $name 'deferred' 'GPU selection changed. Run Repair or resume components to verify it on the new GPU.'
                 }
@@ -201,9 +207,30 @@ function Invoke-GuidedSetup {
             $hi3dReason='The Hi3D, DINOv2 and CLIP terms have not been accepted. Run Setup and select Hi3D again.'
         }
         $hi3dSetup=Join-Path $InstallRoot 'installer\install_hi3d.py'
-        $hi3dInstall={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$hi3dSetup,'--accept-model-licenses')}
-        $hi3dVerify={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$hi3dSetup,'--verify-only')}
+        $hi3dInstall={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$hi3dSetup,'--accept-model-licenses','--migrate-default-storage')}
+        $hi3dVerify={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$hi3dSetup,'--verify-only','--migrate-default-storage')}
         Invoke-GuidedComponent 'hi3d' $hi3dInstall $hi3dVerify $hi3dReason
+    }
+
+    if ('multiview-texture' -in $selected) {
+        $textureReason=if ($probe.MultiviewTexture.Supported) {''} else {$probe.MultiviewTexture.Status}
+        if ($probe.MultiviewTexture.VramNotice) { Write-Host $probe.MultiviewTexture.VramNotice }
+        if (-not $textureReason -and $setupState.components.trellis.status -ne 'ready') {
+            $textureReason='Verify TRELLIS.2 generation on the selected GPU first.'
+        }
+        $textureLicense=Join-Path $InstallRoot 'licenses\Stable-Diffusion-2.1-OpenRAIL++-M.txt'
+        $textureHash=(Get-FileHash -LiteralPath $textureLicense -Algorithm SHA256).Hash
+        if ($AcceptMultiviewTextureModelLicenses) {
+            $setupState.licenses.multiview_texture=$textureHash
+            Save-GuidedSetupJson $setupStatePath $setupState
+        }
+        if (-not $textureReason -and $setupState.licenses.multiview_texture -cne $textureHash) {
+            $textureReason='The Stable Diffusion 2.1 and MV-Adapter terms have not been accepted. Run Setup and select multiview texture refinement.'
+        }
+        $textureSetup=Join-Path $InstallRoot 'installer\install_multiview_texture.py'
+        $textureInstall={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$textureSetup,'--accept-model-licenses')}
+        $textureVerify={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$textureSetup,'--verify-only')}
+        Invoke-GuidedComponent 'multiview-texture' $textureInstall $textureVerify $textureReason
     }
 
     if ('unirig' -in $selected) {

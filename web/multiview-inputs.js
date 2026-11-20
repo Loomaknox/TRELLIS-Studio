@@ -150,12 +150,16 @@ export function createMultiviewInputs({ changed, invalid }) {
     notice.hidden = !messages.length;
   }
 
-  function selectMethod(value) {
+  function applyMethod(value) {
     if (value !== method) {
       method = value;
       renderMode();
       changed({mode: true});
     }
+  }
+
+  function selectMethod(value) {
+    applyMethod(value);
     chooser.open = false;
     chooser.querySelector('summary').focus();
   }
@@ -254,7 +258,7 @@ export function createMultiviewInputs({ changed, invalid }) {
   renderMode();
   setCapabilities();
   return {
-    accept, restore, referenceRequest, appendRequest, setCapabilities, sync,
+    accept, restore, referenceRequest, appendRequest, setCapabilities, sync, applyMethod,
     get active() { return isMulti(); },
     get usesPixal() { return usesPixal(); },
     get method() { return method; },

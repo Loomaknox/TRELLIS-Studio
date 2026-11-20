@@ -3,7 +3,8 @@ from typing import Literal,Annotated
 from pydantic import BaseModel,ConfigDict,Field,field_validator,model_validator
 
 from studio_version import VERSION
-from generation_options import GENERATION_PRESETS, TRIANGLE_MIN, TRIANGLE_MAX
+from generation_options import (GENERATION_PRESETS, HI3D_FINISHING_METHODS, TRIANGLE_MIN, TRIANGLE_MAX,
+                                validate_hi3d_overrides)
 from retarget_catalogue import ANIMATIONS
 Identifier=Annotated[str,Field(pattern=r'^[a-f0-9]{32}$')]
 
@@ -15,6 +16,7 @@ ViewRole = Literal['front', 'left', 'back', 'right']
 SingleImageEngine = Literal['trellis2', 'pixal3d_single']
 ReferenceEngine = Literal['trellis2', 'pixal3d_single', 'pixal3d']
 MasterFinishing = Literal['studio_768', 'wtivo_1024', 'hi3d_512', 'hi3d_1024']
+CreateMasterFinishing = MasterFinishing | Literal['none']
 
 
 class ReferenceStroke(Contract):
@@ -63,8 +65,11 @@ class Generation(Contract):
     seed:int=Field(default=42,ge=0,le=2147483647)
     priority:int=Field(default=0,ge=-2,le=2)
     engine: SingleImageEngine = 'trellis2'
-    master_finishing: MasterFinishing | None = None
+    master_finishing: CreateMasterFinishing | None = None
     reproject_face: bool = False
+    retexture_after_refinement: bool | None = None
+    multiview_texture_refinement: bool | None = Field(default=None, strict=True,
+                                                      description='Apply palette and multiview refinement to the baked texture.')
     overrides:dict=Field(default_factory=dict,examples=[{}],description='Optional recipe overrides: triangles, texture_size, resolution, remove_bg, advanced_settings, asset_type, reference_prompt, parent_id, keep_finishing_source, repair_surface or hd_reconstruction (Dense Master only).')
     reference_edits: dict[Literal['front'], ReferenceEdit] | None = None
 
@@ -78,10 +83,10 @@ class MultiViewGeneration(ReferenceUploads):
     triangles: int | None = Field(default=None, ge=TRIANGLE_MIN, le=TRIANGLE_MAX)
     texture_size: Literal[1024, 2048] | None = None
     asset_type: str = Field(default='humanoid', max_length=80)
-    master_finishing: MasterFinishing | None = None
+    master_finishing: CreateMasterFinishing | None = None
     parent_id: Identifier | None = None
     reference_prompt: str = Field(default='', max_length=6000)
-    keep_finishing_source: bool = False
+    keep_finishing_source: bool | None = None
     repair_surface: bool = False
     hd_reconstruction: bool = Field(default=False, strict=True, description='Reconstruct the Dense Master at grid 768. Mutually exclusive with repair_surface.')
     reproject_face: bool = False
@@ -264,11 +269,15 @@ class JobRetry(Contract):
     repair_surface: bool | None = None
     hd_reconstruction: bool | None = Field(default=None, strict=True)
     wtivo_reconstruction: bool | None = Field(default=None, strict=True)
+    multiview_texture_refinement: bool | None = Field(default=None, strict=True)
 
 
 class Refinish(Contract):
     master_finishing: MasterFinishing | None = Field(default=None,
         description='Create an HD Master Finishing variant. Choose the reconstruction method and optionally the texture size.')
+    hi3d_options: dict | None = Field(default=None, description='Optional Hi3D controls from the generation options schema. Omitted controls inherit the selected model’s values.')
+    retexture_after_refinement: bool | None = Field(default=None, strict=True,
+        description='Generate new TRELLIS.2 materials at 12 steps after cached Hi3D refinement, using the chosen texture size.')
     triangles: int | None = Field(default=None, ge=TRIANGLE_MIN, le=TRIANGLE_MAX)
     budget_preset: Literal['low', 'medium', 'high', 'ultra'] | None = None
     texture_size: Literal[1024, 2048, 4096] | None = None
@@ -285,10 +294,20 @@ class Refinish(Contract):
     texture_sampling: Literal['trilinear', 'nearest'] | None = None
     normal_source: Literal['decoded', 'parent'] | None = None
 
+    @field_validator('hi3d_options')
+    @classmethod
+    def validate_hi3d_options(cls, value):
+        return None if value is None else validate_hi3d_overrides(value)
+
     @model_validator(mode='after')
     def validate_budget(self):
-        if self.master_finishing is not None and self.model_dump(exclude_none=True).keys() - {'master_finishing', 'texture_size'}:
-            raise ValueError('HD Master Finishing accepts only a reconstruction method and texture size.')
+        if self.hi3d_options is not None and self.master_finishing not in HI3D_FINISHING_METHODS:
+            raise ValueError('Advanced Hi3D controls require Detail Refinement (512 or 1024).')
+        if self.retexture_after_refinement is not None and self.master_finishing not in HI3D_FINISHING_METHODS:
+            raise ValueError('Post-refinement texturing requires Detail Refinement (512 or 1024).')
+        allowed = {'master_finishing', 'texture_size', 'hi3d_options', 'retexture_after_refinement'}
+        if self.master_finishing is not None and self.model_dump(exclude_none=True).keys() - allowed:
+            raise ValueError('HD Master Finishing accepts a reconstruction method, texture size and eligible Hi3D options.')
         if self.triangles is not None and self.budget_preset is not None:
             raise ValueError('Choose either a triangle count or a preset.')
         return self
@@ -320,6 +339,12 @@ class MasterFinishingOptions(Contract):
     default_texture_size: int
 
 
+class CachedRetextureOptions(Contract):
+    available: bool
+    reason: str
+    enabled: bool
+
+
 class FinishingOptions(Contract):
     source_id: Identifier
     source_triangles: int | None
@@ -333,6 +358,8 @@ class FinishingOptions(Contract):
     wtivo_reconstruction: bool = False
     wtivo_reason: str = ''
     master_finishing: MasterFinishingOptions | None = None
+    hi3d_options: dict | None = None
+    retexture: CachedRetextureOptions | None = None
     remesh_resolutions: list[int]
     texture_sampling_modes: list[str]
     normal_sources: list[str]
