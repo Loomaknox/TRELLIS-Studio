@@ -17,7 +17,7 @@
     "compute_capabilities": ["8.6", "8.9"],
     "minimum_vram_mib": 8000,
     "recommended_vram_mib": 12000,
-    "license_sha256": "E514164BE7F2CA2C0FB39E7283B01AB4A06D802837EAF171AA4645CFD7EE1157"
+    "license_sha256": "BAB3473695E4CD36D846E192753CB77BF4AE9AA076D2C628674C717963CAC3EC"
   },
   "windows": {
     "torch28-cu128": {
