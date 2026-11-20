@@ -144,23 +144,27 @@ function attachCommonHelp() {
   }
 }
 
-export async function createAdvancedControls(container){
-  attachCommonHelp();
+export async function createAdvancedControls(container,{groupId,title,idPrefix='option_'}={}){
+  if(!groupId)attachCommonHelp();
   let schema,ready=false;
+  let fields=[];
   const inputs=new Map();
   try{
     const [response,helpResponse]=await Promise.all([fetch('/api/generation-options'),fetch('/web/generation-help.en.json?v=2.6')]);
     if(!response.ok)throw Error('Restart the TRELLIS server and reload the page to enable advanced settings.');
     schema=await response.json();
     const help=helpResponse.ok?await helpResponse.json():{};
-    for(const field of schema.fields)field.hint=help[field.key]||field.hint;
-    for(const group of schema.groups){
+    const groups=groupId?schema.groups.filter(group=>group.id===groupId):schema.groups;
+    fields=groupId?schema.fields.filter(field=>field.group===groupId):schema.fields;
+    if(!groups.length||!fields.length)throw Error('Advanced settings are not available on this server yet.');
+    for(const field of fields)field.hint=help[field.key]||field.hint;
+    for(const group of groups){
       const details=element('details','option-group');details.dataset.group=group.id;
       details.open=group.id==='geometry';
-      details.append(element('summary','',group.title),element('p','hint',group.hint));
+      details.append(element('summary','',title||group.title),element('p','hint',group.hint));
       const grid=element('div','option-grid');details.append(grid);
       let phase;
-      for(const field of schema.fields.filter(f=>f.group===group.id)){
+      for(const field of fields.filter(f=>f.group===group.id)){
         let fieldName=field.label;
         if(group.id==='geometry'&&field.label.includes(' · ')){
           const [phaseName,parameter]=field.label.split(' · ');
@@ -171,7 +175,7 @@ export async function createAdvancedControls(container){
           fieldName=parameter[0].toUpperCase()+parameter.slice(1);
         }
         const label=element('label',field.type==='boolean'?'check option-boolean':'field');
-        const input=element(field.type==='choice'?'select':'input');input.id='option_'+field.key;
+        const input=element(field.type==='choice'?'select':'input');input.id=idPrefix+field.key;
         if(field.type==='choice')for(const choice of field.choices){const option=element('option','',choice.label);option.value=choice.value;input.append(option);}
         else if(field.type==='boolean')input.type='checkbox';
         else{input.type='number';input.min=field.min;input.max=field.max;input.step=field.step;input.required=true;}
@@ -188,7 +192,7 @@ export async function createAdvancedControls(container){
   }catch(error){container.append(element('p','advanced-error',error.message));}
   function read(){
     if(!ready)throw Error('Advanced settings are not available on this server yet.');
-    return Object.fromEntries(schema.fields.map(field=>[field.key,field.type==='boolean'?inputs.get(field.key).checked:field.type==='choice'?inputs.get(field.key).value:Number(inputs.get(field.key).value)]));
+    return Object.fromEntries(fields.map(field=>[field.key,field.type==='boolean'?inputs.get(field.key).checked:field.type==='choice'?inputs.get(field.key).value:Number(inputs.get(field.key).value)]));
   }
   function sync(){
     const remesh=inputs.get('mesh_mode')?.value==='remesh';
@@ -197,11 +201,11 @@ export async function createAdvancedControls(container){
   }
   function apply(values={}){
     if(!ready)return;
-    for(const field of schema.fields){const value=values[field.key]??field.default,input=inputs.get(field.key);if(field.type==='boolean')input.checked=value;else input.value=String(value);}
+    for(const field of fields){const value=values[field.key]??field.default,input=inputs.get(field.key);if(field.type==='boolean')input.checked=value;else input.value=String(value);}
     sync();
   }
   inputs.get('mesh_mode')?.addEventListener('change',sync);sync();
-  return {get ready(){return ready;},get defaults(){return schema?.default_generation;},read,apply,reset:()=>apply(),
+  return {get ready(){return ready;},get defaults(){return schema?.default_generation;},get fields(){return fields;},read,apply,reset:()=>apply(),
     group:id=>container.querySelector(`[data-group="${id}"]`),
     openGroup:id=>{const group=container.querySelector(`[data-group="${id}"]`);if(group)group.open=true;}};
 }

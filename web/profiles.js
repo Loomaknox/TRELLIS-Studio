@@ -1,6 +1,6 @@
 // Recipes are persisted by the local server, independently from object history.
 import {detailRefinements} from './hd-master-finishing.js?v=detail-refinement-native';
-import {optionHelp} from './advanced-controls.js?v=option-help';
+import {optionHelp} from './advanced-controls.js?v=board-hi3d';
 
 const $=id=>document.getElementById(id);
 const steps={game_d:20,high_detail:20,humanoid_experimental:20,dense_master:20,fast:8,balanced:12,detail:20};
@@ -31,6 +31,7 @@ const detailSourceResolutions=[512,1024,1536];
 const retextureHelp='Generates new PBR materials from the reference on the refined geometry. Uses the texture settings below and adds processing time.';
 export async function createProfileControls(advanced,{changed=()=>{},usePixal=()=>false,describeMethod=()=>'',useNativeMethod=()=>{}}={}){
   let profiles=[],selected=null,saving=false,edit=false,sourceRequired=false,previousKeep=false;
+  let deletingProfile=null,deleting=false,serverStartup='';
   let repairSupported=false, hdSupported=false, masterSupport={};
   let detailTexturing={};
   let startupProfile='', refinementInputs=null, standardFinishing='', pixalFallback=false, pixalAtlas=null;
@@ -224,6 +225,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     const caption=selected.variant?'Model settings':profileNames[selected.id]||selected.name;
     $('generationSummary').textContent=[caption,describeMethod(),detail?`${actual.resolution}³ source`:'',finishingName(selectedFinish)].filter(Boolean).join(' · ');
     $('updateProfile').hidden=selected.builtin;
+    $('deleteProfile').hidden=selected.builtin||!selected.id;
     const startup=$('useProfileAtStartup');
     const isStartup=selected.id===startupProfile;
     startup.disabled=!selected.id||dirty||isStartup;
@@ -261,6 +263,11 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     $('profileNotice').textContent='';sync();
   }
   async function request(url,options){const r=await fetch(url,options),data=await r.json();if(!r.ok)throw Error(typeof data.detail==='string'?data.detail:'Profiles unavailable.');return data;}
+  const availableProfile=(...ids)=>ids.find(id=>profiles.some(profile=>profile.id===id));
+  function loadCatalogue(data){
+    profiles=data.profiles;
+    serverStartup=availableProfile(data.startup_profile,data.default_profile,profiles[0]?.id);
+  }
   function options(){
     $('profileChoice').replaceChildren();
     for(const builtin of [true,false]){
@@ -270,10 +277,10 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     }
   }
   try{
-    const data=await request('/api/profiles');profiles=data.profiles;
+    loadCatalogue(await request('/api/profiles'));
     let saved='';
     try{saved=localStorage.getItem(startupKey);}catch{}
-    startupProfile=[saved,data.startup_profile,data.default_profile].find(id=>profiles.some(p=>p.id===id));
+    startupProfile=availableProfile(saved,serverStartup);
     options();apply(startupProfile);
     $('profileChoice').disabled=false;$('saveProfileAs').disabled=!advanced.ready;
   }catch(e){$('profileNotice').textContent=e.message+' Restart TRELLIS if needed.';}
@@ -305,6 +312,41 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
   function show(update){if(!selected)return;edit=update;$('profileName').value=update?selected.name:'';$('profileDialogTitle').textContent=update?'Edit this profile':'Save a copy';$('profileDialogError').textContent='';$('profileDialog').showModal();$('profileName').focus();}
   $('saveProfileAs').onclick=()=>show(false);$('updateProfile').onclick=()=>show(true);
   $('closeProfile').onclick=()=>$('profileDialog').close();
+  const deleteDialog=$('deleteProfileDialog');
+  $('deleteProfile').onclick=()=>{
+    if(!selected?.id||selected.builtin)return;
+    deletingProfile=selected;
+    $('deleteProfileName').textContent=selected.name;
+    $('deleteProfileError').textContent='';
+    deleteDialog.showModal();
+  };
+  deleteDialog.addEventListener('cancel',event=>{if(deleting)event.preventDefault();});
+  $('confirmDeleteProfile').onclick=async()=>{
+    if(!deletingProfile||deleting)return;
+    const {id}=deletingProfile;
+    deleting=true;
+    $('deleteProfileError').textContent='';
+    $('confirmDeleteProfile').disabled=$('cancelDeleteProfile').disabled=true;
+    try{
+      await request(`/api/profiles/${encodeURIComponent(id)}`,{method:'DELETE'});
+      profiles=profiles.filter(profile=>profile.id!==id);
+      try{if(localStorage.getItem(startupKey)===id)localStorage.removeItem(startupKey);}catch{}
+      let notice='Profile deleted.';
+      try{loadCatalogue(await request('/api/profiles'));}
+      catch{notice='Profile deleted. Reload Studio to refresh the profile list.';}
+      startupProfile=availableProfile(startupProfile,serverStartup,profiles[0]?.id);
+      options();
+      apply(startupProfile);
+      deleteDialog.close();
+      $('profileChoice').focus();
+      $('profileNotice').textContent=notice;
+    }catch(error){
+      $('deleteProfileError').textContent=error.message;
+    }finally{
+      deleting=false;
+      $('confirmDeleteProfile').disabled=$('cancelDeleteProfile').disabled=false;
+    }
+  };
   $('profileForm').onsubmit=async e=>{
     e.preventDefault();if(saving||!selected)return;
     const invalid=[...$('form').querySelectorAll('input[type=number]')].find(x=>!x.checkValidity());
@@ -314,7 +356,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       const profile=await request(edit?`/api/profiles/${selected.id}`:'/api/profiles',{
         method:edit?'PUT':'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({name:$('profileName').value,settings:profileRecipe()})});
-      const data=await request('/api/profiles');profiles=data.profiles;options();apply(profile.id);
+      loadCatalogue(await request('/api/profiles'));options();apply(profile.id);
       $('profileDialog').close();$('profileNotice').textContent='Profile saved on this computer.';
     }catch(e){$('profileDialogError').textContent=e.message;}
     finally{saving=false;$('confirmProfile').disabled=false;}

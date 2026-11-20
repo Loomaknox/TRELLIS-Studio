@@ -1,5 +1,5 @@
 import {button, dialog, el, field, input, select, action} from './workbench-ui.js?v=3.4.0';
-import {optionHelp} from './advanced-controls.js?v=option-help';
+import {optionHelp} from './advanced-controls.js?v=board-hi3d';
 
 const PRIORITIES = [['2', 'Highest'], ['1', 'High'], ['0', 'Normal'], ['-1', 'Low'], ['-2', 'Lowest']];
 const STATE_ORDER = {running: 0, queued: 1, error: 2, cancelled: 2, done: 3};

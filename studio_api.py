@@ -12,7 +12,8 @@ from glb_data import read as read_glb,animation_info
 from generation_options import (DENSE_MASTER, DENSE_MASTER_TRIANGLES, GENERATION_PRESETS,
                                 HD_RECONSTRUCTION_FINISHING, MASTER_FINISHING_METHODS, CREATE_MASTER_FINISHING_METHODS,
                                 HI3D_FINISHING_METHODS, MASTER_FINISHING_TEXTURE, MASTER_FINISHING_TRIANGLES, TRIANGLE_MAX, TRIANGLE_MIN,
-                                options_for_job, validate_hd_reconstruction, validate_post_refinement_texturing)
+                                hi3d_refinement_options, options_for_job, validate_hd_reconstruction,
+                                validate_hi3d_overrides, validate_post_refinement_texturing)
 from pixal3d_runtime import validate_views
 from reference_preparation import PREPARED_VIEWS
 from wtivo_runtime import validate_wtivo_recipe, wtivo_capability
@@ -90,6 +91,7 @@ class FinishingRecipe(NamedTuple):
     hd_reconstruction: bool
     wtivo_reconstruction: bool
     master_finishing: str | None
+    hi3d_options: tuple[tuple[str, int | float | bool | str], ...] = ()
 
 
 def cached_source_resolution(source):
@@ -235,9 +237,16 @@ class StudioServices:
     def finishing_recipe(self, data, record, options, source_resolution):
         if isinstance(data, dict) and 'master_finishing' in data:
             method = data['master_finishing']
-            if method not in MASTER_FINISHING_METHODS or set(data) - {'master_finishing', 'texture_size'}:
-                raise ValueError('Choose an HD Master Finishing method and texture size.')
             hi3d = method in HI3D_FINISHING_METHODS
+            allowed = {'master_finishing', 'texture_size'}
+            if hi3d:
+                allowed.add('hi3d_options')
+            if method not in MASTER_FINISHING_METHODS or data.keys() - allowed:
+                raise ValueError('Choose an HD Master Finishing method and texture size.')
+            hi3d_options = ()
+            if hi3d:
+                overrides = validate_hi3d_overrides(data.get('hi3d_options', {}))
+                hi3d_options = tuple(hi3d_refinement_options({**options, **overrides}).items())
             if not hi3d and source_resolution < 1024:
                 raise ValueError('HD Master Finishing requires a saved 1024 or 1536 source.')
             textures = self.g['generation_capabilities']()[1]
@@ -266,7 +275,7 @@ class StudioServices:
             return FinishingRecipe(ceiling, texture_size, 'direct' if hi3d else 'remesh', method == 'studio_768',
                                    False, False, None, False, False,
                                    grid, 'trilinear', 'decoded',
-                                   method == 'studio_768', method == 'wtivo_1024', method)
+                                   method == 'studio_768', method == 'wtivo_1024', method, hi3d_options)
         if not isinstance(data, dict) or set(data) - {'triangles', 'texture_size', 'mesh_mode', 'repair_holes',
                                                         'pre_simplify', 'adaptive_finishing',
                                                         'budget_preset', 'bake_normals', 'repair_surface',
@@ -342,7 +351,10 @@ class StudioServices:
     def create_finishing_variant(self, variant, folder, record, source_id, options, recipe):
         (triangles, texture_size, mesh_mode, repair, pre_simplify, adaptive, preset, bake_normals,
          repair_surface, remesh_resolution, texture_sampling, normal_source, hd_reconstruction, wtivo,
-         master_finishing) = recipe
+         master_finishing, hi3d_options) = recipe
+        variant_options = {**options, **dict(hi3d_options), 'mesh_mode': mesh_mode, 'repair_holes': repair,
+                           'pre_simplify': pre_simplify, 'remesh_resolution': remesh_resolution,
+                           'texture_sampling': texture_sampling}
         variant.mkdir()
         settings = dict(record['settings'])
         settings.pop('keep_finishing_source', None)
@@ -394,12 +406,12 @@ class StudioServices:
             if master_finishing:
                 snapshot['master_finishing'] = master_finishing
                 snapshot.pop('reproject_face', None)
+            if hi3d_options:
+                snapshot['generation_options'] = variant_options
             settings['profile_snapshot'] = snapshot
         settings.update(created=time.time(), parent_id=folder.name, source_kind='refinish',
                         finish_source_id=source_id, triangles=triangles, texture_size=texture_size,
-                        generation_options={**options, 'mesh_mode': mesh_mode, 'repair_holes': repair,
-                                            'pre_simplify': pre_simplify, 'remesh_resolution': remesh_resolution,
-                                            'texture_sampling': texture_sampling})
+                        generation_options=variant_options)
         write(variant / 'settings.json', settings)
         for filename in (*self.g['REFERENCE_FILES'], *PREPARED_REFERENCES):
             if (folder / filename).is_file():
@@ -848,6 +860,7 @@ class StudioServices:
             hi3d = hi3d_source_status(source, source_resolution)
             if hi3d['available']:
                 hi3d = hi3d_status(self.root)
+            hi3d_options = hi3d_refinement_options(options_for_job(record['settings'])) if hi3d['available'] else None
             return dict(source_id=source_id, source_triangles=finishing_source_triangles(source), cache_bytes=cache_bytes,
                         texture_sizes=textures,
                         triangle_limits=dict(min=TRIANGLE_MIN, max=TRIANGLE_MAX),
@@ -858,6 +871,7 @@ class StudioServices:
                         wtivo_reconstruction=wtivo, wtivo_reason=wtivo_reason,
                         master_finishing=master_finishing_capability(source_resolution, textures, wtivo, wtivo_reason,
                                                                      normal_bake, hi3d),
+                        hi3d_options=hi3d_options,
                         remesh_resolutions=[512, 768, 1024], texture_sampling_modes=['trilinear', 'nearest'],
                         normal_sources=normal_sources,
                         parent_normal_source=parent_normal_source,

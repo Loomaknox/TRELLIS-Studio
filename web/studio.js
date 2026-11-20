@@ -1,4 +1,4 @@
-import {createStudioWorkbench} from './studio-workbench.js?v=unreduced-mesh';
+import {createStudioWorkbench} from './studio-workbench.js?v=board-hi3d';
 import {createViewerLighting,createViewerStage} from './viewer-lighting.js?v=visual-refresh-2';
 import {createHologramViewer} from './hologram-viewer.js?v=visual-refresh-2';
 import {createGenerationWait} from './generation-wait.js?v=studio-visual-refinement';
@@ -14,8 +14,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { createAdvancedControls } from './advanced-controls.js?v=option-help';
-import { createProfileControls } from './profiles.js?v=unreduced-mesh';
+import { createAdvancedControls } from './advanced-controls.js?v=board-hi3d';
+import { createProfileControls } from './profiles.js?v=board-hi3d';
 import {createCardMenu,updateCardStatus,icon} from './card-menu.js?v=3.4.0';
 import {createCardTurntables} from './card-turntable.js?v=3.4.0';
 const $=id=>document.getElementById(id);

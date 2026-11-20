@@ -112,6 +112,17 @@ class ProfileStore:
         record = dict(recipe, id=identifier or 'user_' + uuid.uuid4().hex,
                       builtin=False, updated=time.time())
         profiles = [record if p['id'] == identifier else p for p in profiles] if identifier else profiles + [record]
+        self._write(profiles)
+        return record
+
+    def delete(self, identifier):
+        profiles = self._read()
+        remaining = [profile for profile in profiles if profile['id'] != identifier]
+        if len(remaining) == len(profiles):
+            raise KeyError(identifier)
+        self._write(remaining)
+
+    def _write(self, profiles):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Keep one last-good store, and replace atomically. Never touch generations.
         if self.path.exists():
@@ -119,4 +130,3 @@ class ProfileStore:
         temp = self.path.with_name(self.path.name + '.' + uuid.uuid4().hex + '.tmp')
         temp.write_text(json.dumps(dict(version=1, profiles=profiles), indent=2, ensure_ascii=False), encoding='utf-8')
         temp.replace(self.path)
-        return record

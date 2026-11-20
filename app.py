@@ -686,6 +686,21 @@ async def create_profile(request: Request):
 async def update_profile(identifier: str, request: Request):
     return await save_profile(request, identifier)
 
+@app.delete('/api/profiles/{identifier}')
+async def delete_profile(identifier: str):
+    if identifier in GENERATION_PRESETS or identifier == DETAIL_STUDY:
+        raise HTTPException(403, 'This built-in profile is protected.')
+    async with LOCK:
+        try:
+            PROFILES.delete(identifier)
+        except KeyError as error:
+            raise HTTPException(404, 'Profile not found.') from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        except OSError as error:
+            raise HTTPException(503, 'Unable to save the profile list.') from error
+    return dict(id=identifier, deleted=True)
+
 @app.get('/api/jobs')
 def jobs():
     records = [job_record(folder) for folder in sorted(OUTPUT.iterdir(), key=lambda p:p.stat().st_mtime, reverse=True)

@@ -161,6 +161,7 @@ HI3D_FIELDS = [
          hint='Decodes in tiles to limit GPU memory usage. Turning this off can exceed available VRAM.'),
 ]
 FIELDS.extend(HI3D_FIELDS)
+HI3D_KEYS = tuple(field['key'] for field in HI3D_FIELDS)
 BY_KEY={f['key']:f for f in FIELDS}
 # Keep historical fallback values in FIELDS so old job records are not reinterpreted.
 # The new-game default is explicit both in submitted settings and the UI schema.
@@ -215,9 +216,15 @@ def hi3d_refinement_options(options=None):
         options = {}
     if not isinstance(options, dict):
         raise ValueError('Malformed Hi3D refinement settings.')
-    keys = [field['key'] for field in HI3D_FIELDS]
-    normalized = normalize_options({key: options[key] for key in keys if key in options})
-    return {key: normalized[key] for key in keys}
+    normalized = normalize_options({key: options[key] for key in HI3D_KEYS if key in options})
+    return {key: normalized[key] for key in HI3D_KEYS}
+
+
+def validate_hi3d_overrides(overrides):
+    if not isinstance(overrides, dict) or overrides.keys() - set(HI3D_KEYS):
+        raise ValueError('Choose valid Hi3D refinement settings.')
+    normalized = hi3d_refinement_options(overrides)
+    return {key: normalized[key] for key in overrides}
 
 def sampler_options(options):
     return {name:dict(steps=options[name+'_steps'],guidance_strength=options[name+'_guidance'],
