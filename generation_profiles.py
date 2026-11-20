@@ -33,7 +33,8 @@ def builtin_profiles():
     for key, name, flags in recipes:
         steps, triangles, texture_size = GENERATION_PRESETS[key]
         settings = dict(preset=key, resolution=1024, triangles=triangles, texture_size=texture_size,
-                        remove_bg=True, advanced=profile_options(PROFILE_ADVANCED[key], steps))
+                        remove_bg=True, multiview_texture_refinement=key == STARTUP_PROFILE,
+                        advanced=profile_options(PROFILE_ADVANCED[key], steps))
         if key == STARTUP_PROFILE:
             settings['triangles'] = 300_000
             settings['advanced'].update(structure_steps=12, shape_steps=25, texture_steps=12,
@@ -44,6 +45,7 @@ def builtin_profiles():
                          description='TRELLIS.2 12 / 24 / 12, Hi3D 1024 and a 4K texture pass after refinement.',
                          settings=dict(preset=DENSE_MASTER, resolution=1024, triangles=1_000_000, texture_size=4096,
                                        remove_bg=True, master_finishing='hi3d_1024', retexture_after_refinement=True,
+                                       multiview_texture_refinement=False,
                                        advanced=profile_options({**PROFILE_ADVANCED[DENSE_MASTER],
                                            'structure_steps': 12, 'shape_steps': 24, 'texture_steps': 12,
                                            'texture_guidance': 1}, 12))))
@@ -58,7 +60,7 @@ def validate_recipe(data):
         raise ValueError('Choose a single-line name of 1–60 characters.')
     s = data['settings']
     keys = {'preset', 'resolution', 'triangles', 'texture_size', 'remove_bg', 'advanced'}
-    optional = {'master_finishing', 'retexture_after_refinement'}
+    optional = {'master_finishing', 'retexture_after_refinement', 'multiview_texture_refinement'}
     if not isinstance(s, dict) or not keys <= set(s) <= keys | optional:
         raise ValueError('Incomplete or unknown profile settings.')
     if not isinstance(s['preset'], str) or s['preset'] not in GENERATION_PRESETS:
@@ -70,13 +72,17 @@ def validate_recipe(data):
         raise ValueError(f'Target must be between {TRIANGLE_MIN:,} and {TRIANGLE_MAX:,} triangles.')
     if type(s['remove_bg']) is not bool:
         raise ValueError('Background removal must be true or false.')
+    multiview_texture_refinement = s.get('multiview_texture_refinement', False)
+    if type(multiview_texture_refinement) is not bool:
+        raise ValueError('Multiview texture refinement must be true or false.')
     finishing = s.get('master_finishing')
     if finishing is not None and not isinstance(finishing, str):
         raise ValueError('Choose a supported master finishing method.')
     validate_create_master_finishing(finishing, preset=s['preset'], resolution=s['resolution'], triangles=s['triangles'])
     validate_post_refinement_texturing(s.get('retexture_after_refinement', False), preset=s['preset'],
                                        resolution=s['resolution'], master_finishing=finishing)
-    s = dict(s, advanced=profile_options(s['advanced'], GENERATION_PRESETS[s['preset']][0]))
+    s = dict(s, multiview_texture_refinement=multiview_texture_refinement,
+             advanced=profile_options(s['advanced'], GENERATION_PRESETS[s['preset']][0]))
     return dict(name=name.strip(), settings=s)
 
 

@@ -22,7 +22,7 @@ from hi3d_runtime import HI3D_TRIANGLE_CAP, hi3d_source_status, hi3d_status
 RETRY_STATES = {'error', 'cancelled'}
 RETRY_FIELDS = {'resolution', 'texture_size', 'triangles', 'height_m', 'priority',
                 'mesh_mode', 'pre_simplify', 'repair_holes', 'bake_normals', 'repair_surface', 'hd_reconstruction',
-                'wtivo_reconstruction'}
+                'wtivo_reconstruction', 'multiview_texture_refinement'}
 RETRY_FINISHING_FIELDS = ('mesh_mode', 'pre_simplify', 'repair_holes')
 PREPARED_REFERENCES = (*PREPARED_VIEWS.values(), 'conditioning.png')
 PRESENTATION_FILES = dict(thumbnail='thumbnail.png', capture='capture.png', turntable='turntable.webm')
@@ -376,6 +376,7 @@ class StudioServices:
         settings.pop('wtivo_reconstruction', None)
         settings.pop('master_finishing', None)
         settings.pop('retexture_after_refinement', None)
+        settings.pop('multiview_texture_refinement', None)
         for key in ('normal_source', 'normal_source_id', 'normal_source_model_sha256', 'normal_source_normalization'):
             settings.pop(key, None)
         if adaptive:
@@ -409,6 +410,7 @@ class StudioServices:
             snapshot.pop('wtivo_reconstruction', None)
             snapshot.pop('master_finishing', None)
             snapshot.pop('retexture_after_refinement', None)
+            snapshot.pop('multiview_texture_refinement', None)
             if repair_surface:
                 snapshot['repair_surface'] = True
             if hd_reconstruction:
@@ -475,7 +477,8 @@ class StudioServices:
     def retry_recipe(self, folder, saved, priority, changes):
         if not isinstance(changes, dict) or set(changes) - RETRY_FIELDS:
             raise ValueError('Choose only editable queue settings.')
-        if saved.get('master_finishing') and set(changes) - {'resolution', 'texture_size', 'height_m', 'priority'}:
+        if saved.get('master_finishing') and set(changes) - {
+                'resolution', 'texture_size', 'height_m', 'priority', 'multiview_texture_refinement'}:
             raise ValueError('HD Master Finishing fixes the reconstruction and triangle ceiling.')
 
         refinish = saved.get('source_kind') == 'refinish'
@@ -523,6 +526,20 @@ class StudioServices:
 
         settings = dict(saved, created=time.time(), parent_id=folder.name, retry_of=folder.name,
                         resolution=resolution, triangles=triangles, texture_size=texture_size, height_m=height)
+        multiview_texture = changes.get('multiview_texture_refinement', settings.get('multiview_texture_refinement', False))
+        if type(multiview_texture) is not bool:
+            raise ValueError('Invalid multiview texture refinement setting.')
+        if multiview_texture:
+            from multiview_texture_runtime import supports_single_image
+
+            if not supports_single_image(settings):
+                raise ValueError('Multiview texture refinement requires single-image generation.')
+            capability = self.g['multiview_texture_capability']()
+            if not capability['available']:
+                raise HTTPException(503, capability['reason'])
+            settings['multiview_texture_refinement'] = True
+        else:
+            settings.pop('multiview_texture_refinement', None)
         if settings.get('retexture_after_refinement'):
             validate_post_refinement_texturing(settings['retexture_after_refinement'], preset=settings.get('preset'),
                                                resolution=resolution, master_finishing=settings.get('master_finishing'),
@@ -604,6 +621,12 @@ class StudioServices:
         if isinstance(profile, dict):
             settings['profile_snapshot'] = dict(profile, resolution=resolution, triangles=triangles,
                                                 texture_size=texture_size)
+            if 'multiview_texture_refinement' in changes:
+                snapshot = settings['profile_snapshot']
+                if multiview_texture:
+                    snapshot['multiview_texture_refinement'] = True
+                else:
+                    snapshot.pop('multiview_texture_refinement', None)
             if 'repair_surface' in changes:
                 settings['profile_snapshot'].pop('repair_surface', None)
                 if settings.get('repair_surface'):
@@ -778,7 +801,8 @@ class StudioServices:
                 allowed = {'name', 'profile_id', 'height_m', 'seed', 'priority', 'remove_bg', 'triangles',
                            'texture_size', 'resolution', 'advanced_settings', 'asset_type', 'reference_prompt',
                            'parent_id', 'keep_finishing_source', 'repair_surface', 'hd_reconstruction',
-                           'reference_edits', 'engine', 'master_finishing', 'reproject_face', 'retexture_after_refinement'}
+                           'reference_edits', 'engine', 'master_finishing', 'reproject_face',
+                           'retexture_after_refinement', 'multiview_texture_refinement'}
                 if any(not isinstance(s,dict) or set(s)-allowed for s in specs):raise ValueError('Unknown queue settings.')
                 for spec in specs:
                     for key,limit in [('name',80),('profile_id',80),('asset_type',80),('reference_prompt',6000),('parent_id',32)]:
@@ -793,6 +817,8 @@ class StudioServices:
                     if 'reproject_face' in spec and type(spec['reproject_face']) is not bool:raise ValueError('Invalid face reprojection setting.')
                     if 'retexture_after_refinement' in spec and type(spec['retexture_after_refinement']) is not bool:
                         raise ValueError('Invalid post-refinement texturing setting.')
+                    if 'multiview_texture_refinement' in spec and type(spec['multiview_texture_refinement']) is not bool:
+                        raise ValueError('Invalid multiview texture refinement setting.')
                     if spec.get('engine', 'trellis2') not in ('trellis2', 'pixal3d_single'):raise ValueError('Invalid single-image method.')
                     if spec.get('master_finishing') not in (None, *CREATE_MASTER_FINISHING_METHODS):raise ValueError('Invalid master finishing method.')
                     if 'advanced_settings' in spec and not isinstance(spec['advanced_settings'],dict):raise ValueError('Invalid advanced settings.')
@@ -813,6 +839,11 @@ class StudioServices:
                     params['master_finishing'] = spec.get('master_finishing', s.get('master_finishing'))
                     params['retexture_after_refinement'] = spec.get('retexture_after_refinement',
                         params['master_finishing'] == 'hi3d_1024' and s.get('retexture_after_refinement', False))
+                    multiview_texture = spec.get('multiview_texture_refinement')
+                    if multiview_texture is None:
+                        multiview_texture = (s.get('multiview_texture_refinement', False)
+                                             and self.g['multiview_texture_capability']()['available'])
+                    params['multiview_texture_refinement'] = multiview_texture
                     params['reproject_face'] = spec.get('reproject_face', False)
                     if params['engine'] == 'pixal3d_single':
                         params['resolution'] = spec.get('resolution', 1024)

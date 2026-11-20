@@ -29,16 +29,22 @@ const inlineFinishingLimit=3000000;
 const detailRefinementLimit=1000000;
 const detailSourceResolutions=[512,1024,1536];
 const retextureHelp='Generates new PBR materials from the reference on the refined geometry. Uses the texture settings below and adds processing time.';
-export async function createProfileControls(advanced,{changed=()=>{},usePixal=()=>false,describeMethod=()=>'',useNativeMethod=()=>{}}={}){
+const textureRefinementHelp='Harmonizes colors and refines the baked texture from six generated views.';
+export async function createProfileControls(advanced,{changed=()=>{},usePixal=()=>false,isMultiview=()=>false,describeMethod=()=>'',useNativeMethod=()=>{}}={}){
   let profiles=[],selected=null,saving=false,edit=false,sourceRequired=false,previousKeep=false;
   let deletingProfile=null,deleting=false,serverStartup='';
   let repairSupported=false, hdSupported=false, masterSupport={};
   let detailTexturing={};
+  let textureRefinementSupport;
   let startupProfile='', refinementInputs=null, standardFinishing='', pixalFallback=false, pixalAtlas=null;
   const retexture=$('retextureAfterRefinement');
   const retextureField=$('detailTexturingField');
   const retextureStatus=$('detailTexturingStatus');
   optionHelp(retexture.closest('label'), 'Retexture after Hi3D', retextureHelp);
+  const textureRefinement=$('multiviewTextureRefinement');
+  const textureRefinementStatus=$('multiviewTextureRefinementStatus');
+  optionHelp(textureRefinement.closest('label'), 'Multiview texture refinement',
+    'Runs after the texture is baked and adds processing time. It keeps the geometry and UV layout.');
   const textures=advanced.group('texture');
   if(textures)textures.querySelector('.option-grid').prepend(retextureField);
   const readFinishing=()=>$('preset').value==='dense_master'&&$('advancedMasterFinishing').value
@@ -90,6 +96,9 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     }
     if(finishing==='none')recipe={...recipe,master_finishing:finishing};
     if(finishing==='hi3d_1024')recipe={...recipe,retexture_after_refinement:wantsRetexture()};
+    if(textureRefinementSupport||profiles.some(profile=>typeof profile.settings.multiview_texture_refinement==='boolean')){
+      recipe={...recipe,multiview_texture_refinement:textureRefinement.checked};
+    }
     return recipe;
   }
   function resolved(s){
@@ -98,6 +107,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     copy.master_finishing=copy.master_finishing||defaultFinishing(copy.preset);
     if(detailRefinements[copy.master_finishing])copy.triangles=Math.min(copy.triangles,detailRefinementLimit);
     copy.retexture_after_refinement=copy.retexture_after_refinement===true;
+    copy.multiview_texture_refinement=copy.multiview_texture_refinement===true;
     return copy;
   }
   const equal=(a,b)=>{const x=resolved(a),y=resolved(b);return Object.keys(x).every(k=>k==='advanced'?Object.keys(x[k]).every(f=>x[k][f]===y[k][f]):x[k]===y[k]);};
@@ -136,6 +146,10 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       ? 'Choose 1024³ for the 3D resolution to use this option.'
       : detailTexturing.available!==true ? detailTexturing.reason||'The local texturing pipeline is unavailable.' : '';
     retextureStatus.hidden=!retextureStatus.textContent;
+    textureRefinement.disabled=isMultiview()||textureRefinementSupport?.available!==true;
+    textureRefinementStatus.textContent=isMultiview() ? 'Choose a single-image generation method to use this option.'
+      : textureRefinement.disabled ? textureRefinementSupport?.reason||'The local multiview texture runtime is unavailable.'
+        : textureRefinementHelp;
     syncRefinementBudget(Boolean(detail));
     const textureSize=$('textureSize');
     if(usePixal()&&read().texture_size===4096){
@@ -255,6 +269,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     $('denseMasterFinishing').value=s.master_finishing||standardFinishing;
     $('advancedMasterFinishing').value='';
     retexture.checked=s.retexture_after_refinement===true;
+    textureRefinement.checked=s.multiview_texture_refinement===true;
     sourceRequired=false;
     $('keepFinishingSource').checked=selected.keep_finishing_source===true;
     for(const [key,value] of Object.entries({preset:s.preset,resolution:s.resolution,triangles:s.triangles,textureSize:s.texture_size}))$(key).value=String(value);
@@ -365,15 +380,17 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     finally{saving=false;$('confirmProfile').disabled=false;}
   };
   return {sync,reset:()=>apply('game_d'),
-    setFinishingCapabilities(available, hdAvailable, methods, texturing){
+    setFinishingCapabilities(available, hdAvailable, methods, texturing, multiviewTexturing){
       const supported=methods||{};
       const texturingSupport=texturing||{};
       if(repairSupported===available&&hdSupported===hdAvailable&&JSON.stringify(masterSupport)===JSON.stringify(supported)
-        &&JSON.stringify(detailTexturing)===JSON.stringify(texturingSupport))return;
+        &&JSON.stringify(detailTexturing)===JSON.stringify(texturingSupport)
+        &&JSON.stringify(textureRefinementSupport)===JSON.stringify(multiviewTexturing))return;
       repairSupported=available;
       hdSupported=hdAvailable;
       masterSupport=supported;
       detailTexturing=texturingSupport;
+      textureRefinementSupport=multiviewTexturing;
       sync();
     },
     appendFinishing(form){
@@ -384,6 +401,9 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       } else if (value==='studio_768') form.set('hd_reconstruction','true');
       if(!usePixal()&&(value==='hi3d_1024'||selected?.settings.retexture_after_refinement)){
         form.set('retexture_after_refinement', String(wantsRetexture()));
+      }
+      if(textureRefinementSupport){
+        form.set('multiview_texture_refinement', String(!textureRefinement.disabled&&textureRefinement.checked));
       }
     },
     restoreFinishing(settings){
@@ -396,6 +416,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       $('advancedMasterFinishing').value=settings.preset!=='dense_master'||settings.master_finishing||settings.hd_reconstruction
         ? '' : settings.repair_surface ? 'repair' : 'direct';
       retexture.checked=settings.retexture_after_refinement===true;
+      textureRefinement.checked=settings.multiview_texture_refinement===true;
     },
     budget,
     get finishingReady(){

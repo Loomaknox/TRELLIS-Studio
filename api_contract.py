@@ -68,6 +68,8 @@ class Generation(Contract):
     master_finishing: CreateMasterFinishing | None = None
     reproject_face: bool = False
     retexture_after_refinement: bool | None = None
+    multiview_texture_refinement: bool | None = Field(default=None, strict=True,
+                                                      description='Apply palette and multiview refinement to the baked texture.')
     overrides:dict=Field(default_factory=dict,examples=[{}],description='Optional recipe overrides: triangles, texture_size, resolution, remove_bg, advanced_settings, asset_type, reference_prompt, parent_id, keep_finishing_source, repair_surface or hd_reconstruction (Dense Master only).')
     reference_edits: dict[Literal['front'], ReferenceEdit] | None = None
 
@@ -267,6 +269,7 @@ class JobRetry(Contract):
     repair_surface: bool | None = None
     hd_reconstruction: bool | None = Field(default=None, strict=True)
     wtivo_reconstruction: bool | None = Field(default=None, strict=True)
+    multiview_texture_refinement: bool | None = Field(default=None, strict=True)
 
 
 class Refinish(Contract):

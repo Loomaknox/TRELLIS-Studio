@@ -254,6 +254,12 @@ def require_create_master_finishing(method):
             raise HTTPException(503, capability['reason'])
 
 
+def multiview_texture_capability():
+    from multiview_texture_runtime import availability
+
+    return availability(ROOT)
+
+
 def detail_texturing_capability():
     from retexture_runtime import availability
     return availability(ROOT)
@@ -294,8 +300,9 @@ def status():
                 resolution=DEFAULT_GENERATION['resolution'], default_profile=DEFAULT_PROFILE, local=True, studio_version=VERSION,source_revision=SOURCE_REVISION,ui_revision=UI_REVISION,multi_view=pixal3d['ready'],pixal3d=pixal3d,
                 generation_methods=generation_methods, create_master_finishing=create_master_finishing_capabilities(),
                 detail_texturing=detail_texturing_capability(),
+                multiview_texture_refinement=multiview_texture_capability(),
                 edition='server' if WORKSPACE_CONFIG else 'desktop',
-                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','hd_reconstruction','hd_master_finishing','pixal3d_multiview','pixal3d_face_projection','texture_projection','baked_game_copy'], texture_sizes=textures,supported_resolutions=resolutions)
+                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','hd_reconstruction','hd_master_finishing','pixal3d_multiview','pixal3d_face_projection','texture_projection','multiview_texture_refinement','baked_game_copy'], texture_sizes=textures,supported_resolutions=resolutions)
 
 @app.get('/api/components')
 def components():
@@ -1263,7 +1270,8 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                    engine: Annotated[str, Form()] = 'trellis2',
                    master_finishing: Annotated[str | None, Form()] = None,
                    reproject_face: Annotated[bool, Form()] = False,
-                   retexture_after_refinement: Annotated[bool, Form()] = False):
+                   retexture_after_refinement: Annotated[bool, Form()] = False,
+                   multiview_texture_refinement: Annotated[bool, Form()] = False):
     if WORKSPACE_CONFIG:
         queue_only = True
     if engine not in ('trellis2', 'pixal3d_single'):
@@ -1319,6 +1327,10 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
         except ValueError as error: raise HTTPException(422, str(error))
         if profile is None: raise HTTPException(400, 'Profile not found; reload profiles.')
     require_create_master_finishing(master_finishing)
+    if multiview_texture_refinement:
+        refinement_runtime = multiview_texture_capability()
+        if not refinement_runtime['available']:
+            raise HTTPException(503, refinement_runtime['reason'])
     if retexture_after_refinement:
         texture_runtime = detail_texturing_capability()
         if not texture_runtime['available']:
@@ -1380,6 +1392,10 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
             settings['retexture_after_refinement'] = True
             if snapshot := settings.get('profile_snapshot'):
                 snapshot['retexture_after_refinement'] = True
+        if multiview_texture_refinement:
+            settings['multiview_texture_refinement'] = True
+            if snapshot := settings.get('profile_snapshot'):
+                snapshot['multiview_texture_refinement'] = True
         if parent_id:settings['parent_id']=parent_id
         with TemporaryDirectory(prefix='.trellis2-', dir=OUTPUT) as staging:
             staged = Path(staging)

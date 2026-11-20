@@ -4,6 +4,8 @@ import {optionHelp} from './advanced-controls.js?v=board-hi3d';
 const PRIORITIES = [['2', 'Highest'], ['1', 'High'], ['0', 'Normal'], ['-1', 'Low'], ['-2', 'Lowest']];
 const STATE_ORDER = {running: 0, queued: 1, error: 2, cancelled: 2, done: 3};
 const fullMeshNote = 'Master finishing · None. Exports the decoded mesh at its original triangle count.';
+const textureRefinementLabel = 'Multiview texture refinement';
+const textureRefinementDescription = 'Harmonizes colors and refines the baked texture from six generated views.';
 const json = (method, data) => ({
   method,
   headers: {'Content-Type': 'application/json'},
@@ -83,9 +85,21 @@ export function createQueueStudio({api, refresh}) {
     return {runtime, schema};
   }
 
+  function appendTextureRefinement(container, capability, checked, id) {
+    const control = checkbox(checked);
+    control.id = id;
+    control.disabled = capability.available !== true;
+    const label = field(textureRefinementLabel, control, control.disabled
+      ? capability.reason || 'The local multiview texture runtime is unavailable.' : textureRefinementDescription);
+    container.append(label);
+    optionHelp(label, textureRefinementLabel, 'Runs after the texture is baked and adds processing time.');
+    return control;
+  }
+
   async function editDraft(row) {
     const {runtime, schema} = await capabilities();
-    const preset = profiles.find(profile => profile.id === row.profile_id)?.settings.preset;
+    const profileSettings = profiles.find(profile => profile.id === row.profile_id)?.settings;
+    const preset = profileSettings?.preset;
     const removeBg = checkbox(row.remove_bg);
     const requiredSource = !!row.master_finishing || ['dense_master', 'humanoid_experimental'].includes(preset);
     const keepSource = checkbox(requiredSource || row.keep_finishing_source);
@@ -99,6 +113,7 @@ export function createQueueStudio({api, refresh}) {
     retexture.id = 'queueRetextureAfterRefinement';
     const retextureField = field('Retexture after Hi3D', retexture);
     const retextureStatus = el('p', 'hint');
+    let textureRefinement;
     const syncRetexture = () => {
       retexture.disabled = Number(resolution.value) !== 1024;
       retextureStatus.textContent = retexture.disabled
@@ -120,6 +135,7 @@ export function createQueueStudio({api, refresh}) {
         remove_bg: removeBg.checked, keep_finishing_source: keepSource.checked});
       if (triangles) row.triangles = triangles.valueAsNumber;
       if (supportsRetexture) row.retexture_after_refinement = !retexture.disabled && retexture.checked;
+      if (textureRefinement && !textureRefinement.disabled) row.multiview_texture_refinement = textureRefinement.checked;
       recipe.close();
     });
     recipe.body.replaceChildren(field('Geometry resolution', resolution),
@@ -133,6 +149,11 @@ export function createQueueStudio({api, refresh}) {
         'Generates new PBR materials from the reference on the refined geometry, using the profile’s texture settings.');
       syncRetexture();
       resolution.addEventListener('change', syncRetexture);
+    }
+    if (runtime.multiview_texture_refinement) {
+      textureRefinement = appendTextureRefinement(recipe.body, runtime.multiview_texture_refinement,
+        row.multiview_texture_refinement ?? (profileSettings?.multiview_texture_refinement === true),
+        'queueMultiviewTextureRefinement');
     }
     recipe.body.append(el('p', 'hint',
       'Sampling and finishing controls come from this image’s profile. Save a custom profile in Create for a different recipe.'));
@@ -151,6 +172,7 @@ export function createQueueStudio({api, refresh}) {
     else delete row.master_finishing;
     if (retexture_after_refinement !== undefined) row.retexture_after_refinement = retexture_after_refinement;
     else delete row.retexture_after_refinement;
+    delete row.multiview_texture_refinement; // A new profile restores its texture refinement preference.
   }
 
   function renderDrafts() {
@@ -310,6 +332,10 @@ export function createQueueStudio({api, refresh}) {
       retry.body.append(field('Transfer master detail to a normal map', bakeNormals,
         canBakeNormals ? '' : 'Blender is unavailable. Clear this option to retry without a normal map.'));
     }
+    const singleImage = pixal ? saved.view_mode === 'single' : (saved.view_mode ?? 'single') === 'single';
+    const textureRefinement = !refinish && singleImage && runtime.multiview_texture_refinement
+      ? appendTextureRefinement(retry.body, runtime.multiview_texture_refinement,
+          saved.multiview_texture_refinement === true, 'retryMultiviewTextureRefinement') : null;
 
     const log = el('pre', 'queue-log');
     log.hidden = true;
@@ -334,6 +360,10 @@ export function createQueueStudio({api, refresh}) {
         return;
       }
       const changes = {texture_size: Number(texture.value), height_m: height.valueAsNumber, priority: Number(priority.value)};
+      if (textureRefinement) {
+        const enabled = !textureRefinement.disabled && textureRefinement.checked;
+        if (enabled !== (saved.multiview_texture_refinement === true)) changes.multiview_texture_refinement = enabled;
+      }
       if (!master) changes.triangles = triangles.valueAsNumber;
       if (!fixedResolution) changes.resolution = Number(resolution.value);
       if (refinish && bakeNormals.checked !== !!saved.bake_normals) changes.bake_normals = bakeNormals.checked;

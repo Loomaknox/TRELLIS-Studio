@@ -1,4 +1,4 @@
-import {createStudioWorkbench} from './studio-workbench.js?v=board-retexture-startup';
+import {createStudioWorkbench} from './studio-workbench.js?v=multiview-texture-refinement';
 import {createViewerLighting,createViewerStage} from './viewer-lighting.js?v=visual-refresh-2';
 import {createHologramViewer} from './hologram-viewer.js?v=visual-refresh-2';
 import {createGenerationWait} from './generation-wait.js?v=studio-visual-refinement';
@@ -15,7 +15,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createAdvancedControls } from './advanced-controls.js?v=board-hi3d';
-import { createProfileControls } from './profiles.js?v=high-detail-startup';
+import { createProfileControls } from './profiles.js?v=multiview-texture-refinement';
 import {createCardMenu,updateCardStatus,icon} from './card-menu.js?v=3.4.0';
 import {createCardTurntables} from './card-turntable.js?v=3.4.0';
 const $=id=>document.getElementById(id);
@@ -85,7 +85,8 @@ function syncCapabilities(status){
   availableTextures=status.texture_sizes||[1024,2048];
   for(const option of $('resolution').options)option.disabled=!availableResolutions.includes(Number(option.value));
   profileControls?.setFinishingCapabilities(status.features?.includes('repair_surface')===true,
-    status.features?.includes('hd_reconstruction')===true,status.create_master_finishing,status.detail_texturing);
+    status.features?.includes('hd_reconstruction')===true,status.create_master_finishing,status.detail_texturing,
+    status.multiview_texture_refinement);
   explainCost();
 }
 function explainCost(){const hint=$('qualityHint');if(!hint)return;const notes=[];if(Number($('resolution').value)===1536)notes.push('1536³ requires more processing time and memory.');if(Number($('textureSize').value)===4096)notes.push('4K uses larger textures; reserve it for close-up objects and large surfaces.');hint.textContent=notes.join(' ');hint.hidden=!notes.length;}
@@ -93,6 +94,7 @@ $('resolution').addEventListener('change',explainCost);$('textureSize').addEvent
 profileControls=await createProfileControls(advancedControls,{
   changed:()=>{explainCost();updateButtons();},
   usePixal:()=>multiview.usesPixal,
+  isMultiview:()=>multiview.active,
   describeMethod:()=>multiview.methodLabel,
   useNativeMethod:()=>multiview.applyMethod('trellis2'),
 });

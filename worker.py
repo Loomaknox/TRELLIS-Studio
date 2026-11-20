@@ -66,7 +66,8 @@ def generate_source(torch):
     config_folder,pipeline_kind=prepare_pipeline_config(ROOT,JOB,requested_resolution)
     pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(config_folder))
     pipeline.cuda()
-    if (settings.get('keep_finishing_source') or settings.get('retexture_after_refinement')) and not reviewed:
+    if not reviewed and any(settings.get(key) for key in (
+            'keep_finishing_source', 'retexture_after_refinement', 'multiview_texture_refinement')):
         prepare_image = pipeline.preprocess_image
         def record_conditioning(image):
             prepared = prepare_image(image)
@@ -347,6 +348,29 @@ def finish_mesh(torch, source, source_id=None):
     return result
 
 
+def refine_multiview_texture(torch, result, *, pixal=False):
+    if not settings.get('multiview_texture_refinement'):
+        return None
+    from multiview_texture_runtime import refine, supports_single_image
+    from texture_projection import MAX_TRIANGLES
+
+    if not supports_single_image(settings):
+        return dict(state='skipped', reason='Multiview texture refinement requires single-image generation.')
+    if len(result.faces) > MAX_TRIANGLES:
+        return dict(state='skipped', reason=f'Texture refinement supports up to {MAX_TRIANGLES:,} triangles.')
+    material_recipe = None
+    if not pixal and settings.get('preset') == 'high_detail' and not settings.get('retexture_after_refinement'):
+        material_recipe = dict(reference=JOB / 'conditioning.png', texture_size=settings['texture_size'],
+                               seed=options['texture_seed'] if options['texture_seed'] >= 0 else settings['seed'],
+                               sampler=sampler_options(options)['texture'])
+    gc.collect()
+    torch.cuda.synchronize()
+    torch.cuda.empty_cache()
+    return refine(ROOT, JOB / 'model.glb', JOB / 'prepared.png',
+                  lambda stage, percent: status('running', stage, percent),
+                  material_recipe=material_recipe)
+
+
 def project_requested_face():
     if settings.get('engine') != 'pixal3d' or not settings.get('reproject_face'):
         return None
@@ -487,15 +511,18 @@ def main():
             save_finishing_source(torch, source)
     resolution = source['resolution']
     result = finish_mesh(torch, source, source_id)
+    raw_triangles = len(source['faces'])
+    del source
     material_report = (refine_materials(torch, result, source_id, resolution)
                        if settings.get('retexture_after_refinement') else None)
+    multiview_report = refine_multiview_texture(torch, result)
     face_report = project_requested_face()
     if source_id and settings.get('master_finishing'):
         preserve_master_generation_views(source_id, result)
     with (JOB / 'model.glb').open('rb') as model_file:
         result.metadata['finishing']['model_sha256'] = hashlib.file_digest(model_file, 'sha256').hexdigest()
     stats = dict(name=settings['name'], height_m=settings['height_m'], seed=settings['seed'],
-                 triangles=len(result.faces), vertices=len(result.vertices), raw_triangles=len(source['faces']),
+                 triangles=len(result.faces), vertices=len(result.vertices), raw_triangles=raw_triangles,
                  engine='Pixal3D' if settings.get('engine') == 'pixal3d' else 'TRELLIS.2',
                  dimensions_m=result.extents.tolist(), resolution=resolution,
                  requested_resolution=requested_resolution, pipeline_type=pipeline_kind,
@@ -507,6 +534,8 @@ def main():
                  seconds=round(time.time()-started, 1))
     if face_report is not None:
         stats['face_projection'] = face_report
+    if multiview_report is not None:
+        result.metadata['finishing']['multiview_texture_refinement'] = multiview_report
     if source_id:
         stats['finish_source_id'] = source_id
     if 'adaptive_finishing' in result.metadata:
@@ -521,7 +550,9 @@ def main():
         stats['vertices'] += report['tangent_vertex_splits']
     write(JOB / 'result.json', stats)
     ready = 'Finishing variant ready' if source_id else 'Model ready'
-    if material_report and material_report['state'] == 'failed':
+    if multiview_report and multiview_report['state'] == 'skipped':
+        ready = 'Model ready · multiview texture pass skipped'
+    elif material_report and material_report['state'] == 'failed':
         ready = 'Model ready · original materials retained'
     status('done', ready, 100, result=stats)
 

@@ -1,4 +1,4 @@
-import {createQueueStudio} from './queue-studio.js?v=high-detail-startup';
+import {createQueueStudio} from './queue-studio.js?v=multiview-texture-refinement';
 import {createWorkspaceLibrary} from './workspace-library.js?v=3.4.0';
 import {createVersionHistory} from './version-history.js?v=3.4.0';
 import {createModelWorkbench} from './model-workbench.js?v=3.4.0';

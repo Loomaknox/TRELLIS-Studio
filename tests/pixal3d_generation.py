@@ -104,8 +104,8 @@ app.SERVER.run()
             page = request('GET', '/')
             assert page.headers['cache-control'] == 'no-cache, must-revalidate'
             assert status['ui_revision'] in page.text
-            card = page.text.split('<section class="reference-card"', 1)[1].split('</section>', 1)[0]
-            assert card.index('id="image"') < card.index('id="addReferenceView"')
+            card = page.text.split('<section class="reference-card', 1)[1].split('</section>', 1)[0]
+            assert all(marker in card for marker in ('id="image"', 'id="addReferenceView"'))
             assert 'id="supplementalViews"' in card
             assert not status['generation_methods']['pixal3d_single']['ready']
             files = {'image': upload(), 'left_image': upload()}

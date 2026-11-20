@@ -61,6 +61,9 @@
 !/texture_projection.py
 !/retexture_runtime.py
 !/retexture_worker.py
+!/multiview_texture_runtime.py
+!/multiview_texture_views.py
+!/multiview_texture_fusion.py
 !/generation_view_projection.py
 !/wtivo_runtime.py
 !/hi3d_runtime.py
