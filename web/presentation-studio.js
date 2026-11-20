@@ -1,3 +1,4 @@
+import {t} from './i18n.js';
 import * as THREE from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {clone as cloneSkeleton} from 'three/addons/utils/SkeletonUtils.js';
@@ -8,34 +9,34 @@ const cardCapture = {width: 384, height: 384, seconds: 6, fps: 12, bitrate: 3600
 const cardMaxBytes = 6 * 1024 * 1024;
 
 export function createPresentationStudio({api,getJob,getViewer,refresh,canUseCardTurntables=()=>false}){
-  const ui=dialog('presentationDialog','Present your model','CAMERA & LIGHT',
-    'Capture the current angle, pose, materials and preview lighting.','presentation-dialog');
+  const ui=dialog('presentationDialog',t('Present your model'),t('CAMERA & LIGHT'),
+    t('Capture the current angle, pose, materials and preview lighting.'),'presentation-dialog');
   const size=select([['1024','1024 × 1024'],['1920','1920 × 1080'],['2048','2048 × 2048']],'1024');
-  const transparent=input('checkbox',''),duration=select([['6','6 seconds'],['10','10 seconds']],'6');
+  const transparent=input('checkbox',''),duration=select([['6',t('6 seconds')],['10',t('10 seconds')]],'6');
   transparent.checked=true;
   const preview=el('img','capture-preview');
-  preview.alt='Captured model preview';
+  preview.alt=t('Captured model preview');
   preview.hidden=true;
   const progress=el('progress');
   progress.max=100;
   progress.hidden=true;
-  const thumbnail=button('Save thumbnail','image');
-  const png=button('Capture PNG','camera');
-  const video=button('Record turntable','rotate','primary');
-  const cancel=button('Cancel recording','close');
+  const thumbnail=button(t('Save thumbnail'),'image');
+  const png=button(t('Capture PNG'),'camera');
+  const video=button(t('Record turntable'),'rotate','primary');
+  const cancel=button(t('Cancel recording'),'close');
   cancel.hidden=true;
   ui.foot.append(thumbnail,png,video,cancel);
 
   const library=el('section','presentation-library');
   const libraryHint=el('p','hint');
   const libraryButtons=el('div','presentation-library-actions');
-  const libraryVideo=button('Save card turntable','rotate');
-  const useLastVideo=button('Use last recording','play');
-  const removeLibrary=button('Remove preview','trash');
+  const libraryVideo=button(t('Save card turntable'),'rotate');
+  const useLastVideo=button(t('Use last recording'),'play');
+  const removeLibrary=button(t('Remove preview'),'trash');
   libraryButtons.append(libraryVideo,useLastVideo,removeLibrary);
-  library.append(el('strong','','Library preview'),libraryHint,libraryButtons);
-  ui.body.append(field('Image resolution',size),field('Transparent PNG background',transparent),
-    field('Turntable duration',duration),library,preview,progress);
+  library.append(el('strong','',t('Library preview')),libraryHint,libraryButtons);
+  ui.body.append(field(t('Image resolution'),size),field(t('Transparent PNG background'),transparent),
+    field(t('Turntable duration'),duration),library,preview,progress);
   let running=false,cancelled=false,objectUrl=null,openedJobId=null;
 
   function enable(on,cancellable=false){
@@ -51,13 +52,13 @@ export function createPresentationStudio({api,getJob,getViewer,refresh,canUseCar
     const last=presentation.turntable;
     removeLibrary.hidden=!saved;
     useLastVideo.hidden=!(last?.bytes>0&&last.bytes<=cardMaxBytes);
-    const state=saved?'Saved on this card. ':'';
-    libraryHint.textContent=state+'A small, silent preview plays on hover or when you press Play.';
+    const state=saved?t('Saved on this card.')+' ':'';
+    libraryHint.textContent=state+t('A small, silent preview plays on hover or when you press Play.');
   }
 
   function captureRenderer(job,width,height){
     const view=getViewer();
-    if(!view.model||!view.scene||view.loadedId!==job.id)throw Error('Wait for this model to load before recording.');
+    if(!view.model||!view.scene||view.loadedId!==job.id)throw Error(t('Wait for this model to load before recording.'));
     const renderer=new THREE.WebGLRenderer({alpha:true,antialias:true,preserveDrawingBuffer:true});
     renderer.setSize(width,height,false);
     renderer.setPixelRatio(1);
@@ -114,7 +115,7 @@ export function createPresentationStudio({api,getJob,getViewer,refresh,canUseCar
   function selectedJob(){
     const job=getJob();
     if(job?.state==='done'&&job.id===openedJobId)return job;
-    ui.notice.textContent='Reopen Present model for the selected asset.';
+    ui.notice.textContent=t('Reopen Present model for the selected asset.');
     return null;
   }
 
@@ -130,16 +131,16 @@ export function createPresentationStudio({api,getJob,getViewer,refresh,canUseCar
       capture=captureRenderer(job,dimensions.width,dimensions.height);
       capture.renderer.render(capture.scene,capture.camera);
       const blob=await new Promise(resolve=>capture.renderer.domElement.toBlob(resolve,'image/png'));
-      if(!blob)throw Error('This browser could not capture the model.');
+      if(!blob)throw Error(t('This browser could not capture the model.'));
       await save(job,kind,blob,recipe(capture,capture.view.controls.target,dimensions));
       if(objectUrl)URL.revokeObjectURL(objectUrl);
       objectUrl=URL.createObjectURL(blob);
       preview.src=objectUrl;
       preview.hidden=false;
       if(kind==='capture')download(blob,(job.metadata?.display_name||'Model')+'.png');
-      ui.notice.textContent=kind==='thumbnail'?'Thumbnail saved to the model card.':'PNG saved and downloaded.';
+      ui.notice.textContent=kind==='thumbnail'?t('Thumbnail saved to the model card.'):t('PNG saved and downloaded.');
       await refresh();
-    }catch(e){ui.notice.textContent=e.message;}
+    }catch(e){ui.notice.textContent=t(e.message);}
     finally{capture?.restore();running=false;enable(true);}
   }
 
@@ -174,7 +175,7 @@ export function createPresentationStudio({api,getJob,getViewer,refresh,canUseCar
       const settings=recipe(capture,center,{width:options.width,height:options.height,fps:options.fps,
         duration:options.seconds,transparent:false});
       const axis=new THREE.Vector3(0,1,0);
-      ui.notice.textContent=forCard?'Rendering the library preview…':'Rendering the turntable · 24 fps…';
+      ui.notice.textContent=forCard?t('Rendering the library preview…'):t('Rendering the turntable · 24 fps…');
       const blob=await renderTurntable({...options,canvas:capture.renderer.domElement,cancelled:()=>cancelled,
         progress:value=>progress.value=value,draw:u=>{
           capture.camera.position.copy(start).applyAxisAngle(axis,u*Math.PI*2).add(center);
@@ -182,15 +183,15 @@ export function createPresentationStudio({api,getJob,getViewer,refresh,canUseCar
           capture.renderer.render(capture.scene,capture.camera);
         }});
       if(!blob||cancelled){
-        ui.notice.textContent='Recording cancelled.';
+        ui.notice.textContent=t('Recording cancelled.');
         return;
       }
       const manifest=await save(job,forCard?'library_turntable':'turntable',blob,settings);
       if(!forCard)download(blob,(job.metadata?.display_name||'Model')+'-turntable.webm');
       syncLibrary(manifest);
-      ui.notice.textContent=forCard?'Turntable saved to the model card.':'Turntable saved and downloaded · 24 fps.';
+      ui.notice.textContent=forCard?t('Turntable saved to the model card.'):t('Turntable saved and downloaded · 24 fps.');
       await refresh();
-    }catch(e){ui.notice.textContent=e.message;}
+    }catch(e){ui.notice.textContent=t(e.message);}
     finally{capture?.restore();running=false;progress.hidden=true;enable(true);}
   }
 
@@ -204,9 +205,9 @@ export function createPresentationStudio({api,getJob,getViewer,refresh,canUseCar
     try{
       const manifest=await api('/api/jobs/'+job.id+'/presentation/library-turntable',{method});
       syncLibrary(manifest);
-      ui.notice.textContent=method==='POST'?'Last recording saved to the model card.':'Card turntable removed.';
+      ui.notice.textContent=method==='POST'?t('Last recording saved to the model card.'):t('Card turntable removed.');
       await refresh();
-    }catch(e){ui.notice.textContent=e.message;}
+    }catch(e){ui.notice.textContent=t(e.message);}
     finally{running=false;enable(true);}
   }
 

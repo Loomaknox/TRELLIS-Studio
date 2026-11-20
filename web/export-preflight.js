@@ -1,16 +1,17 @@
+import {t} from './i18n.js';
 import {el, field, input, select, button} from './workbench-ui.js?v=3.4.0';
 
 const usages = [
-  ['static', 'Static prop'], ['background', 'Background prop'],
-  ['interactive', 'Interactive prop'], ['character', 'Character'],
-  ['reference', 'Editable source'],
+  ['static', t('Static prop')], ['background', t('Background prop')],
+  ['interactive', t('Interactive prop')], ['character', t('Character')],
+  ['reference', t('Editable source')],
 ];
 const reviewLabels = {
-  review: 'To review', retouch: 'Needs changes', retained: 'Retained', rejected: 'Rejected',
+  review: t('To review'), retouch: t('Needs changes'), retained: t('Retained'), rejected: t('Rejected'),
 };
 const actions = {
-  diagnostics: ['Inspect', 'shield'], lod: ['Prepare LODs', 'layers'],
-  game: ['Adjust in Game preparation', 'cube'], print: ['Prepare a new print copy', 'print'],
+  diagnostics: [t('Inspect'), 'shield'], lod: [t('Prepare LODs'), 'layers'],
+  game: [t('Adjust in Game preparation'), 'cube'], print: [t('Prepare a new print copy'), 'print'],
 };
 const presets = {
   static: [28000, 2048, 4], background: [12000, 1024, 2],
@@ -30,41 +31,41 @@ function inferredUsage(jobs, target) {
 
 export function createExportPreflight({api, onAction, onChange}) {
   const root = el('section', 'export-preflight');
-  root.setAttribute('aria-label', 'Export checks');
+  root.setAttribute('aria-label', t('Export checks'));
   const head = el('div', 'export-check-head');
-  const state = el('span', 'export-check-state', 'Check pending');
+  const state = el('span', 'export-check-state', t('Check pending'));
   state.setAttribute('role', 'status');
-  head.append(el('h4', '', 'Export checks'), state);
+  head.append(el('h4', '', t('Export checks')), state);
   const usage = select(usages, 'static');
-  const usageField = field('Asset use', usage);
+  const usageField = field(t('Asset use'), usage);
   const budgets = el('details', 'export-check-budgets');
-  const budgetSummary = el('summary', '', 'Budget and expectations');
+  const budgetSummary = el('summary', '', t('Budget and expectations'));
   const controls = el('div', 'export-check-fields');
   const maxTriangles = input('number', '', {min: 1, max: 50000000, step: 1});
   const maxTextures = input('number', '', {min: 1, max: 32768, step: 1});
   const maxMaterials = input('number', '', {min: 1, max: 10000, step: 1});
   const expectedHeight = input('number', '', {min: 0.000001, step: 'any'});
-  const heightLabel = field('Expected height (m)', expectedHeight);
-  const pivot = select([['any', 'No target'], ['ground', 'Bottom centre'], ['center', 'Geometric centre']], 'any');
+  const heightLabel = field(t('Expected height (m)'), expectedHeight);
+  const pivot = select([['any', t('No target')], ['ground', t('Bottom centre')], ['center', t('Geometric centre')]], 'any');
   const collider = input('checkbox', '');
-  const colliderField = field('Require a collision proxy', collider);
-  const triangleField = field('LOD 0 · max triangles', maxTriangles);
-  const textureField = field('Max texture edge (px)', maxTextures);
-  const materialField = field('Max materials', maxMaterials);
-  const pivotField = field('Expected pivot', pivot);
+  const colliderField = field(t('Require a collision proxy'), collider);
+  const triangleField = field(t('LOD 0 · max triangles'), maxTriangles);
+  const textureField = field(t('Max texture edge (px)'), maxTextures);
+  const materialField = field(t('Max materials'), maxMaterials);
+  const pivotField = field(t('Expected pivot'), pivot);
   controls.append(triangleField, textureField, materialField, heightLabel, pivotField, colliderField);
   const detailLevels = el('details', 'export-check-levels');
   const lodControls = el('div', 'export-check-fields');
   const lods = Array.from({length: 4}, (_, i) => {
     const control = input('number', '', {min: 1, max: 50000000, step: 1});
-    lodControls.append(field(`LOD ${i + 1} · max triangles`, control));
+    lodControls.append(field(t('LOD {level} · max triangles', {level: i + 1}), control));
     return control;
   });
-  detailLevels.append(el('summary', '', 'Lower detail levels'), lodControls);
+  detailLevels.append(el('summary', '', t('Lower detail levels')), lodControls);
   budgets.append(budgetSummary, controls, detailLevels);
-  const hint = el('p', 'export-check-hint', 'Blank fields have no limit. Your review status is reported separately.');
+  const hint = el('p', 'export-check-hint', t('Blank fields have no limit. Your review status is reported separately.'));
   const results = el('div', 'export-check-results');
-  const bypass = el('button', 'secondary export-check-bypass', 'Continue without measured checks');
+  const bypass = el('button', 'secondary export-check-bypass', t('Continue without measured checks'));
   bypass.type = 'button';
   bypass.hidden = true;
   root.append(head, usageField, budgets, hint, results, bypass);
@@ -98,7 +99,7 @@ export function createExportPreflight({api, onAction, onChange}) {
     skipped = false;
     results.replaceChildren();
     bypass.hidden = true;
-    state.textContent = 'Check pending';
+    state.textContent = t('Check pending');
     state.className = 'export-check-state';
   }
 
@@ -120,9 +121,9 @@ export function createExportPreflight({api, onAction, onChange}) {
       const warnings = model.checks.filter(row => row.status === 'attention').length;
       attention += warnings;
       group.open = report.models.length === 1;
-      const label = warnings ? `${warnings} to inspect` : 'Checks measured';
+      const label = warnings ? `${warnings} to inspect` : t('Checks measured');
       group.append(el('summary', warnings ? 'attention' : '', `${model.name} · ${label}`));
-      group.append(el('p', 'export-check-review', `Visual review · ${reviewLabels[model.human_review] || 'To review'}`));
+      group.append(el('p', 'export-check-review', `Visual review · ${reviewLabels[model.human_review] || t('To review')}`));
       const rows = el('ul', 'export-check-rows');
       for (const check of model.checks) {
         const row = el('li', check.status);
@@ -138,7 +139,7 @@ export function createExportPreflight({api, onAction, onChange}) {
       group.append(rows);
       results.append(group);
     }
-    state.textContent = attention ? `${attention} to inspect` : 'Checks measured';
+    state.textContent = attention ? `${attention} to inspect` : t('Checks measured');
     state.classList.toggle('attention', attention > 0);
     state.classList.toggle('checked', attention === 0);
   }
@@ -180,7 +181,7 @@ export function createExportPreflight({api, onAction, onChange}) {
     busy = true;
     results.replaceChildren();
     bypass.hidden = true;
-    state.textContent = 'Measuring…';
+    state.textContent = t('Measuring…');
     onChange();
     try {
       const measured = await api('/api/exports/preflight', {
@@ -192,7 +193,7 @@ export function createExportPreflight({api, onAction, onChange}) {
       if (root.closest('dialog')?.open) head.scrollIntoView({block: 'nearest'});
     } catch (error) {
       if (own !== token) return;
-      state.textContent = 'Check unavailable';
+      state.textContent = t('Check unavailable');
       state.classList.add('attention');
       results.append(el('p', 'export-check-hint', error.message));
       bypass.hidden = false;
@@ -209,7 +210,7 @@ export function createExportPreflight({api, onAction, onChange}) {
   budgets.addEventListener('input', () => { clearResult(); onChange(); });
   bypass.onclick = () => {
     skipped = true;
-    state.textContent = 'Check skipped';
+    state.textContent = t('Check skipped');
     bypass.hidden = true;
     onChange();
   };

@@ -1,24 +1,25 @@
+import {formatLocale,t} from './i18n.js';
 // Recipes are persisted by the local server, independently from object history.
 import {detailRefinements} from './hd-master-finishing.js?v=detail-refinement-native';
 
 const $=id=>document.getElementById(id);
 const steps={game_d:20,high_detail:20,humanoid_experimental:20,dense_master:20,fast:8,balanced:12,detail:20};
 const startupKey='trellis.studio.startup-profile';
-const profileNames={game_d:'Game Asset',dense_master:'HD Master'};
+const profileNames={game_d:t('Game Asset'),dense_master:t('HD Master')};
 const finishingNames={
-  studio_768:'Balanced Reconstruction',
-  wtivo_1024:'Surface Closure',
-  direct:'Direct Export',
-  repair:'Repair Holes',
+  studio_768:t('Balanced Reconstruction'),
+  wtivo_1024:t('Surface Closure'),
+  direct:t('Direct Export'),
+  repair:t('Repair Holes'),
 };
 const finishingDetails={
-  studio_768:'Studio 768 · Rebuilds the surface and retains fine details.',
-  wtivo_1024:'WTiVo 1024 · Prioritizes closing surface gaps.',
-  direct:'Adaptive reduction within the triangle ceiling.',
-  repair:'Fills small gaps while retaining the source for variants.',
+  studio_768:t('Studio 768 · Rebuilds the surface and retains fine details.'),
+  wtivo_1024:t('WTiVo 1024 · Prioritizes closing surface gaps.'),
+  direct:t('Adaptive reduction within the triangle ceiling.'),
+  repair:t('Fills small gaps while retaining the source for variants.'),
 };
-const finishingName=value=>detailRefinements[value]?.name||finishingNames[value];
-const number=new Intl.NumberFormat('en-US');
+const finishingName=value=>t(detailRefinements[value]?.name||finishingNames[value]||'');
+const number=new Intl.NumberFormat(formatLocale);
 const inlineFinishingLimit=3000000;
 const detailRefinementLimit=1000000;
 const detailSourceResolutions=[512,1024,1536];
@@ -87,8 +88,8 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     const actual = budget(recipe);
     const sourceOption=$('resolution').selectedOptions[0];
     const detailSourceSupported=detailSourceResolutions.includes(actual.resolution)&&sourceOption&&!sourceOption.disabled;
-    const detailSourceReason=usePixal()?'Choose TRELLIS.2 · Single image.'
-      : detailSourceSupported?'':'Choose a supported 3D resolution in Advanced.';
+    const detailSourceReason=usePixal()?t('Choose TRELLIS.2 · Single image.')
+      : detailSourceSupported?'':t('Choose a supported 3D resolution in Advanced.');
     finishing.hidden = !!override.value;
     finishing.disabled = !dense||finishing.hidden;
     override.disabled = !dense;
@@ -100,12 +101,12 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       if(detailRefinements[option.value]){
         option.disabled=!!detailSourceReason||info?.available!==true;
         option.title=option.disabled
-          ? detailSourceReason||info?.reason||'Requires the Hi3D runtime.'
+          ? detailSourceReason||info?.reason||t('Requires the Hi3D runtime.')
           : detailRefinements[option.value].detail;
       }else{
         option.disabled=actual.resolution<1024||!(info?.available??(option.value==='studio_768'&&hdSupported));
-        option.textContent=finishingName(option.value)+(option.value==='wtivo_1024'&&option.disabled?' · Unavailable':'');
-        option.title=option.disabled ? info?.reason || 'Requires 1024 or higher generation resolution.' : '';
+        option.textContent=finishingName(option.value)+(option.value==='wtivo_1024'&&option.disabled?' · '+t('Unavailable'):'');
+        option.title=option.disabled ? info?.reason || t('Requires 1024 or higher generation resolution.') : '';
       }
     }
     const selectedSupport=masterSupport[selectedFinish];
@@ -113,16 +114,16 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     const ceiling=detail?detailRefinementLimit:inlineFinishingLimit;
     const requestedTriangles=detail?Number($('triangles').value):recipe.triangles;
     $('triangles').max=String(reconstruction?ceiling:8000000);
-    let hint=detail?.detail||finishingDetails[selectedFinish]||'';
+    let hint=t(detail?.detail||finishingDetails[selectedFinish]||'');
     if (reconstruction&&finishing.selectedOptions[0]?.disabled) {
       hint=detail ? finishing.selectedOptions[0].title
         : actual.resolution<1024
-        ? 'Choose 1024 or higher generation resolution in Advanced.'
-        : selectedSupport?.reason || 'This reconstruction is unavailable.';
+        ? t('Choose 1024 or higher generation resolution in Advanced.')
+        : selectedSupport?.reason || t('This reconstruction is unavailable.');
     } else if (reconstruction&&requestedTriangles>ceiling) {
-      hint=`Set the triangle ceiling to ${number.format(ceiling)} or less in Advanced.`;
+      hint=t('Set the triangle ceiling to {ceiling} or less in Advanced.',{ceiling:number.format(ceiling)});
     } else if(detail&&!$('removeBg').checked){
-      hint+=' Use a transparent reference or enable background removal.';
+      hint+=' '+t('Use a transparent reference or enable background removal.');
     }
     $('denseMasterFinishingHint').textContent=hint;
     $('detailRefinementSource').hidden=!detail;
@@ -137,23 +138,23 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     $('finishingSourceHelp').hidden=requiresSource;
     const dirty=!equal(profileRecipe(recipe),selected.settings);
     $('profileId').value=recipe.preset===selected.settings.preset?selected.id||selected.sourceProfile||'':'';
-    $('profileState').textContent=dirty?'MODIFIED':selected.variant?'VARIANT':selected.experimental?'EXPERIMENTAL':'';
+    $('profileState').textContent=dirty?t('MODIFIED'):selected.variant?t('VARIANT'):selected.experimental?t('EXPERIMENTAL'):'';
     $('profileState').hidden=!$('profileState').textContent;
     $('profileState').classList.toggle('dirty',dirty);
-    $('profileSummary').textContent=`${actual.resolution}³ · ${dense?'Up to ':''}${number.format(actual.triangles)} triangles · ${actual.texture_size/1024}K textures`;
-    $('monoTrianglesLabel').textContent=dense?'Maximum triangles':'Target triangles';
-    $('monoTrianglesHint').textContent=detail?'0 uses the profile ceiling, capped at 1,000,000.'
-      : reconstruction?'Up to 3,000,000. 0 uses the profile ceiling.'
-      : dense?'0 uses the profile ceiling.':'0 uses the profile target.';
-    const caption=selected.variant?'Model settings':profileNames[selected.id]||selected.name;
-    $('generationSummary').textContent=[caption,describeMethod(),detail?`${actual.resolution}³ source`:'',finishingName(selectedFinish)].filter(Boolean).join(' · ');
+    $('profileSummary').textContent=t(dense?'{resolution}³ · Up to {triangles} triangles · {textures}K textures':'{resolution}³ · {triangles} triangles · {textures}K textures',{resolution:actual.resolution,triangles:number.format(actual.triangles),textures:actual.texture_size/1024});
+    $('monoTrianglesLabel').textContent=dense?t('Maximum triangles'):t('Target triangles');
+    $('monoTrianglesHint').textContent=detail?t('0 uses the profile ceiling, capped at 1,000,000.')
+      : reconstruction?t('Up to 3,000,000. 0 uses the profile ceiling.')
+      : dense?t('0 uses the profile ceiling.'):t('0 uses the profile target.');
+    const caption=selected.variant?t('Model settings'):profileNames[selected.id]||selected.name;
+    $('generationSummary').textContent=[caption,describeMethod(),detail?t('{resolution}³ source',{resolution:actual.resolution}):'',finishingName(selectedFinish)].filter(Boolean).join(' · ');
     $('updateProfile').hidden=selected.builtin;
     const startup=$('useProfileAtStartup');
     const isStartup=selected.id===startupProfile;
     startup.disabled=!selected.id||dirty||isStartup;
     startup.setAttribute('aria-pressed',String(isStartup));
-    startup.textContent=isStartup?'Startup profile':'Use at startup';
-    if(![...$('profileBase').options].some(o=>o.value===recipe.preset)){const option=document.createElement('option');option.value=recipe.preset;option.textContent='Historical settings';$('profileBase').append(option);}$('profileBase').value=recipe.preset;
+    startup.textContent=isStartup?t('Startup profile'):t('Use at startup');
+    if(![...$('profileBase').options].some(o=>o.value===recipe.preset)){const option=document.createElement('option');option.value=recipe.preset;option.textContent=t('Historical settings');$('profileBase').append(option);}$('profileBase').value=recipe.preset;
     changed();
   }
   function apply(id){
@@ -171,11 +172,11 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     if(s.preset==='humanoid_experimental')$('assetType').value='humanoid';
     $('profileNotice').textContent='';sync();
   }
-  async function request(url,options){const r=await fetch(url,options),data=await r.json();if(!r.ok)throw Error(typeof data.detail==='string'?data.detail:'Profiles unavailable.');return data;}
+  async function request(url,options){const r=await fetch(url,options),data=await r.json();if(!r.ok)throw Error(typeof data.detail==='string'?data.detail:t('Profiles unavailable.'));return data;}
   function options(){
     $('profileChoice').replaceChildren();
     for(const builtin of [true,false]){
-      const group=document.createElement('optgroup');group.label=builtin?'Built-in profiles':'My profiles';
+      const group=document.createElement('optgroup');group.label=builtin?t('Built-in profiles'):t('My profiles');
       for(const p of profiles.filter(x=>x.builtin===builtin)){const o=document.createElement('option');o.value=p.id;o.textContent=p.builtin?profileNames[p.id]||p.name:p.name;group.append(o);}
       if(group.children.length)$('profileChoice').append(group);
     }
@@ -187,16 +188,16 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     startupProfile=[saved,data.startup_profile,data.default_profile].find(id=>profiles.some(p=>p.id===id));
     options();apply(startupProfile);
     $('profileChoice').disabled=false;$('saveProfileAs').disabled=!advanced.ready;
-  }catch(e){$('profileNotice').textContent=e.message+' Restart TRELLIS if needed.';}
+  }catch(e){$('profileNotice').textContent=e.message+' '+t('Restart TRELLIS if needed.');}
   $('profileChoice').onchange=()=>apply($('profileChoice').value);
   $('useProfileAtStartup').onclick=()=>{
     try{
       localStorage.setItem(startupKey,selected.id);
       startupProfile=selected.id;
-      $('profileNotice').textContent='Startup profile saved for this browser.';
+      $('profileNotice').textContent=t('Startup profile saved for this browser.');
       sync();
     }catch{
-      $('profileNotice').textContent='This browser could not save the startup profile.';
+      $('profileNotice').textContent=t('This browser could not save the startup profile.');
     }
   };
   $('form').addEventListener('input',sync);$('form').addEventListener('change',sync);
@@ -212,20 +213,20 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     $('denseMasterFinishing').focus();
   });
   $('profileBase').addEventListener('change',()=>{$('preset').value=$('profileBase').value;sync();});
-  function show(update){if(!selected)return;edit=update;$('profileName').value=update?selected.name:'';$('profileDialogTitle').textContent=update?'Edit this profile':'Save a copy';$('profileDialogError').textContent='';$('profileDialog').showModal();$('profileName').focus();}
+  function show(update){if(!selected)return;edit=update;$('profileName').value=update?selected.name:'';$('profileDialogTitle').textContent=update?t('Edit this profile'):t('Save a copy');$('profileDialogError').textContent='';$('profileDialog').showModal();$('profileName').focus();}
   $('saveProfileAs').onclick=()=>show(false);$('updateProfile').onclick=()=>show(true);
   $('closeProfile').onclick=()=>$('profileDialog').close();
   $('profileForm').onsubmit=async e=>{
     e.preventDefault();if(saving||!selected)return;
     const invalid=[...$('form').querySelectorAll('input[type=number]')].find(x=>!x.checkValidity());
-    if(invalid){$('profileDialogError').textContent='Correct the numeric fields before saving the profile.';return;}
+    if(invalid){$('profileDialogError').textContent=t('Correct the numeric fields before saving the profile.');return;}
     saving=true;$('confirmProfile').disabled=true;
     try{
       const profile=await request(edit?`/api/profiles/${selected.id}`:'/api/profiles',{
         method:edit?'PUT':'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({name:$('profileName').value,settings:profileRecipe()})});
       const data=await request('/api/profiles');profiles=data.profiles;options();apply(profile.id);
-      $('profileDialog').close();$('profileNotice').textContent='Profile saved on this computer.';
+      $('profileDialog').close();$('profileNotice').textContent=t('Profile saved on this computer.');
     }catch(e){$('profileDialogError').textContent=e.message;}
     finally{saving=false;$('confirmProfile').disabled=false;}
   };
@@ -264,10 +265,10 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     restoreSource(value){sourceRequired=false;previousKeep=!!value;$('keepFinishingSource').checked=!!value;sync();},
     detach(sourceProfile){
       const matchingProfile=profiles.find(profile=>profile.id===sourceProfile&&profile.settings.preset===$('preset').value);
-      selected={id:'',name:'Variant',builtin:true,variant:true,settings:read(),sourceProfile:matchingProfile?.id};
+      selected={id:'',name:t('Variant'),builtin:true,variant:true,settings:read(),sourceProfile:matchingProfile?.id};
       $('profileChoice').querySelector('[data-variant]')?.remove();
-      const option=document.createElement('option');option.value='';option.textContent='This model’s settings';option.disabled=true;option.dataset.variant='true';$('profileChoice').append(option);$('profileChoice').value='';
-      sync();$('profileNotice').textContent='Model settings restored. Save a copy to create a profile.';
+      const option=document.createElement('option');option.value='';option.textContent=t('This model’s settings');option.disabled=true;option.dataset.variant='true';$('profileChoice').append(option);$('profileChoice').value='';
+      sync();$('profileNotice').textContent=t('Model settings restored. Save a copy to create a profile.');
     },
     get ready(){return profiles.length>0;}};
 }

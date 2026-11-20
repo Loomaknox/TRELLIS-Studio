@@ -8,7 +8,8 @@
   <title>TRELLIS Studio · Server</title>
   <link rel="icon" type="image/svg+xml" href="/web/trellis-mark.svg">
   <link rel="stylesheet" href="/web/server.css?v=studio-visual-refresh">
-  <script type="module" src="/web/server.js?v=3.4.0"></script>
+  <link rel="stylesheet" href="/web/language-selector.css?v=1">
+  <script type="module" src="/web/server.js?v=3.11.0-i18n"></script>
 </head>
 <body class="server-page">
   <a class="server-skip" href="#server-main">Skip to content</a>
@@ -25,6 +26,7 @@
       <a href="/developers" id="server-docs-link" title="API and MCP documentation">API and MCP</a>
       <button type="button" class="server-subtle" id="server-logout"><svg class="server-logout-icon" aria-hidden="true"><use href="/web/icons.svg#logout"/></svg>Sign out</button>
     </nav>
+    <span data-language-selector></span>
     <span class="server-network" id="server-network"><span aria-hidden="true"></span> Local network</span>
   </header>
   <main id="server-main" class="server-main" tabindex="-1">

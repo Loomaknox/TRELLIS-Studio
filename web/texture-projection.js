@@ -1,3 +1,4 @@
+import {t} from './i18n.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import {
@@ -200,16 +201,16 @@ async function loadProjectionPreview(url, isCurrent) {
 function toolbarGroup(label, id) {
     const group = el('div', 'tp-tool-group');
     group.setAttribute('role', 'group');
-    group.setAttribute('aria-label', label);
+    group.setAttribute('aria-label', t(label));
     if (id) group.id = id;
     return group;
 }
 
 function toolbarButton(group, id, label, icon, action, title = label) {
-    const control = button(label, icon, 'secondary tp-tool', action);
+    const control = button(t(label), icon, 'secondary tp-tool', action);
     if (!icon) control.firstChild.remove();
     control.id = id;
-    control.title = title;
+    control.title = t(title);
     group.append(control);
     return control;
 }
@@ -217,15 +218,15 @@ function toolbarButton(group, id, label, icon, action, title = label) {
 function dockButton(id, icon, label, action) {
     const control = button('', icon, 'tool-button', action);
     if (id) control.id = id;
-    control.title = label;
-    control.setAttribute('aria-label', label);
+    control.title = t(label);
+    control.setAttribute('aria-label', t(label));
     return control;
 }
 
 export function createTextureProjection({ api, startJob }) {
     const ui = dialog(
         'textureProjection',
-        'Texture Projection',
+        t('Texture Projection'),
         '',
         '',
         'texture-projection-dialog',
@@ -235,21 +236,21 @@ export function createTextureProjection({ api, startJob }) {
     const methodChoices = el('div', 'tp-method-choices');
     methodChoices.hidden = true;
     methodChoices.setAttribute('role', 'group');
-    methodChoices.setAttribute('aria-label', 'Projection method');
+    methodChoices.setAttribute('aria-label', t('Projection method'));
     const manualMethod = button('', 'image', 'secondary tp-method-choice');
     const generationMethod = button('', 'camera', 'secondary tp-method-choice');
     manualMethod.id = 'projectionManualMethod';
     generationMethod.id = 'projectionGenerationMethod';
     for (const [control, label, caption] of [
-        [manualMethod, 'Align references', 'Auto Align or manual controls'],
-        [generationMethod, 'Use generation views', 'Pixel Match · Saved cameras'],
+        [manualMethod, t('Align references'), t('Auto Align or manual controls')],
+        [generationMethod, t('Use generation views'), t('Pixel Match · Saved cameras')],
     ]) {
         const copy = el('span', 'tp-method-copy');
-        const detail = el('small', '', caption);
+        const detail = el('small', '', t(caption));
         detail.id = control.id + 'Detail';
-        copy.append(el('strong', '', label), detail);
+        copy.append(el('strong', '', t(label)), detail);
         control.lastChild.replaceWith(copy);
-        control.setAttribute('aria-label', label);
+        control.setAttribute('aria-label', t(label));
         control.setAttribute('aria-describedby', detail.id);
     }
     manualMethod.setAttribute('aria-controls', 'projectionManualEditor');
@@ -272,15 +273,15 @@ export function createTextureProjection({ api, startJob }) {
     const sourceSnapshot = el('canvas', 'tp-generation-image');
     sourceSnapshot.width = sourceSnapshot.height = 256;
     sourceSnapshot.setAttribute('aria-hidden', 'true');
-    const generationCaption = el('figcaption', '', 'Current model');
+    const generationCaption = el('figcaption', '', t('Current model'));
     generationCurrent.append(sourceSnapshot, generationCaption);
     const savedRoles = el('ul', 'tp-generation-roles');
-    savedRoles.setAttribute('aria-label', 'Saved views');
+    savedRoles.setAttribute('aria-label', t('Saved views'));
     generationInputs.append(generationCurrent, savedRoles);
     const generationStatus = el('p', '', '');
     generationStatus.setAttribute('role', 'status');
     const generationFootnote = el('p', '', '');
-    const retryGenerationFit = button('Retry alignment', 'rotate', 'secondary tp-generation-retry',
+    const retryGenerationFit = button(t('Retry alignment'), 'rotate', 'secondary tp-generation-retry',
         () => fitGenerationReference());
     retryGenerationFit.hidden = true;
     generationPanel.append(
@@ -297,9 +298,9 @@ export function createTextureProjection({ api, startJob }) {
     viewStrip.hidden = true;
     const viewChoices = el('div', 'tp-view-choices');
     viewChoices.setAttribute('role', 'group');
-    viewChoices.setAttribute('aria-label', 'Projection views');
+    viewChoices.setAttribute('aria-label', t('Projection views'));
     const viewButtonsByIndex = ['One', 'Two'].map((suffix, index) => {
-        const label = `View ${index + 1}`;
+        const label = t('View {number}', {number: index + 1});
         const control = el('button', 'secondary tp-view-option', label);
         control.id = `projectionView${suffix}`;
         control.type = 'button';
@@ -309,49 +310,49 @@ export function createTextureProjection({ api, startJob }) {
         viewChoices.append(control);
         return { control, label, status };
     });
-    const addViewButton = button('Add second view', 'plus', 'secondary tp-view-action', () => switchView(1));
+    const addViewButton = button(t('Add second view'), 'plus', 'secondary tp-view-action', () => switchView(1));
     addViewButton.id = 'projectionAddView';
-    const removeViewButton = button('Remove view 2', 'close', 'secondary tp-view-action', removeSecondView);
+    const removeViewButton = button(t('Remove view 2'), 'close', 'secondary tp-view-action', removeSecondView);
     removeViewButton.id = 'projectionRemoveView';
-    const viewHelp = el('span', 'tp-view-help', 'Align each view separately. Both are blended in the texture copy.');
+    const viewHelp = el('span', 'tp-view-help', t('Align each view separately. Both are blended in the texture copy.'));
     viewStrip.append(viewChoices, addViewButton, removeViewButton, viewHelp);
-    const reference = select([['', 'Choose a reference']], '');
+    const reference = select([['', t('Choose a reference')]], '');
     reference.id = 'projectionReference';
     const upload = input('file', '', { accept: 'image/png,image/jpeg,image/webp' });
     upload.id = 'projectionUpload';
     upload.hidden = true;
-    const uploadButton = button('Upload image', 'import', 'secondary', () => upload.click());
+    const uploadButton = button(t('Upload image'), 'import', 'secondary', () => upload.click());
     const uploadName = el('small', 'tp-upload-name');
     const uploadControls = el('div', 'tp-upload-control');
     uploadControls.append(upload, uploadButton, uploadName);
     const referenceFields = el('div', 'tp-reference-fields');
-    reference.setAttribute('aria-label', 'Saved reference');
+    reference.setAttribute('aria-label', t('Saved reference'));
     referenceFields.append(
-        el('span', 'tp-reference-label', 'Reference'),
+        el('span', 'tp-reference-label', t('Reference')),
         reference,
         uploadControls,
     );
-    uploadButton.title = 'PNG, JPEG or WebP up to 25 MB';
+    uploadButton.title = t('PNG, JPEG or WebP up to 25 MB');
     let mode = 'selection', shape = 'ellipse';
     const toolGroup = el('div', 'tp-dock-group');
     toolGroup.id = 'projectionTool';
     toolGroup.setAttribute('role', 'group');
-    toolGroup.setAttribute('aria-label', 'Projection tools');
+    toolGroup.setAttribute('aria-label', t('Projection tools'));
     const toolButtons = Object.fromEntries([
-        ['selection', 'select', 'Select texture area'],
-        ['placement', 'fit', 'Align reference overlay'],
-        ['guides', 'edit', 'Match guide points'],
-        ['orbit', 'rotate', 'Orbit model camera'],
-        ['pan', 'compass', 'Pan zoomed views'],
+        ['selection', 'select', t('Select texture area')],
+        ['placement', 'fit', t('Align reference overlay')],
+        ['guides', 'edit', t('Match guide points')],
+        ['orbit', 'rotate', t('Orbit model camera')],
+        ['pan', 'compass', t('Pan zoomed views')],
     ].map(([value, icon, label]) => [value,
         dockButton(`projectionTool${titleCase(value)}`, icon, label, () => selectTool(value)),
     ]));
-    const maskGroup = toolbarGroup('Selection shapes', 'projectionMask');
+    const maskGroup = toolbarGroup(t('Selection shapes'), 'projectionMask');
     const masks = [
-        ['rectangle', 'Rectangle', 'select', 'Drag a rectangular selection'],
-        ['ellipse', 'Ellipse', 'sphere', 'Drag an elliptical selection'],
-        ['lasso', 'Lasso', 'edit', 'Draw a freehand selection'],
-        ['polygon', 'Polygon', 'wire', 'Place points around the selection'],
+        ['rectangle', t('Rectangle'), 'select', t('Drag a rectangular selection')],
+        ['ellipse', t('Ellipse'), 'sphere', t('Drag an elliptical selection')],
+        ['lasso', t('Lasso'), 'edit', t('Draw a freehand selection')],
+        ['polygon', t('Polygon'), 'wire', t('Place points around the selection')],
     ];
     const maskButtons = Object.fromEntries(masks.map(([value, label, icon, title]) => [value,
         toolbarButton(maskGroup, `projectionMask${titleCase(value)}`, label, icon, () => {
@@ -359,14 +360,14 @@ export function createTextureProjection({ api, startJob }) {
             closeToolbarPanel(true);
         }, title),
     ]));
-    const shapeOptions = dockButton('projectionShapeOptions', 'chevron-right', 'Selection shape', () =>
+    const shapeOptions = dockButton('projectionShapeOptions', 'chevron-right', t('Selection shape'), () =>
         toggleToolbarPanel(shapePanel, shapeOptions));
     shapeOptions.classList.add('tp-shape-caret');
     const shapePanel = el('section', 'tp-popover tp-shape-popover');
     shapePanel.id = 'projectionShapeOptionsPanel';
-    shapePanel.append(el('strong', 'tp-popover-title', 'Selection shape'), maskGroup);
-    const undoButton = dockButton('projectionUndo', 'back', 'Undo', undo);
-    const resetSelection = dockButton('projectionReset', 'restore', 'Reset selection', () => {
+    shapePanel.append(el('strong', 'tp-popover-title', t('Selection shape')), maskGroup);
+    const undoButton = dockButton('projectionUndo', 'back', t('Undo'), undo);
+    const resetSelection = dockButton('projectionReset', 'restore', t('Reset selection'), () => {
         remember();
         sourceRect = [...contentBounds];
         sourcePolygon = null;
@@ -376,19 +377,19 @@ export function createTextureProjection({ api, startJob }) {
     });
     const toolbar = el('div', 'tp-toolbar tool-pill');
     toolbar.setAttribute('role', 'toolbar');
-    toolbar.setAttribute('aria-label', 'Texture projection');
+    toolbar.setAttribute('aria-label', t('Texture projection'));
     const cameraPanel = el('section', 'tp-popover tp-camera-popover');
     cameraPanel.id = 'projectionCameraOptionsPanel';
-    const presetGroup = toolbarGroup('Model camera views');
+    const presetGroup = toolbarGroup(t('Model camera views'));
     const viewButtons = Object.fromEntries([...Object.keys(cameraViews), 'custom'].map((view) => [view,
-        toolbarButton(presetGroup, `projectionView${titleCase(view)}`, titleCase(view), '', () => selectView(view)),
+        toolbarButton(presetGroup, `projectionView${titleCase(view)}`, t(titleCase(view)), '', () => selectView(view)),
     ]));
-    const lensGroup = toolbarGroup('Camera projection');
+    const lensGroup = toolbarGroup(t('Camera projection'));
     const lensButtons = Object.fromEntries(['orthographic', 'perspective'].map((projection) => [projection,
-        toolbarButton(lensGroup, `projectionCamera${titleCase(projection)}`, titleCase(projection), '',
+        toolbarButton(lensGroup, `projectionCamera${titleCase(projection)}`, t(titleCase(projection)), '',
             () => setCamera({ ...cameraPose, projection }, false)),
     ]));
-    const cameraOptions = dockButton('projectionCameraOptions', 'camera', 'Projection camera', () =>
+    const cameraOptions = dockButton('projectionCameraOptions', 'camera', t('Projection camera'), () =>
         toggleToolbarPanel(cameraPanel, cameraOptions));
     const cameraTools = el('div', 'tp-camera-tools');
     cameraTools.append(presetGroup, lensGroup);
@@ -396,8 +397,8 @@ export function createTextureProjection({ api, startJob }) {
     cameraAdjustments.id = 'projectionCameraAdjustments';
     const cameraInputs = {};
     for (const [key, label, min, max] of [
-        ['yaw', 'Yaw (°)', -180, 180], ['pitch', 'Pitch (°)', -90, 90], ['roll', 'Roll (°)', -180, 180],
-        ['fov', 'Field of view (°)', 12, 90],
+        ['yaw', t('Yaw (°)'), -180, 180], ['pitch', t('Pitch (°)'), -90, 90], ['roll', t('Roll (°)'), -180, 180],
+        ['fov', t('Field of view (°)'), 12, 90],
     ]) {
         const control = input('number', 0, { min, max, step: 0.1 });
         control.id = `projectionCamera${titleCase(key)}`;
@@ -417,32 +418,32 @@ export function createTextureProjection({ api, startJob }) {
     }
     const autoAlignPanel = el('section', 'tp-auto-align');
     autoAlignPanel.setAttribute('role', 'group');
-    autoAlignPanel.setAttribute('aria-label', 'Automatic camera alignment');
-    const autoAlignButton = button('Auto Align', 'sparkles', 'secondary tp-tool', alignAutomatically);
+    autoAlignPanel.setAttribute('aria-label', t('Automatic camera alignment'));
+    const autoAlignButton = button(t('Auto Align'), 'sparkles', 'secondary tp-tool', alignAutomatically);
     autoAlignButton.id = 'projectionAutoAlign';
-    const cancelAlignmentButton = button('Cancel', 'close', 'secondary tp-tool', () => {
-        cancelAutoAlign('Alignment canceled.');
+    const cancelAlignmentButton = button(t('Cancel'), 'close', 'secondary tp-tool', () => {
+        cancelAutoAlign(t('Alignment canceled.'));
         changed();
         autoAlignButton.focus({ preventScroll: true });
     });
     cancelAlignmentButton.id = 'projectionCancelAutoAlign';
-    cancelAlignmentButton.setAttribute('aria-label', 'Cancel automatic alignment');
+    cancelAlignmentButton.setAttribute('aria-label', t('Cancel automatic alignment'));
     const autoAlignActions = el('div', 'tp-auto-align-actions');
     autoAlignActions.append(autoAlignButton, cancelAlignmentButton);
-    const autoAlignStatus = el('p', 'tp-auto-align-status', 'Match the camera to a cutout reference.');
+    const autoAlignStatus = el('p', 'tp-auto-align-status', t('Match the camera to a cutout reference.'));
     autoAlignStatus.id = 'projectionAutoAlignStatus';
     autoAlignStatus.setAttribute('role', 'status');
     autoAlignButton.setAttribute('aria-describedby', autoAlignStatus.id);
     const autoAlignProgress = el('progress');
     autoAlignProgress.id = 'projectionAutoAlignProgress';
-    autoAlignProgress.setAttribute('aria-label', 'Matching camera views');
+    autoAlignProgress.setAttribute('aria-label', t('Matching camera views'));
     autoAlignPanel.append(autoAlignActions, autoAlignStatus, autoAlignProgress);
-    cameraPanel.append(el('strong', 'tp-popover-title', 'Projection camera'), autoAlignPanel, cameraTools, cameraAdjustments);
-    const overlayButton = dockButton('projectionOverlayToggle', 'layers', 'Toggle reference overlay', () => {
+    cameraPanel.append(el('strong', 'tp-popover-title', t('Projection camera')), autoAlignPanel, cameraTools, cameraAdjustments);
+    const overlayButton = dockButton('projectionOverlayToggle', 'layers', t('Toggle reference overlay'), () => {
         overlay.checked = !overlay.checked;
         changed();
     });
-    const overlayOptions = dockButton('projectionOverlayOptions', 'sliders', 'Projection settings', () =>
+    const overlayOptions = dockButton('projectionOverlayOptions', 'sliders', t('Projection settings'), () =>
         toggleToolbarPanel(adjustments, overlayOptions));
     const controlStrip = el('div', 'tp-control-strip');
     const divider = () => {
@@ -461,20 +462,20 @@ export function createTextureProjection({ api, startJob }) {
         if (linkPreviewZoom.checked) setPreviewZoom('target');
     };
     const linkZoomLabel = el('label', 'check tp-link-zoom');
-    linkZoomLabel.append(linkPreviewZoom, el('span', '', 'Link view zoom'));
+    linkZoomLabel.append(linkPreviewZoom, el('span', '', t('Link view zoom')));
     controlStrip.append(linkZoomLabel);
     const instruction = el('p', 'tp-instruction');
     instruction.setAttribute('role', 'status');
     const columns = el('div', 'tp-columns'),
         sides = {};
     for (const [key, title] of [
-        ['source', 'Reference image'],
-        ['target', 'Model preview'],
+        ['source', t('Reference image')],
+        ['target', t('Model preview')],
     ]) {
         const card = el('section', 'tp-card'),
             viewport = el('div', 'tp-viewport'),
             canvas = el('canvas', 'tp-canvas');
-        const heading = el('h3', '', title);
+        const heading = el('h3', '', t(title));
         const placeholder = el('p', 'tp-preview-placeholder');
         placeholder.setAttribute('role', 'status');
         canvas.width = canvas.height = 1024;
@@ -483,22 +484,22 @@ export function createTextureProjection({ api, startJob }) {
         canvas.setAttribute(
             'aria-label',
             key === 'source'
-                ? 'Reference image. Draw a selection or place a guide point.'
-                : 'Model preview. Adjust the camera, move the overlay, or place a matching guide point.',
+                ? t('Reference image. Draw a selection or place a guide point.')
+                : t('Model preview. Adjust the camera, move the overlay, or place a matching guide point.'),
         );
         viewport.append(canvas, placeholder);
         const zoom = input('range', 1, { min: 1, max: 6, step: 0.25 });
         zoom.id = `projection${key === 'source' ? 'Source' : 'Target'}Zoom`;
         const zoomValue = el('span', 'tp-zoom-value', '100%'),
-            panButton = dockButton('', 'compass', `Pan ${key === 'source' ? 'reference' : 'model'} preview`);
+            panButton = dockButton('', 'compass', key === 'source' ? 'Pan reference preview' : 'Pan model preview');
         panButton.setAttribute('aria-pressed', 'false');
-        const fitButton = dockButton('', 'fit', `Fit ${key === 'source' ? 'reference' : 'model'} preview`, () => {
+        const fitButton = dockButton('', 'fit', key === 'source' ? 'Fit reference preview' : 'Fit model preview', () => {
             zoom.value = 1;
             setPreviewZoom(key);
             viewport.scrollLeft = viewport.scrollTop = 0;
         });
         const controls = el('div', 'tp-view-controls');
-        controls.append(field('Zoom', zoom), zoomValue, panButton, fitButton);
+        controls.append(field(t('Zoom'), zoom), zoomValue, panButton, fitButton);
         const notice = el('p', 'tp-preview-note');
         const header = el('div', 'tp-pane-header');
         header.append(heading, controls);
@@ -558,9 +559,9 @@ export function createTextureProjection({ api, startJob }) {
             }
         };
     }
-    const closePolygonButton = button('Close polygon', 'check', 'secondary', () => closePolygon());
+    const closePolygonButton = button(t('Close polygon'), 'check', 'secondary', () => closePolygon());
     closePolygonButton.id = 'projectionClosePolygon';
-    const undoPointButton = button('Undo point', 'back', 'secondary', () => {
+    const undoPointButton = button(t('Undo point'), 'back', 'secondary', () => {
         draft.pop();
         changed();
     });
@@ -569,16 +570,16 @@ export function createTextureProjection({ api, startJob }) {
     polygonControls.append(
         closePolygonButton,
         undoPointButton,
-        el('span', 'hint', 'Click points around the edge, then close the polygon. Enter also closes it.'),
+        el('span', 'hint', t('Click points around the edge, then close the polygon. Enter also closes it.')),
     );
     const placementPanel = el('div', 'tp-placement');
     const sizeControls = ['Width', 'Height'].map((axis, index) => {
         const control = input('range', 1, { min: placementScaleLimits[0], max: placementScaleLimits[1], step: 0.01 });
         control.id = index ? 'projectionPlacementHeight' : 'projectionPlacementScale';
-        control.setAttribute('aria-label', `Overlay ${axis.toLowerCase()}`);
+        control.setAttribute('aria-label', t('Overlay ' + axis.toLowerCase()));
         const value = el('output', 'tp-zoom-value', '100%');
         value.setAttribute('for', control.id);
-        const wrapper = field(`Overlay ${axis.toLowerCase()}`, control);
+        const wrapper = field(t('Overlay ' + axis.toLowerCase()), control);
         wrapper.classList.add('tp-size-control');
         wrapper.append(value);
         return {control, value, wrapper};
@@ -587,13 +588,13 @@ export function createTextureProjection({ api, startJob }) {
     lockProportions.id = 'projectionLockProportions';
     lockProportions.checked = true;
     const proportionsLabel = el('label', 'check tp-lock-proportions');
-    proportionsLabel.append(lockProportions, el('span', '', 'Lock proportions'));
+    proportionsLabel.append(lockProportions, el('span', '', t('Lock proportions')));
     const nudge = el('div', 'tp-nudges');
     for (const [label, x, y] of [
-        ['Left', -0.005, 0],
-        ['Up', 0, -0.005],
-        ['Down', 0, 0.005],
-        ['Right', 0.005, 0],
+        [t('Left'), -0.005, 0],
+        [t('Up'), 0, -0.005],
+        [t('Down'), 0, 0.005],
+        [t('Right'), 0.005, 0],
     ]) {
         const b = button(label, '', 'secondary', () => {
             remember();
@@ -603,7 +604,7 @@ export function createTextureProjection({ api, startJob }) {
         });
         nudge.append(b);
     }
-    const resetPlacement = button('Reset alignment', 'rotate', 'secondary', () => {
+    const resetPlacement = button(t('Reset alignment'), 'rotate', 'secondary', () => {
         remember();
         useGuides.checked = false;
         sides.source.points = [];
@@ -622,11 +623,11 @@ export function createTextureProjection({ api, startJob }) {
     const useGuides = input('checkbox', '');
     useGuides.id = 'projectionAnchors';
     const guideToggle = el('label', 'check');
-    guideToggle.append(useGuides, el('span', '', 'Use guide alignment'));
+    guideToggle.append(useGuides, el('span', '', t('Use guide alignment')));
     const guidePanel = el('section', 'tp-guides'),
         pairList = el('div', 'tp-pairs');
     const pairButtons = [0, 1, 2, 3].map((index) => {
-        const b = button(`Point ${index + 1}`, '', 'secondary', () => {
+        const b = button(t('Point {number}', {number:index + 1}), '', 'secondary', () => {
             activePair = index;
             mode = 'guides';
             changed();
@@ -651,16 +652,16 @@ export function createTextureProjection({ api, startJob }) {
                 changed();
             };
             pairCoordinates.append(
-                field(`${key === 'source' ? 'Image' : 'Model'} ${axis ? 'Y' : 'X'} %`, control),
+                field(t('{view} {axis} %', {view:t(key==='source'?'Image':'Model'),axis:axis?'Y':'X'}), control),
             );
         }
-    const clearPair = button('Clear this pair', 'close', 'secondary', () => {
+    const clearPair = button(t('Clear this pair'), 'close', 'secondary', () => {
         remember();
         sides.source.points[activePair] = null;
         sides.target.points[activePair] = null;
         changed();
     });
-    const resetGuides = button('Reset all guides', 'rotate', 'secondary', () => {
+    const resetGuides = button(t('Reset all guides'), 'rotate', 'secondary', () => {
         remember();
         sides.source.points = [];
         sides.target.points = [];
@@ -676,7 +677,7 @@ export function createTextureProjection({ api, startJob }) {
     overlay.checked = true;
     overlay.id = 'projectionOverlay';
     const overlayLabel = el('label', 'check');
-    overlayLabel.append(overlay, el('span', '', 'Show reference overlay'));
+    overlayLabel.append(overlay, el('span', '', t('Show reference overlay')));
     const opacity = input('range', 1, { min: 0.1, max: 1, step: 0.05 });
     opacity.id = 'projectionOpacity';
     const feather = input('range', 0.06, { min: 0, max: 0.25, step: 0.01 });
@@ -684,26 +685,26 @@ export function createTextureProjection({ api, startJob }) {
     const overlayOpacity = input('range', 0.5, { min: 0.1, max: 0.9, step: 0.05 });
     overlayOpacity.id = 'projectionOverlayOpacity';
     const overlayControls = el('div', 'tp-overlay-controls');
-    overlayControls.append(overlayLabel, field('Overlay opacity', overlayOpacity));
+    overlayControls.append(overlayLabel, field(t('Overlay opacity'), overlayOpacity));
     const adjustments = el('section', 'tp-popover tp-adjustments');
     adjustments.id = 'projectionOverlayOptionsPanel';
     const adjustmentFields = el('div', 'tp-adjustment-fields');
-    const rangeOutputs = [[overlayOpacity, overlayControls.lastChild], [opacity, field('Texture strength', opacity)],
-        [feather, field('Soft edge', feather)]].map(([control, wrapper]) => {
+    const rangeOutputs = [[overlayOpacity, overlayControls.lastChild], [opacity, field(t('Texture strength'), opacity)],
+        [feather, field(t('Soft edge'), feather)]].map(([control, wrapper]) => {
         const value = el('output', 'tp-range-value');
         value.htmlFor = control.id;
         wrapper.firstChild.append(value);
         return { control, wrapper, value };
     });
     adjustmentFields.append(overlayControls, rangeOutputs[1].wrapper, rangeOutputs[2].wrapper);
-    adjustments.append(el('strong', 'tp-popover-title', 'Projection settings'), adjustmentFields);
+    adjustments.append(el('strong', 'tp-popover-title', t('Projection settings')), adjustmentFields);
     setupToolbarPanel(adjustments, overlayOptions);
     controlStrip.append(adjustments);
     const cropDetails = el('details', 'tp-crop-details');
-    cropDetails.append(el('summary', '', 'Selection coordinates'));
+    cropDetails.append(el('summary', '', t('Selection coordinates')));
     const cropFields = el('div', 'tp-coordinates'),
         rectInputs = [];
-    for (const [i, label] of ['Left %', 'Top %', 'Right %', 'Bottom %'].entries()) {
+    for (const [i, label] of [t('Left %'), t('Top %'), t('Right %'), t('Bottom %')].entries()) {
         const control = input('number', 0, { min: 0, max: 100, step: 0.1 });
         rectInputs.push(control);
         control.onchange = () => {
@@ -732,12 +733,12 @@ export function createTextureProjection({ api, startJob }) {
         alignmentStatus,
     );
     ui.body.append(methodChoices, generationUnavailable, generationPanel, manualEditor);
-    const submit = button('Create texture copy', 'image', 'primary');
+    const submit = button(t('Create texture copy'), 'image', 'primary');
     submit.id = 'confirmTextureProjection';
     const submitLabel = submit.lastChild;
     const viewStatus = el('span', 'tp-projection-status');
     const actions = el('div', 'tp-action-pill tool-pill');
-    actions.append(button('Cancel', 'close', 'secondary', () => ui.close()), submit);
+    actions.append(button(t('Cancel'), 'close', 'secondary', () => ui.close()), submit);
     ui.foot.append(viewStatus, actions);
 
     let base = null,
@@ -784,7 +785,7 @@ export function createTextureProjection({ api, startJob }) {
         if (method !== 'manual') {
             manualViewports = Object.values(sides).map(({ viewport }) => [viewport.scrollLeft, viewport.scrollTop]);
             manualNotice = ui.notice.textContent;
-            if (method === 'generation_views') drawGenerationSnapshot(sides.target.image, 'Current model');
+            if (method === 'generation_views') drawGenerationSnapshot(sides.target.image, t('Current model'));
         } else {
             generationReferenceRun?.abort();
             generationReferenceRun = null;
@@ -823,7 +824,7 @@ export function createTextureProjection({ api, startJob }) {
         generationReferenceRun = run;
         generationReferenceRecipe = null;
         generationCurrent.hidden = true;
-        generationStatus.textContent = 'Matching the saved reference…';
+        generationStatus.textContent = t('Matching the saved reference…');
         changed();
         try {
             const image = await loadImage(descriptor.url);
@@ -838,16 +839,16 @@ export function createTextureProjection({ api, startJob }) {
             const source = alphaBounds(image, 384);
             const target = alphaBounds(fitted.image, 384);
             if (!validRect(source) || !validRect(target)) throw new Error('The saved image or model view was empty.');
-            drawGenerationSnapshot(fitted.image, 'Fitted model view');
+            drawGenerationSnapshot(fitted.image, t('Fitted model view'));
             generationReferenceRecipe = {
                 method: 'generation_reference', linked_selection: true, camera: fitted.recipe,
                 source_rect: source, target_rect: target, mask_shape: 'rectangle', opacity: 1, feather: 0.04,
             };
             generationStatus.textContent = match.ambiguous
-                ? 'Several angles fit the image. Check the fitted view before creating the copy.'
-                : 'Check the fitted view before creating the texture copy.';
+                ? t('Several angles fit the image. Check the fitted view before creating the copy.')
+                : t('Check the fitted view before creating the texture copy.');
         } catch (error) {
-            if (generationReferenceRun === run) generationStatus.textContent = error.message;
+            if (generationReferenceRun === run) generationStatus.textContent = t(error.message);
         } finally {
             if (generationReferenceRun === run) {
                 generationReferenceRun = null;
@@ -987,7 +988,7 @@ export function createTextureProjection({ api, startJob }) {
     }
     function switchView(index) {
         if (index === activeViewIndex || board?.max_views !== 2 || !viewSwitchAvailable()) return;
-        if (autoAlignRun) cancelAutoAlign('Alignment canceled.');
+        if (autoAlignRun) cancelAutoAlign(t('Alignment canceled.'));
         const saved = inactiveView;
         inactiveView = saveView();
         activeViewIndex = index;
@@ -1034,8 +1035,8 @@ export function createTextureProjection({ api, startJob }) {
     function supportsPerspective() {
         return board?.camera_projections?.includes('perspective') === true;
     }
-    function setAutoAlignStatus(message = 'Match the camera to a cutout reference.', state = 'idle') {
-        autoAlignStatus.textContent = message;
+    function setAutoAlignStatus(message = t('Match the camera to a cutout reference.'), state = 'idle') {
+        autoAlignStatus.textContent = t(message);
         autoAlignPanel.dataset.state = state;
     }
     function cancelAutoAlign(message) {
@@ -1072,7 +1073,7 @@ export function createTextureProjection({ api, startJob }) {
                 setCamera(result.pose, true);
                 setAutoAlignStatus('Camera matched. Review the overlay.', 'success');
                 closeToolbarPanel(true);
-                ui.notice.textContent = 'Camera matched. Review the overlay before creating a texture copy.';
+                ui.notice.textContent = t('Camera matched. Review the overlay before creating a texture copy.');
             } else if (result.ambiguous) {
                 setAutoAlignStatus('Several angles fit this reference. Use Orbit to choose a view.', 'error');
             } else if (result.reason === 'close') {
@@ -1128,7 +1129,7 @@ export function createTextureProjection({ api, startJob }) {
         if (!preview || pending || sameCamera(cameraPose, next)) return;
         if (next.view === 'custom' && !supportsCustom()) return;
         if (next.projection === 'perspective' && !supportsPerspective()) return;
-        if (autoAlignRun) cancelAutoAlign('Alignment canceled.');
+        if (autoAlignRun) cancelAutoAlign(t('Alignment canceled.'));
         else if (autoAlignPanel.dataset.state === 'success') {
             setAutoAlignStatus();
             ui.notice.textContent = '';
@@ -1175,7 +1176,7 @@ export function createTextureProjection({ api, startJob }) {
             cameraRecipe = rendered.recipe;
             if (fit) initialisePlacement();
         } catch (error) {
-            ui.notice.textContent = error.message;
+            ui.notice.textContent = t(error.message);
         }
     }
     function selectionOutline() {
@@ -1419,10 +1420,10 @@ export function createTextureProjection({ api, startJob }) {
             submit.disabled = pending || (useGenerationReference && !generationReferenceRecipe);
             generationStatus.hidden = !useGenerationReference;
             retryGenerationFit.hidden = !useGenerationReference || !!generationReferenceRun || !!generationReferenceRecipe;
-            submitLabel.nodeValue = 'Create texture copy';
+            submitLabel.nodeValue = t('Create texture copy');
             const count = savedRoles.childElementCount;
-            viewStatus.textContent = useGenerationReference ? 'One saved image' :
-                count + (count === 1 ? ' saved view' : ' saved views');
+            viewStatus.textContent = useGenerationReference ? t('One saved image') :
+                t(count===1?'{count} saved view':'{count} saved views',{count});
             return;
         }
         const { ready, issue } = inspectView();
@@ -1437,15 +1438,15 @@ export function createTextureProjection({ api, startJob }) {
             control.hidden = index === 1 && !multiple;
             control.disabled = !switching && !isActive;
             control.setAttribute('aria-pressed', String(isActive));
-            control.setAttribute('aria-label', `${label}${readiness ? `, ${readiness}` : ''}`);
+            control.setAttribute('aria-label', `${label}${readiness ? `, ${t(readiness)}` : ''}`);
             control.dataset.ready = String(readiness === 'Ready');
-            status.textContent = readiness;
+            status.textContent = t(readiness);
         });
         addViewButton.hidden = multiple;
         removeViewButton.hidden = activeViewIndex !== 1;
         viewHelp.hidden = !multiple;
         addViewButton.disabled = removeViewButton.disabled = !switching;
-        submitLabel.nodeValue = multiple ? 'Blend views and create copy' : 'Create texture copy';
+        submitLabel.nodeValue = multiple ? t('Blend views and create copy') : t('Create texture copy');
         reference.disabled = uploadButton.disabled = pending || uploading || !board?.supported;
         for (const [value, control] of Object.entries(toolButtons)) {
             control.setAttribute('aria-pressed', String(value === mode));
@@ -1458,7 +1459,7 @@ export function createTextureProjection({ api, startJob }) {
         shapeOptions.disabled = pending || !sides.source.image;
         const selectedMask = masks.find(([value]) => value === shape);
         toolButtons.selection.querySelector('use').setAttribute('href', `/web/icons.svg#${selectedMask[2]}`);
-        toolButtons.selection.title = `Select texture area (${selectedMask[1]})`;
+        toolButtons.selection.title = t('Select texture area ({shape})',{shape:selectedMask[1]});
         overlayButton.disabled = pending || !ready;
         overlayOptions.disabled = pending || !ready;
         overlayButton.setAttribute('aria-pressed', String(overlay.checked));
@@ -1483,18 +1484,18 @@ export function createTextureProjection({ api, startJob }) {
         resetSelection.disabled = pending || !sides.source.image;
         overlayOpacity.disabled = !overlay.checked || pending;
         for (const { control, value } of rangeOutputs) value.value = `${Math.round(Number(control.value) * 100)}%`;
-        const viewName = titleCase(cameraPose.view);
-        sides.target.heading.textContent = `Model · ${viewName}`;
-        viewStatus.textContent = autoAlignRun ? 'Matching reference…'
-            : multiple ? `${Number(!issue) + Number(!!inactiveView.recipe)} of 2 views ready`
-            : cameraRecipe ? `${viewName} · ${titleCase(cameraPose.projection)}` : '';
+        const viewName = t(titleCase(cameraPose.view));
+        sides.target.heading.textContent = t('Model · {view}', {view:viewName});
+        viewStatus.textContent = autoAlignRun ? t('Matching reference…')
+            : multiple ? t('{count} of 2 views ready',{count:Number(!issue) + Number(!!inactiveView.recipe)})
+            : cameraRecipe ? `${viewName} · ${t(titleCase(cameraPose.projection))}` : '';
         for (const key of ['source', 'target']) {
             const side = sides[key];
             side.placeholder.hidden = !!side.image;
             side.canvas.hidden = !side.image;
-            side.placeholder.textContent = side.error || (side.loading
-                ? key === 'source' ? 'Loading reference image…' : 'Loading model preview…'
-                : key === 'source' ? 'Choose a reference image.' : 'Model preview unavailable.');
+            side.placeholder.textContent = t(side.error) || (side.loading
+                ? key === 'source' ? t('Loading reference image…') : t('Loading model preview…')
+                : key === 'source' ? t('Choose a reference image.') : t('Model preview unavailable.'));
             side.panButton.setAttribute('aria-pressed', String(side.panMode));
             side.canvas.style.cursor =
                 side.panMode || mode === 'pan' || (key === 'target' && mode === 'orbit')
@@ -1506,12 +1507,12 @@ export function createTextureProjection({ api, startJob }) {
             draw(key);
             side.notice.textContent = side.image
                 ? (key === 'source'
-                    ? 'Draw the region you want to transfer.'
+                    ? t('Draw the region you want to transfer.')
                     : mode === 'orbit'
-                      ? 'Drag or use the arrow keys to rotate.'
+                      ? t('Drag or use the arrow keys to rotate.')
                       : useGuides.checked
-                        ? 'Click the matching feature on the model.'
-                        : mode === 'placement' ? 'Drag to move the overlay. Pull a handle to resize it.' : 'Drag to position the overlay.')
+                        ? t('Click the matching feature on the model.')
+                        : mode === 'placement' ? t('Drag to move the overlay. Pull a handle to resize it.') : t('Drag to position the overlay.'))
                 : '';
         }
         polygonControls.hidden = !(isDrawingMode() && shape === 'polygon');
@@ -1537,9 +1538,9 @@ export function createTextureProjection({ api, startJob }) {
         pairButtons.forEach((b, i) => {
             b.setAttribute('aria-pressed', String(i === activePair));
             const count = Number(!!sides.source.points[i]) + Number(!!sides.target.points[i]);
-            b.textContent = `Point ${i + 1} · ${count}/2`;
+            b.textContent = t('Point {number} · {count}/2', {number:i + 1,count});
         });
-        pairTitle.textContent = `Matching point ${activePair + 1} of 4`;
+        pairTitle.textContent = t('Matching point {number} of 4', {number:activePair + 1});
         for (const key of ['source', 'target'])
             for (const axis of [0, 1]) {
                 const control = pointInputs[`${key}${axis}`];
@@ -1550,19 +1551,19 @@ export function createTextureProjection({ api, startJob }) {
             }
         instruction.textContent =
             mode === 'pan'
-                ? 'Drag either view to pan.'
+                ? t('Drag either view to pan.')
                 : mode === 'orbit'
-                  ? 'Rotate the model to match the reference. Choose Align to adjust the overlay.'
+                  ? t('Rotate the model to match the reference. Choose Align to adjust the overlay.')
                   : mode === 'guides'
-                    ? 'Mark the same feature in both views. Use four points spread across the image.'
+                    ? t('Mark the same feature in both views. Use four points spread across the image.')
                     : mode === 'placement'
-                      ? 'Move the overlay or drag its handles. Unlock proportions to resize width and height separately.'
+                      ? t('Move the overlay or drag its handles. Unlock proportions to resize width and height separately.')
                       : shape === 'lasso'
-                        ? 'Draw freely around the area and release to close the lasso.'
+                        ? t('Draw freely around the area and release to close the lasso.')
                         : shape === 'polygon'
-                          ? 'Click along the outline, then press Enter or choose Close polygon.'
-                          : 'Select the area in the reference and check its placement on the model.';
-        alignmentStatus.textContent = ready ? issue : '';
+                          ? t('Click along the outline, then press Enter or choose Close polygon.')
+                          : t('Select the area in the reference and check its placement on the model.');
+        alignmentStatus.textContent = ready ? t(issue) : '';
     }
     function setPreviewZoom(key) {
         applyZoom(key);
@@ -1636,7 +1637,7 @@ export function createTextureProjection({ api, startJob }) {
         } else if (key === 'target') {
             if (useGuides.checked) {
                 ui.notice.textContent =
-                    'Placement is controlled by the guide pairs. Edit a guide or turn off paired guides to move it freely.';
+                    t('Placement is controlled by the guide pairs. Edit a guide or turn off paired guides to move it freely.');
                 return;
             }
             remember();
@@ -1663,7 +1664,7 @@ export function createTextureProjection({ api, startJob }) {
                 }
                 if (draft.length >= 128) {
                     ui.notice.textContent =
-                        'A polygon can contain up to 128 points. Close it or undo a point.';
+                        t('A polygon can contain up to 128 points. Close it or undo a point.');
                     return;
                 }
                 if (
@@ -1779,7 +1780,7 @@ export function createTextureProjection({ api, startJob }) {
             points = points.slice(0, -1);
         if (!validatePolygon(points)) {
             ui.notice.textContent =
-                'This outline crosses itself or is too small. Undo the last point or draw it again.';
+                t('This outline crosses itself or is too small. Undo the last point or draw it again.');
             if (fromLasso) {
                 draft = [];
                 sourcePolygon = null;
@@ -1876,12 +1877,12 @@ export function createTextureProjection({ api, startJob }) {
         const file = upload.files?.[0];
         if (!file || uploading) return;
         if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-            ui.notice.textContent = 'Choose a PNG, JPEG or WebP image.';
+            ui.notice.textContent = t('Choose a PNG, JPEG or WebP image.');
             upload.value = '';
             return;
         }
         if (file.size > 25 * 1024 * 1024) {
-            ui.notice.textContent = 'Choose an image no larger than 25 MB.';
+            ui.notice.textContent = t('Choose an image no larger than 25 MB.');
             upload.value = '';
             return;
         }
@@ -1889,7 +1890,7 @@ export function createTextureProjection({ api, startJob }) {
         const version = opening;
         uploading = true;
         changed();
-        ui.notice.textContent = 'Uploading reference image…';
+        ui.notice.textContent = t('Uploading reference image…');
         try {
             const data = new FormData();
             data.append('file', file);
@@ -1902,7 +1903,7 @@ export function createTextureProjection({ api, startJob }) {
             uploadName.textContent = file.name;
             await chooseReference({ url: uploadUrl }, { upload_id: result.id });
         } catch (error) {
-            if (version === opening && ui.element.open) ui.notice.textContent = error.message;
+            if (version === opening && ui.element.open) ui.notice.textContent = t(error.message);
         } finally {
             if (version === opening) {
                 uploading = false;
@@ -1949,7 +1950,7 @@ export function createTextureProjection({ api, startJob }) {
         const id = base.id, version = opening;
         pending = true;
         changed();
-        ui.notice.textContent = projectionMethod === 'generation_views' ? 'Queueing Pixel Match…' : 'Queueing texture projection…';
+        ui.notice.textContent = projectionMethod === 'generation_views' ? t('Queueing Pixel Match…') : t('Queueing texture projection…');
         try {
             const result = await api(`/api/v1/models/${id}/texture-projection`, {
                 method: 'POST',
@@ -1959,7 +1960,7 @@ export function createTextureProjection({ api, startJob }) {
             if (version === opening) ui.close();
             await startJob(result.id);
         } catch (error) {
-            if (version === opening && ui.element.open) ui.notice.textContent = error.message;
+            if (version === opening && ui.element.open) ui.notice.textContent = t(error.message);
         } finally {
             if (version === opening) {
                 pending = false;
@@ -2058,7 +2059,7 @@ export function createTextureProjection({ api, startJob }) {
             summary.textContent = nameOf(job);
             ui.show();
             for (const side of Object.values(sides)) resizeObserver.observe(side.viewport);
-            ui.notice.textContent = 'Checking this model…';
+            ui.notice.textContent = t('Checking this model…');
             changed();
             try {
                 const response = await api(`/api/v1/models/${job.id}/texture-projection`);
@@ -2067,14 +2068,14 @@ export function createTextureProjection({ api, startJob }) {
                 const single = savedProjectionMethod() === 'generation_reference';
                 const estimated = board.generation_views?.camera_model === 'moge';
                 generationMethod.querySelector('small').textContent = single
-                    ? 'One saved image · Auto Align'
-                    : estimated ? 'Pixel Match · Estimated camera' : 'Pixel Match · Saved cameras';
-                generationTitle.textContent = single ? 'Saved generation image' : 'Pixel Match';
-                generationDescription.textContent = single ? 'Match the model to the saved TRELLIS.2 cutout.'
-                    : estimated ? 'Project the saved Pixal3D cutout from its estimated camera.'
-                      : 'Project the saved cutouts using their generation cameras.';
-                generationFootnote.textContent = single ? 'Creates a linked copy with color projected onto the visible surface.'
-                    : 'Creates a linked copy. Pixel Match blends visible details and matches color around seams.';
+                    ? t('One saved image · Auto Align')
+                    : estimated ? t('Pixel Match · Estimated camera') : t('Pixel Match · Saved cameras');
+                generationTitle.textContent = single ? t('Saved generation image') : 'Pixel Match';
+                generationDescription.textContent = single ? t('Match the model to the saved TRELLIS.2 cutout.')
+                    : estimated ? t('Project the saved Pixal3D cutout from its estimated camera.')
+                      : t('Project the saved cutouts using their generation cameras.');
+                generationFootnote.textContent = single ? t('Creates a linked copy with color projected onto the visible surface.')
+                    : t('Creates a linked copy. Pixel Match blends visible details and matches color around seams.');
                 const roles = board.generation_views?.views ?? [];
                 savedRoles.replaceChildren(...roles.map((role) => {
                     const item = el('li');
@@ -2088,7 +2089,7 @@ export function createTextureProjection({ api, startJob }) {
                         image.src = `/api/jobs/${job.id}/files/${file}`;
                         item.append(image);
                     }
-                    item.append(el('span', '', titleCase(role)));
+                    item.append(el('span', '', t(titleCase(role))));
                     return item;
                 }));
                 if (single) {
@@ -2098,16 +2099,16 @@ export function createTextureProjection({ api, startJob }) {
                         const image = el('img', 'tp-generation-image');
                         image.alt = '';
                         image.src = saved.url;
-                        item.append(image, el('span', '', 'Generation image'));
+                        item.append(image, el('span', '', t('Generation image')));
                         savedRoles.append(item);
                     }
                 }
-                savedRoles.setAttribute('aria-label', single || estimated ? 'Saved image' : 'Saved views');
+                savedRoles.setAttribute('aria-label', single || estimated ? t('Saved image') : t('Saved views'));
                 generationUnavailable.textContent = job.operation === 'texture_projection' || job.settings?.source_kind === 'texture_projection'
-                    ? 'Open the original generated model in the Library to use its saved references.'
+                    ? t('Open the original generated model in the Library to use its saved references.')
                     : (job.settings?.engine === 'pixal3d' ? board.generation_views?.reason : board.generation_reference?.reason)
-                        || board.generation_views?.reason || 'Saved generation references are unavailable for this model.';
-                reference.replaceChildren(el('option', '', 'Choose a reference'));
+                        || board.generation_views?.reason || t('Saved generation references are unavailable for this model.');
+                reference.replaceChildren(el('option', '', t('Choose a reference')));
                 reference.firstChild.value = '';
                 for (const item of board.references || []) {
                     const option = el('option', '', item.label);
@@ -2117,7 +2118,7 @@ export function createTextureProjection({ api, startJob }) {
                 if (!board.supported) {
                     sides.target.loading = false;
                     ui.notice.textContent =
-                        board.reason || 'Texture projection is not available for this model.';
+                        t(board.reason || 'Texture projection is not available for this model.');
                     changed();
                     return;
                 }
@@ -2125,11 +2126,11 @@ export function createTextureProjection({ api, startJob }) {
                     board.supported = false;
                     sides.target.loading = false;
                     ui.notice.textContent =
-                        'The server needs the matching Texture Projection update. Restart Studio and reload this page.';
+                        t('The server needs the matching Texture Projection update. Restart Studio and reload this page.');
                     changed();
                     return;
                 }
-                ui.notice.textContent = 'Preparing the model preview…';
+                ui.notice.textContent = t('Preparing the model preview…');
                 const ref = board.references?.[0];
                 if (ref) {
                     reference.value = ref.id;
@@ -2149,7 +2150,7 @@ export function createTextureProjection({ api, startJob }) {
                 if (version === opening && ui.element.open) {
                     sides.target.loading = false;
                     sides.target.error = error.message;
-                    ui.notice.textContent = error.message;
+                    ui.notice.textContent = t(error.message);
                     changed();
                 }
             }
@@ -2158,34 +2159,34 @@ export function createTextureProjection({ api, startJob }) {
 }
 
 export function createBakedGameCopy({api, startJob}) {
-    const ui = dialog('bakedGameCopy', 'Game Copy from HD', '', '', 'game-copy-dialog');
+    const ui = dialog('bakedGameCopy', t('Game Copy from HD'), '', '', 'game-copy-dialog');
     const summary = el('p', 'gc-model-name');
     ui.element.querySelector('.studio-dialog-head h2').after(summary);
-    const profile = select([['object', 'Object'], ['humanoid', 'Humanoid']], 'object');
+    const profile = select([['object', t('Object')], ['humanoid', t('Humanoid')]], 'object');
     const profileHelp = el('p', 'hint gc-profile-help');
     profileHelp.id = 'bakedGameProfileHelp';
     profile.setAttribute('aria-describedby', profileHelp.id);
     const triangles = input('number', 28000, {min: 5000, max: 150000, step: 1, required: ''}); triangles.id = 'bakedGameTriangles';
     const texture = select([[1024, '1K'], [2048, '2K'], [4096, '4K']], 2048); texture.id = 'bakedGameTexture';
     const normals = input('checkbox', ''); normals.checked = true; normals.id = 'bakedGameNormals';
-    const normalLabel = el('label', 'check'); normalLabel.append(normals, el('span', '', 'Bake surface detail to a normal map'));
+    const normalLabel = el('label', 'check'); normalLabel.append(normals, el('span', '', t('Bake surface detail to a normal map')));
     const normalHint = el('p', 'hint');
     const form = el('form'); form.id = 'bakedGameForm';
     const options = el('fieldset', 'gc-options');
     const pair = el('div', 'gc-field-pair');
-    pair.append(field('Target triangles', triangles), field('Texture resolution', texture));
+    pair.append(field(t('Target triangles'), triangles), field(t('Texture resolution'), texture));
     const regions = createGameCopyRegions(disposeModel);
-    options.append(el('legend', '', 'Reduction settings'), field('Profile', profile), profileHelp, pair, normalLabel, normalHint);
+    options.append(el('legend', '', t('Reduction settings')), field(t('Profile'), profile), profileHelp, pair, normalLabel, normalHint);
     const aside = el('div', 'gc-sidebar');
     aside.append(options, regions.section);
     form.append(regions.surface, aside);
-    const submit = button('Create game copy', 'cube', 'primary'); submit.type = 'submit'; submit.setAttribute('form', form.id); submit.id = 'confirmBakedGameCopy';
-    const footnote = el('small', 'gc-footnote', 'Creates a new model with UVs and textures baked from the HD source.');
-    ui.body.append(form); ui.foot.append(footnote, button('Cancel', 'close', 'secondary', () => ui.close()), submit);
+    const submit = button(t('Create game copy'), 'cube', 'primary'); submit.type = 'submit'; submit.setAttribute('form', form.id); submit.id = 'confirmBakedGameCopy';
+    const footnote = el('small', 'gc-footnote', t('Creates a new model with UVs and textures baked from the HD source.'));
+    ui.body.append(form); ui.foot.append(footnote, button(t('Cancel'), 'close', 'secondary', () => ui.close()), submit);
     let base = null, supported = false, opening = 0, pending = false;
     function updateProfileHelp() {
         profileHelp.textContent = profile.value === 'humanoid'
-            ? 'Prioritizes the face and hands of an upright, front-facing T-pose. Add zones for extra detail.'
+            ? t('Prioritizes the face and hands of an upright, front-facing T-pose. Add zones for extra detail.')
             : '';
     }
     profile.onchange = () => {
@@ -2203,7 +2204,7 @@ export function createBakedGameCopy({api, startJob}) {
     });
     form.onsubmit = async event => {
         event.preventDefault(); if (!base || !supported || pending || !form.reportValidity()) return;
-        const id = base.id, version = opening; pending = true; submit.disabled = true; ui.notice.textContent = 'Queueing game copy…';
+        const id = base.id, version = opening; pending = true; submit.disabled = true; ui.notice.textContent = t('Queueing game copy…');
         const recipe = {
             triangles: Number(triangles.value), texture_size: Number(texture.value),
             profile: profile.value, bake_normals: normals.checked,
@@ -2212,7 +2213,7 @@ export function createBakedGameCopy({api, startJob}) {
         try {
             const result = await api(`/api/v1/models/${id}/baked-game-copy`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(recipe)});
             if (version === opening) ui.close(); await startJob(result.id);
-        } catch (error) { if (version === opening && ui.element.open) ui.notice.textContent = error.message; }
+        } catch (error) { if (version === opening && ui.element.open) ui.notice.textContent = t(error.message); }
         finally { if (version === opening) { pending = false; submit.disabled = !supported; } }
     };
     return {async open(job) {
@@ -2224,7 +2225,7 @@ export function createBakedGameCopy({api, startJob}) {
         profileHelp.textContent = '';
         normals.checked = true; normals.disabled = false; normalHint.textContent = '';
         triangles.setCustomValidity('');
-        summary.textContent = nameOf(job); submit.disabled = true; ui.show(); ui.notice.textContent = 'Checking this model…';
+        summary.textContent = nameOf(job); submit.disabled = true; ui.show(); ui.notice.textContent = t('Checking this model…');
         const current = () => version === opening && ui.element.open;
         try {
             const response = await api(`/api/v1/models/${job.id}/baked-game-copy`);
@@ -2232,7 +2233,7 @@ export function createBakedGameCopy({api, startJob}) {
             supported = response.supported === true && response.ready !== false;
             const available = response.profiles || ['object'];
             profile.replaceChildren(...available.filter(value => ['object', 'humanoid'].includes(value)).map(value => {
-                const option = el('option', '', value === 'humanoid' ? 'Humanoid' : 'Object');
+                const option = el('option', '', value === 'humanoid' ? t('Humanoid') : t('Object'));
                 option.value = value;
                 return option;
             }));
@@ -2244,13 +2245,13 @@ export function createBakedGameCopy({api, startJob}) {
             if (!texture.value) texture.selectedIndex = 0;
             if (response.triangle_limits?.length === 2) { triangles.min = response.triangle_limits[0]; triangles.max = response.triangle_limits[1]; }
             normals.disabled = response.has_normal_map === true;
-            normalHint.textContent = normals.disabled ? 'Normal-map transfer is required to preserve the source model’s existing surface detail.' : '';
-            ui.notice.textContent = supported ? '' : response.reason || response.dependencies?.reason || (response.ready === false ? 'Game-copy tools are not ready. Install the required components and restart Studio.' : 'Game Copy from HD is not available for this model.'); submit.disabled = !supported;
+            normalHint.textContent = normals.disabled ? t('Normal-map transfer is required to preserve the source model’s existing surface detail.') : '';
+            ui.notice.textContent = supported ? '' : t(response.reason || response.dependencies?.reason || (response.ready === false ? 'Game-copy tools are not ready. Install the required components and restart Studio.' : 'Game Copy from HD is not available for this model.')); submit.disabled = !supported;
             options.disabled = !supported;
             if (supported) {
                 const url = `/api/jobs/${job.id}/files/model.glb?v=${encodeURIComponent(job.result?.revision || job.id)}`;
                 await regions.start(url, response.protected_region_limit, current);
             }
-        } catch (error) { if (version === opening && ui.element.open) ui.notice.textContent = error.message; }
+        } catch (error) { if (version === opening && ui.element.open) ui.notice.textContent = t(error.message); }
     }};
 }

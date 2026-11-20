@@ -10,10 +10,11 @@
 <link rel="stylesheet" href="/web/workspace.css?v=studio-visual-refinement"><link rel="stylesheet" href="/web/polish.css?v=detail-refinement-native">
 <link rel="stylesheet" href="/web/release-notification.css?v=1">
 <script type="importmap">{"imports":{"three":"/vendor/build/three.module.js","three/addons/":"/vendor/examples/jsm/"}}</script>
-<script type="module" src="/web/release-notification.js?v=1"></script>
+<script type="module" src="/web/release-notification.js?v=3.11.0-i18n"></script>
 <link rel="stylesheet" href="/web/animation-studio.css?v=3.4.0"><link rel="stylesheet" href="/web/details.css?v=studio-visual-refresh"><link rel="stylesheet" href="/web/studio-tools.css?v=3.9.0"><link rel="stylesheet" href="/web/lighting.css?v=studio-visual-refinement"><link rel="stylesheet" href="/web/workbench.css?v=detail-refinement-native"><link rel="stylesheet" href="/web/personal-animation.css?v=3.4.0"><link rel="stylesheet" href="/web/texture-projection.css?v=3.9.0">
 <link rel="stylesheet" href="/web/studio-panels.css?v=studio-visual-refinement">
 <link rel="stylesheet" href="/web/studio-shell.css?v=studio-visual-refresh">
+<link rel="stylesheet" href="/web/language-selector.css?v=1">
 </head><body>
 <header class="topbar">
   <div class="studio-brand-group">
@@ -33,7 +34,7 @@
     <button type="button" data-workflow-tab="terrainTab" aria-pressed="false"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#terrain"/></svg>Terrain</button>
     <button type="button" data-workflow-tab="rigTab" aria-pressed="false"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#motion"/></svg>Animation</button>
   </nav>
-  <div class="top-status"><span class="online-dot"></span><span id="runtime">Connecting to the engine…</span><a class="developer-link" href="/developers" title="API & MCP documentation" aria-label="API and MCP documentation"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#details"/></svg></a><button id="shutdown" class="quiet" type="button" title="Stop the local server">Stop</button></div>
+  <div class="top-status"><span class="online-dot"></span><span id="runtime">Connecting to the engine…</span><span data-language-selector></span><a class="developer-link" href="/developers" title="API & MCP documentation" aria-label="API and MCP documentation"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#details"/></svg></a><button id="shutdown" class="quiet" type="button" title="Stop the local server">Stop</button></div>
 </header>
 <div id="versionNotice" class="version-notice" role="status" hidden><span id="versionNoticeText"></span> <a id="reloadStudio" href="/" hidden>Reload Studio</a></div>
 <div class="app-shell">
@@ -245,7 +246,7 @@
 <dialog id="animationRemoveDialog" aria-labelledby="animationRemoveTitle" aria-describedby="animationRemoveDescription"><form method="dialog"><h2 id="animationRemoveTitle">Remove animation?</h2><p id="animationRemoveDescription">Remove <strong id="animationRemoveName"></strong> from this model?</p><div class="dialog-actions"><button value="cancel" class="secondary" autofocus>Keep clip</button><button value="remove" class="danger has-icon"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#trash"/></svg>Remove clip</button></div></form></dialog>
 <dialog id="imageDialog"><button class="dialog-close" id="closeImage">Close ×</button><img id="largeImage" alt="Full-size texture or UV layout"></dialog>
 <footer><span>TRELLIS STUDIO</span><span>Reference → generation → review → Blender</span><span>UV & PBR · local compute</span></footer>
-<script type="module" src="/web/studio.js?v=studio-visual-refinement"></script><script type="module" src="/web/validation-en.js?v=3.4.0"></script>
+<script type="module" src="/web/studio.js?v=3.11.0-i18n"></script><script type="module" src="/web/validation-en.js?v=3.11.0-i18n"></script>
 <div id="refinishDialog" class="refinish-popover" popover="auto" role="dialog" aria-labelledby="refinishTitle">
 <form id="refinishForm">
   <header class="refinish-head">

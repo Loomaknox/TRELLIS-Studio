@@ -1,3 +1,5 @@
+import {formatLocale, localizeStatic, t} from './i18n.js';
+
 const roleNames = {front: 'Front', left: 'Left', back: 'Back', right: 'Right'};
 const imageNames = {original: 'Original', cutout: 'Cutout', framed: 'Model input'};
 const fullCrop = [0, 0, 1, 1];
@@ -58,7 +60,7 @@ export function createReferencePreview({api, multiview, removeBackground}) {
             <legend>Trim the reference</legend>
             <p class="hint">Adjust the edges if the frame includes an object or shadow you want to exclude.</p>
             <div class="reference-preview-crop">
-              ${['Left', 'Top', 'Right', 'Bottom'].map((name, index) => `
+              ${['Left edge', 'Top edge', 'Right edge', 'Bottom edge'].map((name, index) => `
                 <label class="reference-preview-range">${name} <output>0%</output>
                   <input type="range" data-edge="${index}" min="0" max="95" value="0">
                 </label>
@@ -75,6 +77,7 @@ export function createReferencePreview({api, multiview, removeBackground}) {
       <button type="button" class="secondary" data-update>${icon('rotate')} Update preview</button>
       <button type="button" class="primary" data-apply>${icon('check')} Use this reference</button>
     </footer>`;
+  localizeStatic(dialog);
   document.body.append(dialog);
 
   const find = selector => dialog.querySelector(selector);
@@ -122,7 +125,9 @@ export function createReferencePreview({api, multiview, removeBackground}) {
     const count = Object.keys(selectedEdits(saved)).length;
     const approved = approvedContext === context();
     summary.hidden = (!approved && !count) || !multiview.hasFront;
-    const label = count ? `${count} corrected ${count === 1 ? 'view' : 'views'}${approved ? '' : ' · check new preview'}` : 'Preview approved';
+    const suffix = approved ? '' : t(' · check new preview');
+    const label = count === 0 ? t('Preview approved') :
+      t(count === 1 ? '{count} corrected view{suffix}' : '{count} corrected views{suffix}', {count, suffix});
     if (summary.textContent !== label) summary.textContent = label;
   }
 
@@ -137,7 +142,7 @@ export function createReferencePreview({api, multiview, removeBackground}) {
   function describeStatus() {
     const dirty = reviewed !== JSON.stringify(draft);
     status.classList.toggle('error', Boolean(failure));
-    status.textContent = request ? 'Preparing the reference images…' : failure || (dirty ?
+    status.textContent = request ? t('Preparing the reference images…') : failure || t(dirty ?
       'Corrections pending. Update the preview to check the new model input.' :
       'Model input shows the prepared image sent to the generation engine.');
     updateButton.disabled = Boolean(request) || (!dirty && !failure);
@@ -179,7 +184,7 @@ export function createReferencePreview({api, multiview, removeBackground}) {
     const current = view();
     content.hidden = !current;
     if (!current) return;
-    image.alt = `${roleNames[role]} reference · ${imageNames[stage]}`;
+    image.alt = t('{role} reference · {stage}', {role: t(roleNames[role]), stage: t(imageNames[stage])});
     if (image.getAttribute('src') !== current[stage]) image.src = current[stage];
     for (const choice of imageButtons) {
       const key = choice.dataset.image;
@@ -200,7 +205,7 @@ export function createReferencePreview({api, multiview, removeBackground}) {
       const minimum = Math.min(100, Math.max(5, Math.ceil(1600 / (dimension || 768))));
       edge.max = Math.max(trims[index], 100 - minimum - trims[(index + 2) % 4]);
       edge.value = trims[index];
-      edge.previousElementSibling.textContent = `${trims[index]}%`;
+      edge.previousElementSibling.textContent = (trims[index] / 100).toLocaleString(formatLocale, {style: 'percent'});
       edge.disabled = Boolean(request);
     }
     undoButton.disabled = Boolean(request) || !strokes().length;
@@ -224,7 +229,7 @@ export function createReferencePreview({api, multiview, removeBackground}) {
       tab.type = 'button';
       tab.className = 'secondary';
       tab.dataset.role = item.role;
-      tab.textContent = roleNames[item.role];
+      tab.textContent = t(roleNames[item.role]);
       tab.onclick = () => { role = item.role; drawView(); };
       viewButtons.append(tab);
       if (item.role === focusedRole) tab.focus();
@@ -235,7 +240,7 @@ export function createReferencePreview({api, multiview, removeBackground}) {
     if (request) return;
     const payload = JSON.stringify(draft);
     if (payload.length > maxEditLength) {
-      failure = 'Too many brush points. Undo some strokes before updating the preview.';
+      failure = t('Too many brush points. Undo some strokes before updating the preview.');
       describeStatus();
       return;
     }
@@ -251,7 +256,7 @@ export function createReferencePreview({api, multiview, removeBackground}) {
       const result = await api('/api/reference-preview', {method: 'POST', body: form, signal: controller.signal});
       if (request !== controller) return;
       if (!Array.isArray(result.views) || !result.views.some(item => item.role === 'front')) {
-        throw Error('The preview returned no main reference.');
+        throw Error(t('The preview returned no main reference.'));
       }
       views = result.views;
       reviewed = payload;
@@ -259,7 +264,7 @@ export function createReferencePreview({api, multiview, removeBackground}) {
       brush = '';
       renderViews();
     } catch (error) {
-      if (request === controller) failure = error.message;
+      if (request === controller) failure = t(error.message);
     } finally {
       if (request === controller) {
         request = null;
@@ -284,7 +289,7 @@ export function createReferencePreview({api, multiview, removeBackground}) {
   overlay.addEventListener('pointerdown', event => {
     if (event.button !== 0 || drawing || !brush || request) return;
     if (strokes().length >= maxStrokes) {
-      status.textContent = `This view has ${maxStrokes} strokes. Undo a stroke before adding another.`;
+      status.textContent = t('This view has {count} strokes. Undo a stroke before adding another.', {count: maxStrokes});
       return;
     }
     event.preventDefault();
@@ -319,7 +324,9 @@ export function createReferencePreview({api, multiview, removeBackground}) {
     brush = brush === choice.dataset.brush ? '' : choice.dataset.brush;
     selectStage('original');
   };
-  brushRadius.oninput = () => { find('[data-radius-value]').textContent = `${brushRadius.value}%`; };
+  brushRadius.oninput = () => {
+    find('[data-radius-value]').textContent = (Number(brushRadius.value) / 100).toLocaleString(formatLocale, {style: 'percent', maximumFractionDigits: 1});
+  };
   for (const [index, edge] of edgeInputs.entries()) edge.oninput = () => {
     const next = [...crop()];
     next[index] = rounded(index < 2 ? edge.value / 100 : 1 - edge.value / 100);

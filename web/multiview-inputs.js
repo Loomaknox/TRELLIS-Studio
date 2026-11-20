@@ -1,10 +1,11 @@
+import {t} from './i18n.js';
 const $ = id => document.getElementById(id);
 const roles = ['front', 'left', 'back', 'right'];
 const limit = 25 * 1024 * 1024;
 const methods = {
-  trellis2: {label: 'TRELLIS.2 · Single image', detail: 'Standard generation'},
-  pixal3d_single: {label: 'Pixal3D · Single image', detail: 'Automatic camera estimation with MoGe'},
-  pixal3d: {label: 'Pixal3D · Multi-view', detail: 'Front plus one to three matching views'},
+  trellis2: {label: t('TRELLIS.2 · Single image'), detail: t('Standard generation')},
+  pixal3d_single: {label: t('Pixal3D · Single image'), detail: t('Automatic camera estimation with MoGe')},
+  pixal3d: {label: t('Pixal3D · Multi-view'), detail: t('Front plus one to three matching views')},
 };
 
 export function createMultiviewInputs({ changed, invalid }) {
@@ -64,12 +65,12 @@ export function createMultiviewInputs({ changed, invalid }) {
 
   function renderReferences() {
     const count = countViews();
-    $('referenceMode').textContent = isMulti() ? `${count} / 4 views` : `${count} ${count === 1 ? 'image' : 'images'}`;
+    $('referenceMode').textContent = t(isMulti() ? '{count} / 4 views' : count === 1 ? '{count} image' : '{count} images', {count});
     const hasFront = !!slots.get('front').file;
-    pickReference.querySelector('span').textContent = hasFront ? 'Replace image' : 'Add image';
+    pickReference.querySelector('span').textContent = hasFront ? t('Replace image') : t('Add image');
     $('mainViewBadge').hidden = !isMulti() || !hasFront;
-    const help = !slots.get('front').file ? 'Add a front view and at least one additional view.'
-      : count < 2 ? 'Add a side or back view.' : '';
+    const help = !slots.get('front').file ? t('Add a front view and at least one additional view.')
+      : count < 2 ? t('Add a side or back view.') : '';
     $('viewRequirements').textContent = help;
     $('viewRequirements').hidden = !help;
     swapSides.disabled = !(slots.get('left').file || slots.get('right').file);
@@ -80,7 +81,7 @@ export function createMultiviewInputs({ changed, invalid }) {
     if (!slot || (role !== 'front' && !isMulti())) return;
     if (file && (!/^image\/(png|jpeg|webp)$/.test(file.type) || file.size > limit || !file.size)) {
       syncPicker(slot);
-      invalid(file.size > limit ? 'Each image is limited to 25 MB.' : 'Choose a non-empty PNG, JPEG or WebP image.');
+      invalid(file.size > limit ? t('Each image is limited to 25 MB.') : t('Choose a non-empty PNG, JPEG or WebP image.'));
       return;
     }
     setFile(role, file);
@@ -120,8 +121,8 @@ export function createMultiviewInputs({ changed, invalid }) {
     $('removeBg').disabled = usesPixal();
     addView.hidden = isMulti();
     addView.setAttribute('aria-expanded', String(isMulti()));
-    $('frontDropTitle').textContent = isMulti() ? 'Front view' : 'Drop your reference image';
-    slots.get('front').input.setAttribute('aria-label', isMulti() ? 'Front reference image' : 'Reference image');
+    $('frontDropTitle').textContent = isMulti() ? t('Front view') : t('Drop your reference image');
+    slots.get('front').input.setAttribute('aria-label', isMulti() ? t('Front reference image') : t('Reference image'));
     $('generationMethodLabel').textContent = methods[method].label;
     for (const button of methodButtons) button.setAttribute('aria-pressed', String(button.value === method));
     renderReferences();
@@ -134,18 +135,18 @@ export function createMultiviewInputs({ changed, invalid }) {
     reprojectFace.disabled = !canShowFace || !capability(method)?.ready || !projection?.ready;
     if (canShowFace) {
       $('reprojectFaceHelp').textContent = projection?.ready
-        ? 'Blends the reference face into the finished texture.'
-        : projection?.message || 'Face reprojection is unavailable.';
+        ? t('Blends the reference face into the finished texture.')
+        : projection?.message || t('Face reprojection is unavailable.');
     }
     const notice = $('generationMethodNotice');
     const hiddenViews = !isMulti() && roles.slice(1).some(role => slots.get(role).file);
     const selected = capability(method);
     const messages = [];
     if (status.message) messages.push(status.message);
-    else if (usesPixal() && !selected?.ready) messages.push(selected?.message || 'This Pixal3D mode needs its optional runtime.');
-    else if (selected && !selected.ready) messages.push(selected.message || 'Install the TRELLIS.2 model weights to generate.');
-    if (usesPixal() && textureSize > 2048) messages.push('Choose 1K or 2K textures in Advanced for Pixal3D.');
-    if (hiddenViews) messages.push('Additional references are available in Multi-view.');
+    else if (usesPixal() && !selected?.ready) messages.push(selected?.message || t('This Pixal3D mode needs its optional runtime.'));
+    else if (selected && !selected.ready) messages.push(selected.message || t('Install the TRELLIS.2 model weights to generate.'));
+    if (usesPixal() && textureSize > 2048) messages.push(t('Choose 1K or 2K textures in Advanced for Pixal3D.'));
+    if (hiddenViews) messages.push(t('Additional references are available in Multi-view.'));
     notice.textContent = messages.join(' ');
     notice.hidden = !messages.length;
   }
@@ -196,12 +197,12 @@ export function createMultiviewInputs({ changed, invalid }) {
       button.disabled = button.value !== 'trellis2' && !available;
       const detail = button.querySelector('[data-method-status]');
       const label = available || (button.value === 'trellis2' && !info)
-        ? methods[button.value].detail : info?.message || 'Optional runtime required';
+        ? methods[button.value].detail : info?.message || t('Optional runtime required');
       if (detail.textContent !== label) detail.textContent = label;
     }
     const multi = capability('pixal3d');
     addView.disabled = !multi?.ready;
-    addView.title = addView.disabled ? multi?.message || 'Pixal3D Multi-view runtime required.' : '';
+    addView.title = addView.disabled ? multi?.message || t('Pixal3D Multi-view runtime required.') : '';
     sync();
   }
 
@@ -234,10 +235,10 @@ export function createMultiviewInputs({ changed, invalid }) {
     const references = restoredMethod === 'pixal3d' ? settings.views : [{role: 'front', file: 'input.png'}];
     if (!Array.isArray(references) || !references.some(view => view.role === 'front')
         || (restoredMethod === 'pixal3d' && references.length < 2)) {
-      throw Error('The saved reference list is incomplete.');
+      throw Error(t('The saved reference list is incomplete.'));
     }
     const restored = await Promise.all(references.map(async ({role, file}) => {
-      if (!roles.includes(role) || typeof file !== 'string') throw Error('The saved reference list is invalid.');
+      if (!roles.includes(role) || typeof file !== 'string') throw Error(t('The saved reference list is invalid.'));
       const response = await fetch(`/api/jobs/${job.id}/files/${encodeURIComponent(file)}`);
       if (!response.ok) throw Error(`Saved ${role} reference is unavailable.`);
       const blob = await response.blob();

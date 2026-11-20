@@ -1,0 +1,55 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+
+test('browser language, preference and parameter substitution', async () => {
+  const {chooseLanguage} = await import('../web/i18n.js');
+  assert.equal(chooseLanguage(null, 'fr-CA'), 'fr');
+  assert.equal(chooseLanguage(null, 'es-ES'), 'en');
+  assert.equal(chooseLanguage('en', 'fr-FR'), 'en');
+  assert.equal(chooseLanguage('fr', 'en-GB'), 'fr');
+  assert.equal(chooseLanguage('de', 'fr'), 'fr');
+
+  globalThis.location = {search: '?lang=fr'};
+  try {
+    const {language, t, localizeStatic} = await import('../web/i18n.js?fr-test');
+    assert.equal(language, 'fr');
+    assert.equal(t('Queued'), 'En attente');
+    assert.equal(t('Reference for {name}', {name: '{unknown} <avatar>'}), 'Référence de {unknown} <avatar>');
+    assert.equal(t('A server-specific diagnostic'), 'A server-specific diagnostic');
+    assert.equal(t('Back', undefined, 'navigation'), 'Retour');
+
+    const label = {nodeType: 3, textContent: '  My models\n '};
+    const attributes = new Map([['placeholder', 'Search models…'], ['data-key', 'My models']]);
+    const input = {
+      nodeType: 1, tagName: 'INPUT', childNodes: [],
+      getAttribute: name => attributes.get(name),
+      setAttribute: (name, value) => attributes.set(name, value),
+    };
+    const optionLabel = {nodeType: 3, textContent: 'My models'};
+    const option = {
+      nodeType: 1, tagName: 'OPTION', childNodes: [optionLabel],
+      getAttribute: () => null,
+      hasAttribute: name => name === 'value' && option.savedValue !== undefined,
+      get value() { return this.savedValue ?? optionLabel.textContent; },
+      set value(value) { this.savedValue = value; },
+    };
+    optionLabel.parentElement = option;
+    localizeStatic({
+      nodeType: 1, tagName: 'TEMPLATE', getAttribute: () => null,
+      content: {childNodes: [label, input, option]},
+    });
+    assert.equal(label.textContent, '  Mes modèles\n ');
+    assert.notEqual(attributes.get('placeholder'), 'Search models…');
+    assert.equal(attributes.get('data-key'), 'My models');
+    assert.equal(optionLabel.textContent, 'Mes modèles');
+    assert.equal(option.value, 'My models');
+
+    globalThis.location.search = '?lang=en';
+    const {language: english, t: translateEnglish} = await import('../web/i18n.js?en-test');
+    assert.equal(english, 'en');
+    assert.equal(translateEnglish('Queued'), 'Queued');
+    assert.equal(translateEnglish('Reference for {name}', {name: 'Avatar'}), 'Reference for Avatar');
+  } finally {
+    delete globalThis.location;
+  }
+});

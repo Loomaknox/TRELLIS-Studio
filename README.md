@@ -1,6 +1,7 @@
 <p align="center"><img src="web/trellis-mark.svg" width="80" alt="TRELLIS Studio"></p>
 <h1 align="center">TRELLIS Studio</h1>
 <p align="center">A local workspace for creating, preparing, rigging and animating 3D assets.</p>
+<p align="center"><strong>English</strong> · <a href="README.fr.md" lang="fr">Français</a></p>
 <p align="center"><a href="LICENSE">MIT · Studio code</a> · <a href="INSTALLATION.md">Installation</a> · <a href="docs/API.md">REST API</a> · <a href="docs/MCP.md">MCP</a> · <a href="THIRD_PARTY_NOTICES.md">Credits & licenses</a></p>
 <p align="center"><a href="https://github.com/sponsors/yoslo59"><img src="https://img.shields.io/badge/GitHub%20Sponsors-Support%20TRELLIS%20Studio-ea4aaa?logo=githubsponsors&amp;logoColor=white" alt="Support TRELLIS Studio on GitHub Sponsors"></a></p>
 
@@ -35,7 +36,18 @@ approximately 10.66 GB of additional model weights after license acceptance.
 
 ### Install from source
 
-[Download the source ZIP](https://github.com/yoslo59/TRELLIS-Studio/archive/refs/heads/main.zip) or clone the repository. Follow the [source installation guide](INSTALLATION.md): run **Install TRELLIS Studio.cmd**, then **Open TRELLIS.cmd**. The source launcher uses ports 7860 and 7861. It needs Node.js to assemble the viewer dependencies. Read and accept the DINOv3 license only if you agree to the terms. Setup does not enable WSL features or replace GPU drivers.
+Install from [the Loomaknox fork](https://github.com/Loomaknox/TRELLIS-Studio) to use its French interface. The Windows installers linked above are builds published by the upstream project. [Download the fork’s source ZIP](https://github.com/Loomaknox/TRELLIS-Studio/archive/refs/heads/main.zip) or clone it with Git.
+
+```powershell
+git clone https://github.com/Loomaknox/TRELLIS-Studio.git
+cd TRELLIS-Studio
+```
+
+Follow the [source installation guide](INSTALLATION.md). Run **Install TRELLIS Studio.cmd**, then **Open TRELLIS.cmd**. The source launcher uses ports 7860 and 7861. It needs Node.js to assemble the viewer dependencies. Read and accept the DINOv3 license only if you agree to the terms. Setup does not enable WSL features or replace GPU drivers.
+
+### Interface language
+
+Use the language selector in the Studio header to switch between **English** and **Français**. Studio starts in French if it is your browser’s preferred language and remembers your selection in that browser.
 
 ## What you can do
 
@@ -231,7 +243,7 @@ To update a Unity asset, extract the new package **outside** `Assets`, select th
 
 ## API and agents
 
-The header's **API & MCP** icon opens the English developer workspace:
+The header's **API & MCP** icon opens the developer workspace:
 
 - Studio: `http://127.0.0.1:7860/`
 - Developer workspace: `http://127.0.0.1:7860/developers`
@@ -281,6 +293,8 @@ Studio's original code is released under the **[MIT License](LICENSE)** by **[yo
 The complete [third-party credits and license notes](THIRD_PARTY_NOTICES.md) cover mesh/CUDA libraries, the Python/web stack, background removal, installation tools and animation provenance. Model-use rights and rights to an input image remain separate from the MIT license on Studio itself. There is no blanket claim that every dependency or generated asset is unrestricted for every use.
 
 ## Support
+
+Report translation issues in [the Loomaknox fork](https://github.com/Loomaknox/TRELLIS-Studio/issues). Include the language, the screen and the wording you saw.
 
 Use [GitHub Issues](https://github.com/yoslo59/TRELLIS-Studio/issues) for reproducible problems. Include Windows version, GPU/VRAM, driver, installer stage, relevant dependency versions and a redacted error excerpt. Avoid uploading tokens, personal files, the full library or unredacted configuration/logs. A minimal model can help only when you have the right to share it.
 

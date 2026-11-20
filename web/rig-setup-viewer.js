@@ -1,3 +1,4 @@
+import {t} from './i18n.js';
 import * as THREE from 'three';
 
 export const RIG_MARKERS = [
@@ -29,7 +30,7 @@ export function createRigSetupViewer({scene, camera, controls, viewport, getMode
   viewport.append(overlay);
   const legend = document.createElement('span');
   legend.className = 'rig-scale-label';
-  legend.textContent = 'Reference · 1.70 m';
+  legend.textContent = t('Reference · 1.70 m');
   overlay.append(legend);
   let base = null, options = null, points = null, markerMode = false, symmetric = true, onChange = null;
   let drag = null, selected = 'chin';
@@ -79,8 +80,8 @@ export function createRigSetupViewer({scene, camera, controls, viewport, getMode
   for (const [key, label, color] of RIG_MARKERS) {
     const button = document.createElement('button');
     button.type = 'button'; button.className = 'rig-landmark'; button.style.setProperty('--marker-color', color);
-    button.title = label + ' · drag or use arrow keys'; button.setAttribute('aria-label', button.title);
-    button.textContent = key.startsWith('left_') ? 'L' : key.startsWith('right_') ? 'R' : '•';
+    button.title = t('{joint} · drag or use arrow keys',{joint:t(label)}); button.setAttribute('aria-label', button.title);
+    button.textContent = key.startsWith('left_') ? t('L',undefined,'rig marker') : key.startsWith('right_') ? t('R',undefined,'rig marker') : '•';
     button.dataset.landmark = key; button.hidden = true;
     button.onpointerdown = event => {
       if (!markerMode) return;

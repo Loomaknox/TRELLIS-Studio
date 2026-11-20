@@ -1,3 +1,4 @@
+import {t} from './i18n.js';
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {clone} from 'three/addons/utils/SkeletonUtils.js';
@@ -8,7 +9,7 @@ export function createPersonalMotionPreviews(){
  const width=280,height=290,cards=new Set(),cache=new Map(),loader=new GLTFLoader();
  let renderer,raf=0,last=0,active=true;
  try{renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});}
- catch{return {attach(container){container.dataset.error='3D preview unavailable';},clear(){},setActive(){}};}
+ catch{return {attach(container){container.dataset.error=t('3D preview unavailable');},clear(){},setActive(){}};}
  renderer.setSize(width,height,false);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;
  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(33,width/height,.01,100);
  scene.add(new THREE.HemisphereLight(0xeef7ff,0x404c35,2.6));
@@ -43,13 +44,13 @@ export function createPersonalMotionPreviews(){
  }
  return {
   attach(container,motion){
-   const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;canvas.setAttribute('role','img');canvas.setAttribute('aria-label',`Generated animation preview: ${motion.name}`);
-   const toggle=document.createElement('button');toggle.type='button';toggle.className='personal-preview-toggle';toggle.append(icon('play'),document.createTextNode('Play'));toggle.setAttribute('aria-label',`Play preview: ${motion.name}`);toggle.setAttribute('aria-pressed','false');toggle.disabled=true;
+   const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;canvas.setAttribute('role','img');canvas.setAttribute('aria-label',t('Generated animation preview: {name}',{name:motion.name}));
+   const toggle=document.createElement('button');toggle.type='button';toggle.className='personal-preview-toggle';toggle.append(icon('play'),document.createTextNode(t('Play')));toggle.setAttribute('aria-label',t('Play preview: {name}',{name:motion.name}));toggle.setAttribute('aria-pressed','false');toggle.disabled=true;
    container.append(canvas,toggle);container.dataset.loading='true';
    const card={container,canvas,context:canvas.getContext('2d'),url:motion.preview_url,playing:false,paused:false,hover:false,started:performance.now()};cards.add(card);
    const setHover=hover=>{card.hover=hover;if(hover&&!card.playing){card.paused=false;card.started=performance.now();}schedule();};
    container.onpointerenter=()=>setHover(true);container.onpointerleave=()=>setHover(false);
-   toggle.onclick=()=>{card.playing=!card.playing;card.paused=!card.playing;card.started=performance.now();toggle.replaceChildren(icon(card.playing?'pause':'play'),document.createTextNode(card.playing?'Pause':'Play'));toggle.setAttribute('aria-label',`${card.playing?'Pause':'Play'} preview: ${motion.name}`);toggle.setAttribute('aria-pressed',String(card.playing));schedule();};
+   toggle.onclick=()=>{card.playing=!card.playing;card.paused=!card.playing;card.started=performance.now();toggle.replaceChildren(icon(card.playing?'pause':'play'),document.createTextNode(card.playing?t('Pause'):t('Play')));toggle.setAttribute('aria-label',t(card.playing?'Pause preview: {name}':'Play preview: {name}',{name:motion.name}));toggle.setAttribute('aria-pressed',String(card.playing));schedule();};
    const startLoad=()=>load(card.url).then(gltf=>{
     if(!cards.has(card))return;
     const animation=gltf.animations.find(clip=>clip.name===motion.clip_name);
@@ -62,7 +63,7 @@ export function createPersonalMotionPreviews(){
     card.rootStart=card.root?.getWorldPosition(new THREE.Vector3())||new THREE.Vector3();
     card.mixer=new THREE.AnimationMixer(card.model);card.mixer.clipAction(animation).play();card.duration=animation.duration;
     delete container.dataset.loading;toggle.disabled=false;draw(card,0);schedule();
-   }).catch(()=>{if(cards.has(card)){delete container.dataset.loading;container.dataset.error='Preview unavailable';toggle.hidden=true;}});
+   }).catch(()=>{if(cards.has(card)){delete container.dataset.loading;container.dataset.error=t('Preview unavailable');toggle.hidden=true;}});
    pending.set(container,startLoad);observer.observe(container);
    return ()=>{observer.unobserve(container);pending.delete(container);cards.delete(card);card.mixer?.stopAllAction();card.model?.traverse(o=>{if(o.isSkinnedMesh)o.skeleton.dispose();});disposeUnused();};
   },

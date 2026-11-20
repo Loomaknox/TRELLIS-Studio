@@ -24,7 +24,7 @@ if ($taskPackage.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected a numeri
 
 # Use the public source allowlist, then include only runtime/documentation trees.
 $taskRoots=@('web','installer','runtime','licenses','animations','unity','UniRig','integrations')
-$taskRootFiles=@('LICENSE','README.md','INSTALLATION.md','SECURITY.md','THIRD_PARTY_NOTICES.md','package.json','package-lock.json')
+$taskRootFiles=@('LICENSE','README.md','README.fr.md','INSTALLATION.md','SECURITY.md','THIRD_PARTY_NOTICES.md','package.json','package-lock.json')
 $taskDocFiles=@('docs/API.md','docs/MCP.md','docs/DEPENDENCIES.json','docs/WINDOWS_SETUP.md','docs/SERVER.md',
     'docs/MOTION_GENERATION.md','docs/WTIVO.md','docs/HI3D.md','docs/BLACKWELL_SETUP.md',('docs/RELEASE_'+$taskPackage.version+'.md'))
 $taskFiles=@(git -C $taskRoot -c core.quotePath=false ls-files --cached --others --exclude-standard)
@@ -56,6 +56,8 @@ $taskRequired+=@('hi3d_runtime.py','hi3d_worker.py','hi3d_attention.py','docs/HI
     'installer/install_hi3d.py','installer/hi3d-manifest.json','installer/requirements-hi3d.txt',
     'licenses/Hi3D-1.0-LICENSE.md')
 $taskRequired+=@('studio_release.py','web/release-notification.css','web/release-notification.js')
+$taskRequired+=@('README.fr.md','web/i18n.js','web/fr-static.js','web/fr-animation.js','web/fr-studio.js','web/fr-controls.js','web/fr-server.js',
+    'web/language-selector.css','web/language-selector.js')
 $taskRequired+=@('generation_view_projection.py','licenses/AssetFurnace-Apache-2.0.txt',
     'third_party/assetfurnace/image_to_3dlab/__init__.py',
     'third_party/assetfurnace/image_to_3dlab/photo_paint.py',

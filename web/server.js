@@ -1,3 +1,5 @@
+import './language-selector.js';
+import {t, formatLocale} from './i18n.js';
 import {
   request, getUser, element, avatar, nameOf, diskLimit, diskUsed, availableCredits, formatBytes, formatNumber,
 } from './server-shell.js?v=3.4.0';
@@ -5,13 +7,14 @@ import {
 const byId = id => document.getElementById(id);
 const main = byId('server-main');
 const route = location.pathname.replace(/\/$/, '');
-const socialKeys = ['linkedin', 'github', 'mastodon', 'instagram', 'other'];
-const dateFormat = new Intl.DateTimeFormat('en-US', {dateStyle: 'short', timeStyle: 'short'});
+const socialNames = {linkedin: 'LinkedIn', github: 'GitHub', mastodon: 'Mastodon', instagram: 'Instagram', other: t('Other link')};
+const socialKeys = Object.keys(socialNames);
+const dateFormat = new Intl.DateTimeFormat(formatLocale, {dateStyle: 'short', timeStyle: 'short'});
 const stateNames = {
-  active: 'Active', pending: 'Pending', disabled: 'Disabled', queued: 'Queued', running: 'Running',
-  done: 'Completed', error: 'Failed', failed: 'Failed', cancelled: 'Cancelled', paused: 'Paused',
+  active: t('Active'), pending: t('Pending'), disabled: t('Disabled'), queued: t('Queued'), running: t('Running'),
+  done: t('Completed'), error: t('Failed'), failed: t('Failed'), cancelled: t('Cancelled'), paused: t('Paused'),
 };
-const roleName = user => user.role === 'admin' ? 'Administrator' : 'User';
+const roleName = user => user.role === 'admin' ? t('Administrator') : t('User');
 const isMfa = user => user.totp_enabled ?? user.mfa_enabled;
 const withData = form => Object.fromEntries(new FormData(form));
 
@@ -46,7 +49,7 @@ function bindForm(id, feedback, action) {
 }
 
 function checkPassword(data, key = 'password') {
-  if (data[key] !== data.confirm_password) throw new Error('The passwords do not match.');
+  if (data[key] !== data.confirm_password) throw new Error(t('The passwords do not match.'));
   delete data.confirm_password;
 }
 
@@ -146,7 +149,7 @@ function loginPage() {
   const register = byId('register-section');
   const feedback = byId('auth-notice');
   const changed = new URLSearchParams(location.search).get('changed');
-  if (changed === 'password') notice(feedback, 'Password changed. Sign in with your new password.');
+  if (changed === 'password') notice(feedback, t('Password changed. Sign in with your new password.'));
   const toggle = (showRegistration, focus = true) => {
     login.hidden = showRegistration;
     register.hidden = !showRegistration;
@@ -174,7 +177,7 @@ function loginPage() {
     form.reset();
     toggle(false);
     byId('login-form').elements.email.value = data.email;
-    notice(feedback, 'Request received. You can sign in once an administrator activates your account.');
+    notice(feedback, t('Request received. You can sign in once an administrator activates your account.'));
   });
 }
 
@@ -186,7 +189,7 @@ function setupPage() {
   const feedback = byId('setup-notice');
   if (!token) {
     form.hidden = true;
-    notice(feedback, 'Return to the installer to open a valid setup link.', true);
+    notice(feedback, t('Return to the installer to open a valid setup link.'), true);
     return;
   }
   bindForm('setup-form', 'setup-notice', async data => {
@@ -194,7 +197,7 @@ function setupPage() {
     await post('/setup', {...data, token});
     form.reset();
     form.hidden = true;
-    notice(feedback, 'Administrator account created. Return to the installer to finish setting up the server.');
+    notice(feedback, t('Administrator account created. Return to the installer to finish setting up the server.'));
   });
 }
 
@@ -230,26 +233,27 @@ function usagePage(user) {
   const used = diskUsed(user);
   const limit = diskLimit(user);
   const admin = user.role === 'admin';
-  const reserved = user.storage_reserved_bytes ? ` · ${formatBytes(user.storage_reserved_bytes)} reserved` : '';
+  const reserved = user.storage_reserved_bytes
+    ? ` · ${t('{size} reserved', {size: formatBytes(user.storage_reserved_bytes)})}` : '';
   byId('usage-metrics').replaceChildren(
-    metric('Storage used', formatBytes(used), admin ? 'Unlimited quota' : `of ${formatBytes(limit)}${reserved}`,
-      limit > 0 ? progress(used, limit, 'Storage used') : null),
-    metric('Available credits', admin ? 'Unlimited' : formatNumber(availableCredits(user)), 'New generations'),
-    metric('Reserved credits', admin ? '—' : formatNumber(user.credits_reserved || 0), 'Queued or running generations'),
+    metric(t('Storage used'), formatBytes(used), admin ? t('Unlimited quota') : `${t('of {size}', {size: formatBytes(limit)})}${reserved}`,
+      limit > 0 ? progress(used, limit, t('Storage used')) : null),
+    metric(t('Available credits'), admin ? t('Unlimited') : formatNumber(availableCredits(user)), t('New generations')),
+    metric(t('Reserved credits'), admin ? '—' : formatNumber(user.credits_reserved || 0), t('Queued or running generations')),
   );
 }
 
 function usageLedger(data) {
-  const labels = {reserve: 'Credit reserved', reserved: 'Credit reserved', debit: 'Generation completed',
-    charged: 'Generation completed', release: 'Reservation released', released: 'Reservation released',
-    grant: 'Credits granted', adjust: 'Credit adjustment', adjustment: 'Credit adjustment'};
+  const labels = {reserve: t('Credit reserved'), reserved: t('Credit reserved'), debit: t('Generation completed'),
+    charged: t('Generation completed'), release: t('Reservation released'), released: t('Reservation released'),
+    grant: t('Credits granted'), adjust: t('Credit adjustment'), adjustment: t('Credit adjustment')};
   const entries = data.ledger || data.entries || [];
   return entries.map(entry => {
     const action = entry.kind || entry.action || entry.event;
     const amount = entry.delta ?? entry.amount;
     const suffix = typeof amount === 'number' && amount !== 0
       ? element('strong', '', `${amount > 0 ? '+' : ''}${formatNumber(amount)}`) : null;
-    return activity(labels[action] || action || 'Credit activity',
+    return activity(labels[action] || action || t('Credit activity'),
       [dateOf(entry.created_at || entry.created), entry.reason].filter(Boolean).join(' · '), suffix);
   });
 }
@@ -257,11 +261,11 @@ function usageLedger(data) {
 function secureAccount(user) {
   const enrolled = isMfa(user);
   byId('mfa-summary').textContent = user.role === 'admin'
-    ? (enrolled ? 'Two-factor authentication is required for administrators and cannot be disabled.'
-                : 'Administrators must set up two-factor authentication before using Studio.')
-    : (enrolled ? 'Two-factor authentication is enabled. You can disable it below.'
-                : 'Two-factor authentication is optional for your account. Use an authenticator app for extra protection.');
-  byId('mfa-action').textContent = enrolled ? 'Disable two-factor authentication' : 'Set up two-factor authentication';
+    ? (enrolled ? t('Two-factor authentication is required for administrators and cannot be disabled.')
+                : t('Administrators must set up two-factor authentication before using Studio.'))
+    : (enrolled ? t('Two-factor authentication is enabled. You can disable it below.')
+                : t('Two-factor authentication is optional for your account. Use an authenticator app for extra protection.'));
+  byId('mfa-action').textContent = enrolled ? t('Disable two-factor authentication') : t('Set up two-factor authentication');
   const start = byId('mfa-start-form');
   const locked = (enrolled && user.role === 'admin') || user.password_change_required;
   start.hidden = locked;
@@ -275,7 +279,7 @@ function secureAccount(user) {
   });
   bindForm('mfa-start-form', 'mfa-notice', async (data, form) => {
     if (enrolled) {
-      if (!confirm('Disable two-factor authentication for your account?')) return;
+      if (!confirm(t('Disable two-factor authentication for your account?'))) return;
       await post('/mfa/disable', data);
       form.reset();
       location.replace('/server/login');
@@ -305,14 +309,14 @@ function secureAccount(user) {
       item.append(element('code', '', code));
       return item;
     }));
-    const message = element('p', '', 'Store these recovery codes in a safe place. Each code can be used once.');
-    const loginLink = element('a', 'server-primary', 'Sign in again');
+    const message = element('p', '', t('Store these recovery codes in a safe place. Each code can be used once.'));
+    const loginLink = element('a', 'server-primary', t('Sign in again'));
     loginLink.href = '/server/login';
     const actions = element('div', 'server-actions');
     actions.append(loginLink);
     recovery.replaceChildren(message, list, actions);
     recovery.hidden = false;
-    notice(byId('mfa-notice'), 'Two-factor authentication enabled.');
+    notice(byId('mfa-notice'), t('Two-factor authentication enabled.'));
   });
 }
 
@@ -342,19 +346,19 @@ function apiKeys(restricted) {
       const {tokens} = await request('/tokens');
       if (revision !== latestList) return;
       const rows = tokens.map(key => {
-        const revoke = button('Revoke', control => perform(control, feedback, async () => {
-          if (!confirm(`Revoke “${key.label}”? Clients using this key will need a replacement key.`)) return;
+        const revoke = button(t('Revoke'), control => perform(control, feedback, async () => {
+          if (!confirm(t('Revoke “{label}”? Clients using this key will need a replacement key.', {label: key.label}))) return;
           await request(`/tokens/${encodeURIComponent(key.id)}`, {method: 'DELETE'});
           if (revealedKey === key.id) clearKey();
-          notice(feedback, 'API key revoked.');
+          notice(feedback, t('API key revoked.'));
           await loadKeys();
         }));
-        revoke.setAttribute('aria-label', `Revoke API key ${key.label}`);
-        const detail = [`${key.prefix}…`, `Created ${dateOf(key.created)}`];
-        if (key.last_used) detail.push(`Last used ${dateOf(key.last_used)}`);
+        revoke.setAttribute('aria-label', t('Revoke API key {label}', {label: key.label}));
+        const detail = [`${key.prefix}…`, t('Created {date}', {date: dateOf(key.created)})];
+        if (key.last_used) detail.push(t('Last used {date}', {date: dateOf(key.last_used)}));
         return activity(key.label, detail.join(' · '), revoke);
       });
-      showList(list, rows, 'No API keys yet.');
+      showList(list, rows, t('No API keys yet.'));
     } catch (error) {
       if (revision === latestList) notice(feedback, error.message, true);
     }
@@ -362,11 +366,11 @@ function apiKeys(restricted) {
 
   bindForm('api-token-form', 'api-token-notice', async (data, form) => {
     const label = data.label.trim();
-    if (!label) throw new Error('Enter a name for the API key.');
+    if (!label) throw new Error(t('Enter a name for the API key.'));
     const result = await post('/tokens', {label});
     form.reset();
     if (byId('panel-security').hidden) {
-      notice(feedback, 'API key created. To get a new key, revoke this one and create another.');
+      notice(feedback, t('API key created. To get a new key, revoke this one and create another.'));
       return;
     }
     revealedKey = result.key.id;
@@ -378,11 +382,11 @@ function apiKeys(restricted) {
   byId('api-token-copy').addEventListener('click', event => perform(event.currentTarget, feedback, async () => {
     try {
       await navigator.clipboard.writeText(secret.value);
-      notice(feedback, 'API key copied.');
+      notice(feedback, t('API key copied.'));
     } catch {
       secret.focus();
       secret.select();
-      notice(feedback, 'API key selected. Use your keyboard shortcut to copy it.');
+      notice(feedback, t('API key selected. Use your keyboard shortcut to copy it.'));
     }
   }));
   hide.addEventListener('click', () => {
@@ -409,8 +413,8 @@ function accountPage(user) {
       byId(`panel-${key}`).hidden = true;
     }
     notice(byId('account-required'), user.password_change_required
-      ? 'Choose a new password to access Studio.'
-      : 'Enable two-factor authentication to access Studio and Administration.');
+      ? t('Choose a new password to access Studio.')
+      : t('Enable two-factor authentication to access Studio and Administration.'));
   }
 
   const profile = byId('profile-form');
@@ -428,7 +432,7 @@ function accountPage(user) {
     user = getUser(await patch('/me', data));
     profileIdentity(user);
     fill(profile, user, profileKeys);
-    notice(byId('profile-notice'), 'Profile saved.');
+    notice(byId('profile-notice'), t('Profile saved.'));
   });
 
   const avatarForm = byId('avatar-form');
@@ -447,7 +451,7 @@ function accountPage(user) {
     if (file.size > 2 * 1024 ** 2 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
       fileInput.value = '';
       profileIdentity(user);
-      notice(byId('avatar-notice'), 'Choose a JPEG, PNG, or WebP image up to 2 MiB.', true);
+      notice(byId('avatar-notice'), t('Choose a JPEG, PNG, or WebP image up to 2 MiB.'), true);
       return;
     }
     preview = URL.createObjectURL(file);
@@ -456,7 +460,7 @@ function accountPage(user) {
     image.src = preview;
     byId('profile-avatar').replaceChildren(image);
     avatarSave.hidden = false;
-    notice(byId('avatar-notice'), 'New avatar preview.');
+    notice(byId('avatar-notice'), t('New avatar preview.'));
   });
   window.addEventListener('pagehide', discardPreview);
   bindForm('avatar-form', 'avatar-notice', async (_data, form) => {
@@ -466,7 +470,7 @@ function accountPage(user) {
     avatarSave.hidden = true;
     discardPreview();
     profileIdentity(user, Date.now());
-    notice(byId('avatar-notice'), 'Avatar saved.');
+    notice(byId('avatar-notice'), t('Avatar saved.'));
   });
 
   secureAccount(user);
@@ -484,22 +488,22 @@ function accountPage(user) {
       const breakdown = data.breakdown;
       byId('usage-breakdown').hidden = !breakdown;
       if (breakdown) {
-        const labels = {models: 'Models and references', caches: 'Remesh caches', exports: 'Exports',
-          trash: 'Trash', other: 'Other files'};
+        const labels = {models: t('Models and references'), caches: t('Remesh caches'), exports: t('Exports'),
+          trash: t('Trash'), other: t('Other files')};
         byId('usage-storage').replaceChildren(...Object.entries(labels).map(([key, label]) =>
           activity(label, '', element('strong', '', formatBytes(breakdown[key] ?? 0)))));
       }
-      showList(ledger, usageLedger(data), 'No credit activity yet.');
+      showList(ledger, usageLedger(data), t('No credit activity yet.'));
       const rows = [
-        ...(data.trash || []).map(item => ({...item, type: 'trash', label: 'Trash'})),
-        ...(data.exports || []).map(item => ({...item, type: 'exports', label: 'Export'})),
-        ...(data.uploads || []).map(item => ({...item, type: 'uploads', label: 'Upload'})),
+        ...(data.trash || []).map(item => ({...item, type: 'trash', label: t('Trash')})),
+        ...(data.exports || []).map(item => ({...item, type: 'exports', label: t('Export', null, 'serverFile')})),
+        ...(data.uploads || []).map(item => ({...item, type: 'uploads', label: t('Upload')})),
       ].map(item => {
         const feedback = element('p', 'server-notice');
         feedback.setAttribute('role', 'status');
         feedback.hidden = true;
-        const remove = button('Delete', control => perform(control, feedback, async () => {
-          if (!confirm('Permanently delete this item?')) return;
+        const remove = button(t('Delete'), control => perform(control, feedback, async () => {
+          if (!confirm(t('Permanently delete this item?'))) return;
           await request(`/${item.type}/${encodeURIComponent(item.id)}`, {method: 'DELETE'});
           await loadUsage();
         }));
@@ -507,7 +511,7 @@ function accountPage(user) {
         wrapper.append(activity(item.name || item.id, `${item.label} · ${formatBytes(item.bytes)}`, remove), feedback);
         return wrapper;
       });
-      showList(cleanup, rows, 'No files available for cleanup.');
+      showList(cleanup, rows, t('No files available for cleanup.'));
     } catch (error) {
       showList(ledger, [], error.message);
       cleanup.replaceChildren();
@@ -522,7 +526,7 @@ function accountPage(user) {
 }
 
 function adminPage(actor) {
-  document.title = 'TRELLIS Studio · Administration';
+  document.title = t('TRELLIS Studio · Administration');
   render('admin');
   connectNavigation(actor);
   const feedback = byId('admin-notice');
@@ -553,16 +557,16 @@ function adminPage(actor) {
       const storage = element('div', 'server-storage');
       const used = diskUsed(user);
       const limit = diskLimit(user);
-      storage.append(element('span', '', user.role === 'admin' ? 'Unlimited' : `${formatBytes(used)} / ${formatBytes(limit)}`));
-      if (limit > 0) storage.append(progress(used, limit, 'Storage used'));
-      const open = button(user.status === 'pending' ? 'Review' : 'Details', () => editUser(user));
+      storage.append(element('span', '', user.role === 'admin' ? t('Unlimited') : `${formatBytes(used)} / ${formatBytes(limit)}`));
+      if (limit > 0) storage.append(progress(used, limit, t('Storage used')));
+      const open = button(user.status === 'pending' ? t('Review', null, 'accountRequest') : t('Details'), () => editUser(user));
       open.setAttribute('aria-label', `${open.textContent} · ${nameOf(user)}`);
       const cells = [identity, element('span', 'server-chip', roleName(user)), stateChip(user.status), storage,
-        element('span', '', user.role === 'admin' ? 'Unlimited' : formatNumber(availableCredits(user))), open];
+        element('span', '', user.role === 'admin' ? t('Unlimited') : formatNumber(availableCredits(user))), open];
       for (const [index, content] of cells.entries()) {
         const cell = element('td');
         cell.setAttribute('role', 'cell');
-        const label = ['', 'Role', 'Status', 'Storage', 'Credits'][index];
+        const label = ['', t('Role'), t('Status'), t('Storage'), t('Credits')][index];
         if (label) cell.dataset.label = label;
         cell.append(content);
         row.append(cell);
@@ -572,7 +576,7 @@ function adminPage(actor) {
     byId('user-list').replaceChildren(...rows);
     byId('users-empty').hidden = !!rows.length;
     const pending = users.filter(user => user.status === 'pending').length;
-    byId('pending-count').textContent = pending;
+    byId('pending-count').textContent = formatNumber(pending);
     byId('pending-count').hidden = !pending;
   }
 
@@ -588,49 +592,52 @@ function adminPage(actor) {
     const pending = data.pending_users ?? users.filter(user => user.status === 'pending').length;
     const active = data.active_jobs ?? 0;
     byId('admin-metrics').replaceChildren(
-      metric('Accounts', formatNumber(total), `${formatNumber(pending)} pending ${pending === 1 ? 'request' : 'requests'}`),
-      metric('Library data', formatBytes(data.used_bytes), 'Storage used'),
-      metric('Free space', formatBytes(data.free_bytes), 'Server drive'),
-      metric('Server queue', data.paused ? 'Paused' : 'Open', `${formatNumber(active)} active ${active === 1 ? 'job' : 'jobs'}`),
+      metric(t('Accounts'), formatNumber(total), t(pending === 1 ? '{count} pending request' : '{count} pending requests',
+        {count: formatNumber(pending)})),
+      metric(t('Library data'), formatBytes(data.used_bytes), t('Storage used')),
+      metric(t('Free space'), formatBytes(data.free_bytes), t('Server drive')),
+      metric(t('Server queue'), data.paused ? t('Paused') : t('Open', null, 'serverQueue'), t(active === 1 ? '{count} active job' : '{count} active jobs',
+        {count: formatNumber(active)})),
     );
   }
 
   async function loadQueue() {
     const result = await request('/admin/queue');
     queuePaused = !!result.paused;
-    byId('queue-toggle').textContent = queuePaused ? 'Resume queue' : 'Pause queue';
+    byId('queue-toggle').textContent = queuePaused ? t('Resume queue') : t('Pause queue');
     const jobs = result.items || result.jobs || [];
     const rows = jobs.map(job => {
       const side = element('div', 'server-activity-side');
       side.append(stateChip(job.state));
       if (job.state === 'queued' || job.state === 'running') {
-        side.append(button('Cancel', control => perform(control, feedback, async () => {
-          if (!confirm('Cancel this job?')) return;
+        side.append(button(t('Cancel'), control => perform(control, feedback, async () => {
+          if (!confirm(t('Cancel this job?'))) return;
           await post(`/admin/queue/${encodeURIComponent(job.user_id)}/${encodeURIComponent(job.id)}/cancel`);
           await loadQueue();
           await loadMetrics();
         })));
       }
-      return activity(job.name || job.id, [job.user_name || job.email, job.stage,
-        job.state === 'running' && Number.isFinite(job.progress) ? `${job.progress}%` : ''].filter(Boolean).join(' · '), side);
+      return activity(job.name || job.id, [job.user_name || job.email, t(job.stage || ''),
+        job.state === 'running' && Number.isFinite(job.progress) ? t('{value}%', {value: formatNumber(job.progress)}) : '']
+        .filter(Boolean).join(' · '), side);
     });
-    showList(byId('queue-list'), rows, 'The queue is empty.');
+    showList(byId('queue-list'), rows, t('The queue is empty.'));
   }
 
   async function loadAudit() {
     const result = await request('/admin/audit');
-    const actions = {server_initialized: 'Server configured', account_requested: 'Account requested', account_created: 'Account created', account_updated: 'Account updated',
-      activate: 'Account activated', deactivate: 'Account disabled', credits_adjusted: 'Credits adjusted',
-      quota_updated: 'Quota changed', sessions_revoked: 'Sessions revoked',
-      password_reset: 'Password reset', password_changed: 'Password changed',
-      totp_reset: 'Two-factor authentication reset', totp_enabled: 'Two-factor authentication enabled',
-      totp_disabled: 'Two-factor authentication disabled', login: 'Sign-in', profile_updated: 'Profile updated'};
+    const actions = {server_initialized: t('Server configured'), account_requested: t('Account requested'), account_created: t('Account created'), account_updated: t('Account updated'),
+      activate: t('Account activated'), deactivate: t('Account disabled'), credits_adjusted: t('Credits adjusted'),
+      quota_updated: t('Quota changed'), sessions_revoked: t('Sessions revoked'),
+      password_reset: t('Password reset'), password_changed: t('Password changed'),
+      totp_reset: t('Two-factor authentication reset'), totp_enabled: t('Two-factor authentication enabled'),
+      totp_disabled: t('Two-factor authentication disabled'), login: t('Sign-in'), profile_updated: t('Profile updated')};
     const rows = (result.entries || result.events || []).map(entry => {
       const target = entry.subject_name || entry.target_name || entry.subject_email || entry.target_email;
-      return activity([actions[entry.action] || entry.action || 'Administration', target].filter(Boolean).join(' · '),
+      return activity([actions[entry.action] || entry.action || t('Administration'), target].filter(Boolean).join(' · '),
         [entry.actor_name || entry.actor_email, dateOf(entry.created_at || entry.created), entry.reason].filter(Boolean).join(' · '));
     });
-    showList(byId('audit-list'), rows, 'No activity recorded.');
+    showList(byId('audit-list'), rows, t('No activity recorded.'));
   }
 
   function quotaControls() {
@@ -646,8 +653,8 @@ function adminPage(actor) {
     temporary.replaceChildren();
     temporary.hidden = !value;
     if (value) {
-      temporary.append(element('h3', '', 'Temporary password'),
-        element('p', '', 'Share this password with the user. They must change it at their next sign-in.'),
+      temporary.append(element('h3', '', t('Temporary password')),
+        element('p', '', t('Share this password with the user. They must change it at their next sign-in.')),
         element('code', '', value));
       temporary.scrollIntoView({block: 'nearest'});
     }
@@ -657,10 +664,10 @@ function adminPage(actor) {
     const details = byId('user-inspect-details');
     details.replaceChildren();
     const rows = [
-      ['Last sign-in', dateOf(user.last_login_at || user.last_login)],
-      ['Two-factor authentication', isMfa(user) ? 'Enabled' : 'Disabled'],
-      ['Bio', user.bio], ['Website', user.website],
-      ...socialKeys.map(key => [key === 'other' ? 'Other link' : key.charAt(0).toUpperCase() + key.slice(1), user.social_links?.[key]]),
+      [t('Last sign-in'), dateOf(user.last_login_at || user.last_login)],
+      [t('Two-factor authentication'), isMfa(user) ? t('Enabled') : t('Disabled', null, 'authentication')],
+      [t('Bio'), user.bio], [t('Website'), user.website],
+      ...socialKeys.map(key => [socialNames[key], user.social_links?.[key]]),
     ];
     for (const [label, value] of rows) {
       if (!value) continue;
@@ -682,8 +689,8 @@ function adminPage(actor) {
     byId('user-credit-form').reset();
     notice(dialogNotice);
     if (!keepTemporary) showTemporary();
-    byId('user-dialog-title').textContent = user ? nameOf(user) : 'Create user';
-    byId('user-dialog-subtitle').textContent = user ? `${stateNames[user.status]} · ${roleName(user)}` : 'Set access and the initial quotas.';
+    byId('user-dialog-title').textContent = user ? nameOf(user) : t('Create user');
+    byId('user-dialog-subtitle').textContent = user ? `${stateNames[user.status]} · ${roleName(user)}` : t('Set access and the initial quotas.');
     const icon = byId('user-dialog-avatar');
     icon.hidden = !user;
     if (user) avatar(icon, user);
@@ -698,14 +705,16 @@ function adminPage(actor) {
     byId('user-password-field').hidden = !!user;
     byId('user-initial-credits').hidden = !!user;
     byId('user-activate').hidden = user?.status !== 'pending';
-    byId('user-save').textContent = user ? 'Save changes' : 'Create account';
+    byId('user-save').textContent = user ? t('Save changes') : t('Create account');
     byId('user-inspect').hidden = !user;
     byId('user-revoke').hidden = user?.id === actor.id;
     byId('user-reset-password').hidden = user?.id === actor.id;
     byId('user-reset-mfa').hidden = user?.id === actor.id || !user || !isMfa(user);
     if (user) {
       inspectDetails(user);
-      byId('user-credit-summary').textContent = `${formatNumber(availableCredits(user))} available · ${formatNumber(user.credits_reserved || 0)} reserved`;
+      byId('user-credit-summary').textContent = t('{available} available · {reserved} reserved', {
+        available: formatNumber(availableCredits(user)), reserved: formatNumber(user.credits_reserved || 0),
+      });
     }
     quotaControls();
     if (!dialog.open) dialog.showModal();
@@ -721,7 +730,7 @@ function adminPage(actor) {
     } else data.disk_limit_bytes = Math.round(Number(rawLimit) * 1024 ** 3);
     delete data.disk_gib;
     if (edited && data.status === 'disabled' && edited.status !== 'disabled'
-      && !confirm(`Disable the account for ${nameOf(edited)}? Their active sessions will end.`)) return;
+      && !confirm(t('Disable the account for {name}? Their active sessions will end.', {name: nameOf(edited)}))) return;
     if (!edited) {
       data.credits = Number(data.credits);
       if (!data.password) delete data.password;
@@ -732,16 +741,16 @@ function adminPage(actor) {
     const fresh = users.find(item => item.id === (getUser(result).id || edited?.id));
     if (fresh) editUser(fresh, true);
     if (result.temporary_password) showTemporary(result.temporary_password);
-    notice(dialogNotice, edited ? 'User details updated.' : 'Account created.');
+    notice(dialogNotice, edited ? t('User details updated.') : t('Account created.'));
   });
   bindForm('user-credit-form', 'user-dialog-notice', async data => {
     const edited = selected;
     data.amount = Number(data.amount);
-    if (!data.amount) throw new Error('Enter the number of credits to add or remove.');
+    if (!data.amount) throw new Error(t('Enter the number of credits to add or remove.'));
     await post(`${adminUserPath(edited)}/credits`, data);
     await loadUsers();
     editUser(users.find(item => item.id === edited.id) || edited, true);
-    notice(dialogNotice, 'Credit adjustment saved.');
+    notice(dialogNotice, t('Credit adjustment saved.'));
   });
   byId('admin-create').addEventListener('click', () => editUser(null));
   byId('user-dialog-close').addEventListener('click', () => dialog.close());
@@ -752,23 +761,23 @@ function adminPage(actor) {
   });
   form.elements.role.addEventListener('change', quotaControls);
   byId('user-revoke').addEventListener('click', event => perform(event.currentTarget, dialogNotice, async () => {
-    if (!confirm(`Sign out ${nameOf(selected)} from all devices?`)) return;
+    if (!confirm(t('Sign out {name} from all devices?', {name: nameOf(selected)}))) return;
     await request(`${adminUserPath(selected)}/sessions`, {method: 'DELETE'});
-    notice(dialogNotice, 'Sessions revoked.');
+    notice(dialogNotice, t('Sessions revoked.'));
   }));
   byId('user-reset-password').addEventListener('click', event => perform(event.currentTarget, dialogNotice, async () => {
-    if (!confirm(`Reset the password for ${nameOf(selected)}?`)) return;
+    if (!confirm(t('Reset the password for {name}?', {name: nameOf(selected)}))) return;
     const result = await post(`${adminUserPath(selected)}/reset-password`);
     showTemporary(result.temporary_password);
-    notice(dialogNotice, 'Password reset.');
+    notice(dialogNotice, t('Password reset.'));
   }));
   byId('user-reset-mfa').addEventListener('click', event => perform(event.currentTarget, dialogNotice, async () => {
     const edited = selected;
-    if (!confirm(`Reset two-factor authentication for ${nameOf(edited)}?`)) return;
+    if (!confirm(t('Reset two-factor authentication for {name}?', {name: nameOf(edited)}))) return;
     await post(`${adminUserPath(edited)}/reset-mfa`);
     await loadUsers();
     editUser(users.find(item => item.id === edited.id) || edited, true);
-    notice(dialogNotice, 'Two-factor authentication reset.');
+    notice(dialogNotice, t('Two-factor authentication reset.'));
   }));
   search.addEventListener('input', drawUsers);
   filter.addEventListener('change', drawUsers);
@@ -806,7 +815,7 @@ async function start() {
 start().catch(error => {
   if (error.status === 401) location.replace('/server/login');
   else {
-    const feedback = element('p', 'server-notice', error.message || 'The server is unavailable.');
+    const feedback = element('p', 'server-notice', error.message || t('The server is unavailable.'));
     feedback.dataset.error = '';
     feedback.setAttribute('role', 'alert');
     main.replaceChildren(feedback);

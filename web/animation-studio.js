@@ -1,3 +1,4 @@
+import {formatLocale, language, t} from './i18n.js';
 import {icon} from './card-menu.js?v=2.6.1';
 import {createMotionPreviews} from './authored-previews.js?v=3.4.0';
 import {createPersonalAnimationLibrary} from './personal-animation-library.js?v=3.4.0-motion2';
@@ -10,21 +11,21 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  const selectedClips=new Set();
  const batchLimit=Number.isInteger(data.max_batch_clips)?data.max_batch_clips:catalog.length;
  const categories=[...new Set(catalog.map(c=>c.category))];
- for(const category of categories){const option=document.createElement('option');option.value=category;option.textContent=category;$('animationCategory').append(option);}
- const nameOf=j=>j?.metadata?.display_name||j?.settings.name||'Choose a model from the collection';
- $('animationDuration').oninput=()=>{$('animationDurationValue').value=Number($('animationDuration').value).toLocaleString('en-US')+' s';};
+ for(const category of categories){const option=document.createElement('option');option.value=category;option.textContent=t(category);$('animationCategory').append(option);}
+ const nameOf=j=>j?.metadata?.display_name||j?.settings.name||t('Choose a model from the collection');
+ $('animationDuration').oninput=()=>{$('animationDurationValue').value=Number($('animationDuration').value).toLocaleString(formatLocale)+' s';};
  const hasRig=job=>Boolean(job?.result?.bones||job?.result?.rigged||job?.media?.bones);
  const canEdit=job=>job?.state==='done'&&!isBusy()&&!submitting;
  const canAdd=job=>canEdit(job)&&hasRig(job);
  const canRemove=job=>canEdit(job)&&removeAvailable;
  const personal=createPersonalAnimationLibrary({api,getJob,canAdd,
-  applyMotion:(job,motion)=>editClips(job,'POST',{animation_id:motion.id,in_place:false},'Animation added.',false,`/api/jobs/${encodeURIComponent(job.id)}/my-animations`),
+  applyMotion:(job,motion)=>editClips(job,'POST',{animation_id:motion.id,in_place:false},t('Animation added.'),false,`/api/jobs/${encodeURIComponent(job.id)}/my-animations`),
   onCount:count=>{$('personalAnimationCount').textContent=count;}});
 
  function authoredMotion(name){
   const match=/^TS_(.+)_([0-9.]+)s$/.exec(name||'');
   if(!match)return null;
-  return {id:match[1],title:catalog.find(clip=>clip.id===match[1])?.name||match[1],duration:Number(match[2])};
+  return {id:match[1],title:t(catalog.find(clip=>clip.id===match[1])?.name||match[1]),duration:Number(match[2])};
  }
 
  function embeddedClips(job){
@@ -38,7 +39,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
    const authored=authoredMotion(name);
    const generated=job.settings?.generated_animation_clips?.find(clip=>clip.clip===name);
    const duration=preview?.duration??generated?.duration??authored?.duration??job.result?.animation_set?.find(clip=>clip.clip===name)?.duration_s;
-   return {index,name,expectedName,duration,recipeId:authored?.id,playable:!!preview,title:generated?.name||authored?.title||name||`Animation ${index+1}`};
+   return {index,name,expectedName,duration,recipeId:authored?.id,playable:!!preview,title:generated?.name||authored?.title||name||t('Animation {number}',{number:index+1})};
   });
   const duplicates=new Set(entries.filter((entry,index)=>entries.findIndex(other=>other.title===entry.title)!==index).map(entry=>entry.title));
   return entries.map(entry=>duplicates.has(entry.title)?{...entry,title:`${entry.title} (${entry.index+1})`}:entry);
@@ -65,9 +66,9 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   $('animationSelection').hidden=tab!=='library'||!batchAvailable||!batchLimit;
   $('selectAnimations').disabled=!enabled;
   $('selectAnimations').setAttribute('aria-pressed',String(selecting));
-  $('selectAnimations').querySelector('span').textContent=selecting?'Cancel selection':'Select clips';
+  $('selectAnimations').querySelector('span').textContent=selecting?t('Cancel selection'):t('Select clips');
   $('selectedAnimationCount').hidden=!selecting;
-  const countLabel=`${count} ${count===1?'clip':'clips'} selected`;
+  const countLabel=t(count===1?'{count} clip selected':'{count} clips selected',{count});
   if($('selectedAnimationCount').textContent!==countLabel)$('selectedAnimationCount').textContent=countLabel;
   $('animationSelectionActions').hidden=!selecting;
   $('clearAnimationSelection').disabled=!count||submitting;
@@ -78,12 +79,12 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
    input.checked=selectedClips.has(input.dataset.selectClip);
    input.disabled=!enabled||(!input.checked&&count>=batchLimit);
    input.closest('.animation-card').classList.toggle('selected-motion',input.checked);
-   input.nextElementSibling.textContent=input.checked?'Selected':'Select';
+   input.nextElementSibling.textContent=input.checked?t('Selected'):t('Select');
   }
  }
 
  async function editClips(job,method,body,success,batch=false,path=`/api/v1/models/${job.id}/animations`){
-  setClipNotice(job.id,method==='DELETE'?'Removing clip…':'Saving animations…');
+  setClipNotice(job.id,method==='DELETE'?t('Removing clip…'):t('Saving animations…'));
   submitting=true;
   updateSelectionControls(job);
   try{
@@ -97,12 +98,12 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
      return {ok:true};
     }
     if(status.state==='error'||status.state==='cancelled'||status.operation_error){
-     throw Error(status.operation_error||status.error||status.stage||'Animation update did not complete.');
+     throw Error(status.operation_error||status.error||status.stage||t('Animation update did not complete.'));
     }
-    if(status.stage)setClipNotice(job.id,status.stage);
+    if(status.stage)setClipNotice(job.id,t(status.stage));
     await new Promise(resolve=>setTimeout(resolve,900));
    }
-  }catch(error){setClipNotice(job.id,error.message);return {ok:false,error:error.message};}
+  }catch(error){setClipNotice(job.id,t(error.message));return {ok:false,error:error.message};}
   finally{
    try{await refresh();}
    finally{submitting=false;render();}
@@ -114,7 +115,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   if(!canAdd(job)||!ids.length||(batch&&!batchAvailable))return;
   const duration=Number($('animationDuration').value);
   const clips=ids.map(clip=>({clip,duration}));
-  return editClips(job,'POST',batch?{clips}:clips[0],ids.length===1?'Animation saved.':'Animations saved.',batch);
+  return editClips(job,'POST',batch?{clips}:clips[0],ids.length===1?t('Animation saved.'):t('Animations saved.'),batch);
  }
 
  function confirmRemoval(job,clip){
@@ -129,7 +130,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   const target=removal,job=getJob();
   removal=null;
   if($('animationRemoveDialog').returnValue==='remove'&&target?.id===job?.id&&canRemove(job)){
-   editClips(job,'DELETE',{index:target.index,clip:target.name,revision:target.revision},'Animation removed.');
+   editClips(job,'DELETE',{index:target.index,clip:target.name,revision:target.revision},t('Animation removed.'));
   }
  });
 
@@ -143,10 +144,10 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  };
  $('addAnimationSelection').onclick=()=>submitMotions([...selectedClips],true);
  const rotation=[];let rigStep=0,rigJobId=null,savedLandmarks=null;
- for(const axis of ['X','Y','Z']){const label=document.createElement('label');label.className='rig-rotation';const caption=document.createElement('span');caption.textContent='Rotation '+axis;const slider=document.createElement('input');slider.type='range';slider.min=-180;slider.max=180;slider.step=1;slider.value=0;slider.setAttribute('aria-label','Rotation '+axis);const value=document.createElement('output');value.value='0°';const reset=document.createElement('button');reset.type='button';reset.className='quiet';reset.append(icon('rotate'));reset.setAttribute('aria-label','Reset rotation '+axis);reset.onclick=()=>{slider.value=0;changeRig();};slider.oninput=changeRig;label.append(caption,slider,value,reset);rotation.push(slider);$('rigRotationControls').append(label);}
+ for(const axis of ['X','Y','Z']){const label=document.createElement('label');label.className='rig-rotation';const caption=document.createElement('span');caption.textContent=t('Rotation {axis}',{axis});const slider=document.createElement('input');slider.type='range';slider.min=-180;slider.max=180;slider.step=1;slider.value=0;slider.setAttribute('aria-label',t('Rotation {axis}',{axis}));const value=document.createElement('output');value.value='0°';const reset=document.createElement('button');reset.type='button';reset.className='quiet';reset.append(icon('rotate'));reset.setAttribute('aria-label',t('Reset rotation {axis}',{axis}));reset.onclick=()=>{slider.value=0;changeRig();};slider.oninput=changeRig;label.append(caption,slider,value,reset);rotation.push(slider);$('rigRotationControls').append(label);}
  function rigOptions(){return {rotation:rotation.map(s=>Number(s.value)),height_m:Number($('rigHeight').value),offset_m:Number($('rigOffset').value)};}
- function changeRig(){rotation.forEach(s=>s.nextElementSibling.value=s.value+'°');$('rigHeightValue').value=Number($('rigHeight').value).toLocaleString('en-US',{minimumFractionDigits:2})+' m';$('rigHeightNumber').value=$('rigHeight').value;$('rigOffsetValue').value=Number($('rigOffset').value).toLocaleString('en-US')+' m';rigSetup?.preview(rigOptions());}
- function showRigStep(step){rigStep=step;$('rigTransformStep').hidden=step!==0;$('rigLandmarkStep').hidden=step!==1;$('rigStepLabel').textContent=step===0?'01 / Size & orientation':'02 / Joint placement';$('confirmRigSetup').textContent=step===0?'Next · place joints':'Confirm & create rig';$('cancelRigSetup').textContent=step===0?'Cancel':'Back';}
+ function changeRig(){rotation.forEach(s=>s.nextElementSibling.value=s.value+'°');$('rigHeightValue').value=Number($('rigHeight').value).toLocaleString(formatLocale,{minimumFractionDigits:2})+' m';$('rigHeightNumber').value=$('rigHeight').value;$('rigOffsetValue').value=Number($('rigOffset').value).toLocaleString(formatLocale)+' m';rigSetup?.preview(rigOptions());}
+ function showRigStep(step){rigStep=step;$('rigTransformStep').hidden=step!==0;$('rigLandmarkStep').hidden=step!==1;$('rigStepLabel').textContent=step===0?t('01 / Size & orientation'):t('02 / Joint placement');$('confirmRigSetup').textContent=step===0?t('Next · place joints'):t('Confirm & create rig');$('cancelRigSetup').textContent=step===0?t('Cancel'):t('Back', undefined, 'navigation');}
  function closeRig(){document.body.classList.remove('rig-preparing');rigSetup?.close();rigJobId=null;savedLandmarks=null;$('rigSetup').hidden=true;$('animationLibraryControls').hidden=false;}
  $('createRig').onclick=()=>{if(!rigSetup?.ready)return;document.body.classList.add('rig-preparing');rigJobId=getJob()?.id;savedLandmarks=null;$('rigSetup').hidden=false;$('animationLibraryControls').hidden=true;showRigStep(0);rotation.forEach(s=>s.value=0);$('rigHeight').value=Math.min(3,Math.max(.2,getJob()?.result?.height_m||1.7));$('rigOffset').value=0;$('rigSymmetry').checked=true;changeRig();};
  $('rigHeight').oninput=changeRig;$('rigOffset').oninput=changeRig;
@@ -161,22 +162,22 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
    if(!$('rigHeightNumber').reportValidity())return;
    $('animationNotice').textContent='';showRigStep(1);
    rigSetup.startMarkers({points:savedLandmarks,symmetry:$('rigSymmetry').checked,onChange:(points,key)=>{
-    $('rigSelectedPoint').textContent=key.replaceAll('_',' ')+' · '+points[key].map(v=>(v*options.height_m).toFixed(3)).join(', ')+' m';
+    $('rigSelectedPoint').textContent=t(key.replaceAll('_',' '))+' · '+points[key].map(v=>(v*options.height_m).toLocaleString(formatLocale,{minimumFractionDigits:3,maximumFractionDigits:3})).join(language==='fr'?' / ':', ')+' m';
    }});return;
   }
   options.landmarks=rigSetup.getLandmarks();button.disabled=true;$('animationNotice').textContent='';
   try{
    const status=await api('/api/status');
-   if(!status.features?.includes('rig_landmarks'))throw Error('Restart TRELLIS to enable manual joint placement before creating this rig.');
+   if(!status.features?.includes('rig_landmarks'))throw Error(t('Restart TRELLIS to enable manual joint placement before creating this rig.'));
    if(getJob()?.id!==j.id||rigJobId!==j.id)return;
    const result=await api(`/api/jobs/${j.id}/rig`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(options)});
    closeRig();await startJob(result.id,{rig:true});
-  }catch(error){$('animationNotice').textContent=error.message;}
+  }catch(error){$('animationNotice').textContent=t(error.message);}
   finally{button.disabled=false;render();}
  };
  function renderAdded(job,clips,query){
-  const list=clips.filter(clip=>clip.title.toLocaleLowerCase('en').includes(query));
-  $('animationAvailableCount').textContent=`${list.length} ${list.length===1?'clip':'clips'}`;
+  const list=clips.filter(clip=>clip.title.toLocaleLowerCase().includes(query));
+  $('animationAvailableCount').textContent=t(list.length===1?'{count} clip':'{count} clips',{count:list.length});
   for(const clip of list){
    const row=document.createElement('article');row.className='added-motion';
    const heading=document.createElement('div');heading.className='added-motion-heading';
@@ -184,20 +185,20 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
    heading.append(icon('motion'),title);
    if(Number.isFinite(clip.duration)&&clip.duration>0){
     const time=document.createElement('span');
-    time.textContent=clip.duration.toLocaleString('en-US',{maximumFractionDigits:2})+' s';
+    time.textContent=clip.duration.toLocaleString(formatLocale,{maximumFractionDigits:2})+' s';
     heading.append(time);
    }
    const actions=document.createElement('div');actions.className='added-motion-actions';
    const play=document.createElement('button');play.type='button';play.className='secondary has-icon';
-   play.append(icon('play'),document.createTextNode('Play on character'));
-   play.setAttribute('aria-label',`Play ${clip.title} on character`);
+   play.append(icon('play'),document.createTextNode(t('Play on character')));
+   play.setAttribute('aria-label',t('Play {title} on character',{title:clip.title}));
    play.disabled=!clip.playable;
    play.onclick=()=>playClip(clip.index,clip.expectedName);
    actions.append(play);
    if(removeAvailable){
     const remove=document.createElement('button');remove.type='button';remove.className='quiet has-icon';remove.dataset.removeClip=clip.index;
-    remove.setAttribute('aria-label',`Remove ${clip.title}`);
-    remove.append(icon('trash'),document.createTextNode('Remove'));
+    remove.setAttribute('aria-label',t('Remove {title}',{title:clip.title}));
+    remove.append(icon('trash'),document.createTextNode(t('Remove')));
     remove.onclick=()=>confirmRemoval(job,clip);
     actions.append(remove);
    }
@@ -206,7 +207,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   }
   if(!list.length){
    const p=document.createElement('p');p.className='hint';
-   p.textContent=clips.length?'No added clips match your search.':'This model has no embedded animations.';
+   p.textContent=clips.length?t('No added clips match your search.'):t('This model has no embedded animations.');
    $('animationCards').append(p);
   }
  }
@@ -217,12 +218,12 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   selectionTarget=job?.id;
   $('animationModel').textContent=nameOf(job);$('createRig').hidden=rigged;
   const bones=job?.result?.bones||job?.media?.bones;
-  $('animationRigState').textContent=rigged?(bones?`${bones} bones · ready to animate`:'Rigged · ready to animate'):done?'Add a rig to use the motion library.':'Open a completed model from the collection.';
-  const q=$('animationSearch').value.toLocaleLowerCase('en'),added=embeddedClips(job),addedTab=tab==='added',personalTab=tab==='personal';
+  $('animationRigState').textContent=rigged?(bones?t(bones===1?'{count} bone · ready to animate':'{count} bones · ready to animate',{count:bones}):t('Rigged · ready to animate')):done?t('Add a rig to use the motion library.'):t('Open a completed model from the collection.');
+  const q=$('animationSearch').value.toLocaleLowerCase(),added=embeddedClips(job),addedTab=tab==='added',personalTab=tab==='personal';
   $('animationAddedCount').textContent=added.length;
   $('animationDurationControl').hidden=tab!=='library';
   $('animationCategory').hidden=tab!=='library';
-  $('animationSearch').placeholder=addedTab?'Search added clips…':personalTab?'Search my animations…':'Search standard animations…';
+  $('animationSearch').placeholder=addedTab?t('Search added clips…'):personalTab?t('Search my animations…'):t('Search standard animations…');
   $('personalAnimationComposer').hidden=!personalTab;
   $('personalAnimationLibraryHeading').hidden=!personalTab;
   $('personalAnimationCards').hidden=!personalTab;
@@ -240,17 +241,17 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
    updateSelectionControls(job);
    return;
   }
-  const list=catalog.filter(c=>c.name.toLocaleLowerCase('en').includes(q)&&(!$('animationCategory').value||c.category===$('animationCategory').value));
-  $('animationAvailableCount').textContent=list.length+' motions';
+  const list=catalog.filter(c=>(t(c.name).toLocaleLowerCase().includes(q)||c.name.toLocaleLowerCase().includes(q))&&(!$('animationCategory').value||c.category===$('animationCategory').value));
+  $('animationAvailableCount').textContent=t(list.length===1?'{count} motion':'{count} motions',{count:list.length});
   for(const clip of list){
    const present=added.find(c=>c.recipeId===clip.id),card=document.createElement('article');card.className='animation-card motion-'+clip.id;
-   const preview=document.createElement('div');preview.className='motion-preview';previews.attach(preview,clip);preview.append(icon('motion'));const chip=document.createElement('span');chip.className='motion-chip';chip.textContent=present?'✓ ADDED':'3D PREVIEW';preview.append(chip);
-   const title=document.createElement('h3');title.textContent=clip.name;const text=document.createElement('p');text.textContent=present&&Number.isFinite(present.duration)?`Added · ${present.duration.toLocaleString('en-US',{maximumFractionDigits:2})} s`:clip.description;
+   const preview=document.createElement('div');preview.className='motion-preview';previews.attach(preview,clip);preview.append(icon('motion'));const chip=document.createElement('span');chip.className='motion-chip';chip.textContent=present?t('✓ ADDED'):t('3D PREVIEW');preview.append(chip);
+   const title=document.createElement('h3');title.textContent=t(clip.name);const text=document.createElement('p');text.textContent=present&&Number.isFinite(present.duration)?t('Added · {duration} s',{duration:present.duration.toLocaleString(formatLocale,{maximumFractionDigits:2})}):t(clip.description);
    card.append(preview,title,text);
    if(selecting){
     const label=document.createElement('label');label.className='motion-select';
     const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.dataset.selectClip=clip.id;
-    checkbox.setAttribute('aria-label',`Select ${clip.name}`);
+    checkbox.setAttribute('aria-label',t('Select {title}',{title:t(clip.name)}));
     checkbox.onchange=()=>{
      if(checkbox.checked)selectedClips.add(clip.id);else selectedClips.delete(clip.id);
      updateSelectionControls(getJob());
@@ -259,13 +260,13 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
     card.append(label);
    }else{
     const add=document.createElement('button');add.type='button';add.className=present?'secondary':'primary';add.dataset.clip=clip.id;
-    add.append(icon(present?'version':'plus'),document.createTextNode(present?'Update':'Add to model'));
+    add.append(icon(present?'version':'plus'),document.createTextNode(present?t('Update'):t('Add to model')));
     add.onclick=()=>submitMotions([clip.id]);
     card.append(add);
    }
    if(present)card.classList.add('added');$('animationCards').append(card);
   }
-  if(!list.length){const p=document.createElement('p');p.className='hint';p.textContent='No motions match your search.';$('animationCards').append(p);}
+  if(!list.length){const p=document.createElement('p');p.className='hint';p.textContent=t('No motions match your search.');$('animationCards').append(p);}
   updateSelectionControls(job);
  }
  const tabs=['Library','Personal','Added'];
@@ -281,9 +282,9 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   closeRig,
   label(name){
    const generated=getJob()?.settings?.generated_animation_clips?.find(clip=>clip.clip===name)||personal.findClip(name);
-   if(generated)return generated.name+(Number.isFinite(generated.duration)?` · ${generated.duration.toLocaleString('en-US')} s`:'');
+   if(generated)return generated.name+(Number.isFinite(generated.duration)?` · ${generated.duration.toLocaleString(formatLocale)} s`:'');
    const clip=authoredMotion(name);
-   return clip?`${clip.title} · ${clip.duration.toLocaleString('en-US')} s`:name;
+   return clip?`${clip.title} · ${clip.duration.toLocaleString(formatLocale)} s`:name;
   },
   setCapabilities(status){
    batchAvailable=status.features?.includes('animation_batch')===true;

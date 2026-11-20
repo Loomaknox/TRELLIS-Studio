@@ -1,3 +1,5 @@
+import {t} from './i18n.js';
+
 const notice = document.getElementById('studioReleaseUpdate');
 const storageKey = 'trellis.dismissedRelease';
 
@@ -17,7 +19,7 @@ if (notice) {
     if (!update || update.version === dismissedVersion()) return;
 
     const summary = notice.querySelector('summary');
-    const heading = `Studio ${update.version} is available`;
+    const heading = t('Studio {version} is available', {version: update.version});
     summary.setAttribute('aria-label', heading);
     document.getElementById('studioReleaseLabel').textContent = heading;
     document.getElementById('studioReleaseLink').href = update.url;

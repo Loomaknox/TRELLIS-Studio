@@ -1,23 +1,24 @@
+import {formatLocale, t} from './i18n.js';
 import { button, el, field, input } from './workbench-ui.js?v=3.4.0';
 import { openReductionRegionPreview } from './reduction-region-preview.js?v=3.8.0';
 
-const radiusPercent = new Intl.NumberFormat('en', { maximumFractionDigits: 2 });
+const radiusPercent = new Intl.NumberFormat(formatLocale, { maximumFractionDigits: 2 });
 
 export function createGameCopyRegions(disposeModel) {
     const surface = el('section', 'gc-surface');
-    surface.setAttribute('aria-label', 'Model preview');
+    surface.setAttribute('aria-label', t('Model preview'));
     const tools = el('div', 'gc-toolbar');
-    const modes = group('Preview tool');
-    const orbit = button('Orbit', 'rotate', 'gc-tool', () => selectMode('orbit'));
-    const add = button('Add zone', 'plus', 'gc-tool', () => selectMode('pick'));
-    const views = group('Camera');
+    const modes = group(t('Preview tool'));
+    const orbit = button(t('Orbit'), 'rotate', 'gc-tool', () => selectMode('orbit'));
+    const add = button(t('Add zone'), 'plus', 'gc-tool', () => selectMode('pick'));
+    const views = group(t('Camera'));
     const closer = button('', 'plus', 'gc-tool', () => preview?.zoom(.78));
     const farther = button('', 'minus', 'gc-tool', () => preview?.zoom(1.28));
-    closer.setAttribute('aria-label', 'Zoom in');
-    farther.setAttribute('aria-label', 'Zoom out');
-    closer.title = 'Zoom in';
-    farther.title = 'Zoom out';
-    const fit = button('Fit', 'fit', 'gc-tool', () => preview?.fit());
+    closer.setAttribute('aria-label', t('Zoom in'));
+    farther.setAttribute('aria-label', t('Zoom out'));
+    closer.title = t('Zoom in');
+    farther.title = t('Zoom out');
+    const fit = button(t('Fit'), 'fit', 'gc-tool', () => preview?.fit());
     modes.append(orbit, add);
     views.append(farther, closer, fit);
     tools.append(modes, views);
@@ -34,23 +35,23 @@ export function createGameCopyRegions(disposeModel) {
     const section = el('section', 'gc-regions');
     const heading = el('div', 'gc-section-head');
     const count = el('span', 'gc-count');
-    const clear = button('Clear all', 'trash', 'gc-tool', () => {
+    const clear = button(t('Clear all'), 'trash', 'gc-tool', () => {
         regions.length = 0;
         active = -1;
         update();
         add.focus({ preventScroll: true });
     });
-    heading.append(el('h3', '', 'Protected zones'), count, clear);
+    heading.append(el('h3', '', t('Protected zones')), count, clear);
     const list = el('ol', 'gc-zone-list');
-    list.setAttribute('aria-label', 'Protected zones');
-    const noZones = el('p', 'hint gc-no-zones', 'Add zones to preserve details such as cables, handles and straps.');
+    list.setAttribute('aria-label', t('Protected zones'));
+    const noZones = el('p', 'hint gc-no-zones', t('Add zones to preserve details such as cables, handles and straps.'));
     const editor = el('div', 'gc-zone-editor');
     const activeLabel = el('strong');
     const radius = input('range', 4, { min: .25, max: 40, step: .25 });
     const strength = input('range', 85, { min: 1, max: 100, step: 1 });
     const radiusValue = el('output');
     const strengthValue = el('output');
-    const remove = button('Remove zone', 'trash', 'gc-tool', () => {
+    const remove = button(t('Remove zone'), 'trash', 'gc-tool', () => {
         regions.splice(active, 1);
         active = Math.min(active, regions.length - 1);
         update();
@@ -73,7 +74,7 @@ export function createGameCopyRegions(disposeModel) {
     reset();
 
     function slider(label, control, output) {
-        const wrapper = field(label, control);
+        const wrapper = field(t(label), control);
         control.id = `bakedGameZone${label}`;
         wrapper.htmlFor = control.id;
         output.setAttribute('aria-hidden', 'true');
@@ -95,15 +96,15 @@ export function createGameCopyRegions(disposeModel) {
         viewport.classList.toggle('is-picking', mode === 'pick');
         preview?.setMode(mode);
         guidance.textContent = mode === 'pick'
-            ? 'Select a point to protect. With the preview focused, use arrow keys and Enter.'
-            : 'Drag to rotate. Right-drag to pan. Scroll, pinch, or use the zoom controls.';
+            ? t('Select a point to protect. With the preview focused, use arrow keys and Enter.')
+            : t('Drag to rotate. Right-drag to pan. Scroll, pinch, or use the zoom controls.');
     }
 
     function applySliders() {
         const percent = `${radiusPercent.format(Number(radius.value))}%`;
         radiusValue.textContent = percent;
         strengthValue.textContent = `${strength.value}%`;
-        radius.setAttribute('aria-valuetext', `${percent} of the model span`);
+        radius.setAttribute('aria-valuetext', t('{percent} of the model span',{percent}));
         strength.setAttribute('aria-valuetext', strengthValue.textContent);
     }
 
@@ -115,7 +116,7 @@ export function createGameCopyRegions(disposeModel) {
         add.disabled = !preview || regions.length >= limit;
         const entries = regions.map((_, index) => {
             const row = el('li');
-            const item = button(`Zone ${index + 1}`, 'select', 'gc-tool', () => {
+            const item = button(t('Zone {number}',{number:index+1}), 'select', 'gc-tool', () => {
                 active = index;
                 update();
                 list.children[index].firstChild.focus({ preventScroll: true });
@@ -126,7 +127,7 @@ export function createGameCopyRegions(disposeModel) {
         });
         list.replaceChildren(...entries);
         if (active >= 0) {
-            activeLabel.textContent = `Zone ${active + 1}`;
+            activeLabel.textContent = t('Zone {number}',{number:active+1});
             radius.value = regions[active].radius / preview.span * 100;
             strength.value = regions[active].strength * 100;
             applySliders();
@@ -136,14 +137,14 @@ export function createGameCopyRegions(disposeModel) {
 
     function onPick(center) {
         if (!center) {
-            guidance.textContent = 'Select a point directly on the model surface.';
+            guidance.textContent = t('Select a point directly on the model surface.');
             return;
         }
         if (regions.length >= limit) return;
         regions.push({ center, radius: preview.span * .04, strength: .85 });
         active = regions.length - 1;
         if (regions.length === limit) selectMode('orbit');
-        else guidance.textContent = 'Adjust the selected zone or select another point on the model.';
+        else guidance.textContent = t('Adjust the selected zone or select another point on the model.');
         update();
     }
 
@@ -166,7 +167,7 @@ export function createGameCopyRegions(disposeModel) {
         for (const control of [orbit, add, closer, farther, fit]) control.disabled = true;
         guidance.textContent = '';
         empty.hidden = false;
-        empty.textContent = 'Loading the high-detail model…';
+        empty.textContent = t('Loading the high-detail model…');
         try {
             const loaded = await openReductionRegionPreview(viewport, {
                 url, isCurrent, disposeModel, limit, statusId: guidance.id, onPick,
@@ -181,7 +182,7 @@ export function createGameCopyRegions(disposeModel) {
         } catch (error) {
             if (!isCurrent()) return;
             tools.hidden = guidance.hidden = true;
-            empty.textContent = 'The 3D preview is unavailable. You can still create a game copy.';
+            empty.textContent = t('The 3D preview is unavailable. You can still create a game copy.');
         }
     }
 

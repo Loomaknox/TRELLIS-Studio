@@ -1,3 +1,4 @@
+import {t} from './i18n.js';
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {clone} from 'three/addons/utils/SkeletonUtils.js';
@@ -24,7 +25,7 @@ export function createMotionPreviews(){
  function render(card,time){if(!card.model)return;scene.add(card.model);card.mixer.setTime(time%Math.max(card.clipDuration,.001));camera.position.copy(card.eye??previewEye);camera.lookAt(card.center??previewCenter);renderer.render(scene,camera);card.context.clearRect(0,0,240,270);card.context.drawImage(renderer.domElement,0,0);scene.remove(card.model);}
  function tick(time){requestAnimationFrame(tick);if(time-last<90||document.hidden)return;last=time;for(const card of cards){const rect=card.canvas.getBoundingClientRect();if(rect.bottom>0&&rect.top<innerHeight)render(card,time/1000);}}
  requestAnimationFrame(tick);
- return {attach(container,clip){const canvas=document.createElement('canvas');canvas.width=240;canvas.height=270;canvas.setAttribute('role','img');canvas.setAttribute('aria-label','Animated preview: '+clip.name);container.append(canvas);const card={canvas,context:canvas.getContext('2d')};cards.push(card);
-  load(clip.preview_url).then(gltf=>{if(!cards.includes(card))return;const model=clone(gltf.scene),mixer=new THREE.AnimationMixer(model),action=gltf.animations.find(c=>c.name===clip.source_clip);if(!action)return;card.model=model;card.mixer=mixer;card.clipDuration=action.duration;frameRootMotion(card,clip,action);mixer.clipAction(action).play();render(card,.25);}).catch(()=>{container.dataset.error='Preview unavailable';});
+ return {attach(container,clip){const canvas=document.createElement('canvas');canvas.width=240;canvas.height=270;canvas.setAttribute('role','img');canvas.setAttribute('aria-label',t('Animated preview: {name}',{name:t(clip.name)}));container.append(canvas);const card={canvas,context:canvas.getContext('2d')};cards.push(card);
+  load(clip.preview_url).then(gltf=>{if(!cards.includes(card))return;const model=clone(gltf.scene),mixer=new THREE.AnimationMixer(model),action=gltf.animations.find(c=>c.name===clip.source_clip);if(!action)return;card.model=model;card.mixer=mixer;card.clipDuration=action.duration;frameRootMotion(card,clip,action);mixer.clipAction(action).play();render(card,.25);}).catch(()=>{container.dataset.error=t('Preview unavailable');});
  },clear(){cards.forEach(c=>c.mixer?.stopAllAction());cards=[];}};
 }

@@ -1,16 +1,18 @@
+import {t, formatLocale} from './i18n.js';
+
 const API = '/server/api';
-const number = new Intl.NumberFormat('en-US', {maximumFractionDigits: 1});
+const number = new Intl.NumberFormat(formatLocale, {maximumFractionDigits: 1});
 const errors = {
-  account_inactive: 'This account is awaiting approval or has been disabled. Contact your administrator.',
-  admin_required: 'This page requires administrator access.',
-  disk_quota: 'You have reached your storage quota. Free up space or contact your administrator.',
-  credits_exhausted: 'You have no generation credits available. Contact your administrator.',
-  invalid_credentials: 'Incorrect email address or password.',
-  invalid_factor: 'This code is incorrect or has already been used.',
-  mfa_required: 'Enter a code from your authenticator app or a recovery code.',
-  mfa_setup_required: 'Set up two-factor authentication to access this page.',
-  password_change_required: 'Change your temporary password to continue.',
-  unauthenticated: 'Sign in to continue.',
+  account_inactive: t('This account is awaiting approval or has been disabled. Contact your administrator.'),
+  admin_required: t('This page requires administrator access.'),
+  disk_quota: t('You have reached your storage quota. Free up space or contact your administrator.'),
+  credits_exhausted: t('You have no generation credits available. Contact your administrator.'),
+  invalid_credentials: t('Incorrect email address or password.'),
+  invalid_factor: t('This code is incorrect or has already been used.'),
+  mfa_required: t('Enter a code from your authenticator app or a recovery code.'),
+  mfa_setup_required: t('Set up two-factor authentication to access this page.'),
+  password_change_required: t('Change your temporary password to continue.'),
+  unauthenticated: t('Sign in to continue.'),
 };
 
 export function element(tag, className = '', text) {
@@ -32,9 +34,11 @@ export async function request(path, {method = 'GET', body, signal} = {}) {
   if (!response.ok) {
     const detail = typeof result.detail === 'string' ? result.detail : result.detail?.message;
     const code = result.code || result.detail?.code;
-    const message = Object.hasOwn(errors, code) ? errors[code] : detail;
+    const passwordLength = /^Use a password of (\d+)–1024 characters\.$/.exec(detail || '');
+    const message = Object.hasOwn(errors, code) ? errors[code] : passwordLength
+      ? t('Use a password of {minimum}–1024 characters.', {minimum: passwordLength[1]}) : t(detail || '');
     const error = new Error(message || (response.status === 422
-      ? 'Check the information you entered.' : 'The server could not process the request.'));
+      ? t('Check the information you entered.') : t('The server could not process the request.')));
     error.status = response.status;
     error.code = code;
     throw error;
@@ -43,18 +47,18 @@ export async function request(path, {method = 'GET', body, signal} = {}) {
 }
 
 export const getUser = payload => payload.user || payload;
-export const nameOf = user => [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || 'TRELLIS account';
+export const nameOf = user => [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || t('TRELLIS account');
 export const diskLimit = user => user.disk_limit_bytes ?? user.disk_limit ?? null;
 export const diskUsed = user => user.disk_used_bytes ?? user.used_bytes ?? 0;
 export const availableCredits = user => user.credits_available ?? Math.max(0, (user.credits || 0) - (user.credits_reserved || 0));
 export const formatNumber = value => number.format(value);
 export function formatBytes(value) {
   if (!Number.isFinite(value) || value < 0) return '—';
-  if (value >= 1024 ** 4) return `${formatNumber(value / 1024 ** 4)} TiB`;
-  if (value >= 1024 ** 3) return `${formatNumber(value / 1024 ** 3)} GiB`;
-  if (value >= 1024 ** 2) return `${formatNumber(value / 1024 ** 2)} MiB`;
-  if (value >= 1024) return `${formatNumber(value / 1024)} KiB`;
-  return `${formatNumber(value)} B`;
+  if (value >= 1024 ** 4) return t('{size} TiB', {size: formatNumber(value / 1024 ** 4)});
+  if (value >= 1024 ** 3) return t('{size} GiB', {size: formatNumber(value / 1024 ** 3)});
+  if (value >= 1024 ** 2) return t('{size} MiB', {size: formatNumber(value / 1024 ** 2)});
+  if (value >= 1024) return t('{size} KiB', {size: formatNumber(value / 1024)});
+  return t('{size} B', {size: formatNumber(value)});
 }
 
 export function avatar(target, user, version = '') {
@@ -75,45 +79,45 @@ if (studioHeader) {
   if (shutdown) shutdown.hidden = true;
   const developerLink = document.querySelector('.developer-link');
   if (developerLink) {
-    developerLink.title = 'API and MCP documentation';
+    developerLink.title = t('API and MCP documentation');
     developerLink.setAttribute('aria-label', developerLink.title);
   }
   const edition = document.querySelector('.brand .version');
-  if (edition) edition.textContent = 'SERVER';
+  if (edition) edition.textContent = t('SERVER');
   const local = document.querySelector('.rail-bottom .local-badge');
   const railBottom = local?.parentElement;
   const creditBadge = element('a', 'server-credit-badge');
   creditBadge.href = '/server/account#usage';
-  creditBadge.setAttribute('aria-label', 'Usage');
+  creditBadge.setAttribute('aria-label', t('Usage'));
   const creditCount = element('span', 'server-credit-count', '—');
-  const creditLabel = element('span', 'server-credit-label', 'Credits');
+  const creditLabel = element('span', 'server-credit-label', t('Credits'));
   creditBadge.append(creditCount, creditLabel);
   local?.replaceWith(creditBadge);
   const privacy = document.querySelector('.rail-bottom small');
-  if (privacy) privacy.textContent = 'Your library is stored on the server.';
+  if (privacy) privacy.textContent = t('Your library is stored on the server.');
   const importFile = document.getElementById('importFile');
   if (importFile) importFile.accept = '.glb,model/gltf-binary';
   const importHint = document.querySelector('#importForm > p');
-  if (importHint) importHint.textContent = 'Import a self-contained GLB with embedded textures (up to 500 MiB).';
+  if (importHint) importHint.textContent = t('Import a self-contained GLB with embedded textures (up to 500 MiB).');
   const menu = element('details', 'server-shell');
   const summary = element('summary');
-  summary.setAttribute('aria-label', 'TRELLIS account menu');
+  summary.setAttribute('aria-label', t('TRELLIS account menu'));
   const icon = element('span', 'server-avatar', 'T');
-  const title = element('span', 'server-shell-name', 'My account');
+  const title = element('span', 'server-shell-name', t('My account'));
   summary.append(icon, title, element('span', '', '⌄'));
   const items = element('div', 'server-shell-menu');
   const usage = element('p');
   usage.hidden = true;
-  const profileLink = element('a', '', 'My account');
+  const profileLink = element('a', '', t('My account'));
   profileLink.href = '/server/account';
-  const usageLink = element('a', '', 'Usage');
+  const usageLink = element('a', '', t('Usage'));
   usageLink.href = '/server/account#usage';
-  const securityLink = element('a', '', 'Security');
+  const securityLink = element('a', '', t('Security'));
   securityLink.href = '/server/account#security';
-  const adminLink = element('a', '', 'Administration');
+  const adminLink = element('a', '', t('Administration'));
   adminLink.href = '/server/admin';
   adminLink.hidden = true;
-  const logout = element('button', 'server-shell-logout', 'Sign out');
+  const logout = element('button', 'server-shell-logout', t('Sign out'));
   logout.type = 'button';
   const logoutIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   logoutIcon.setAttribute('class', 'server-logout-icon');
@@ -143,12 +147,13 @@ if (studioHeader) {
     if (read < latestBalanceRead || (available !== null && !Number.isFinite(available))) return;
     latestBalanceRead = read;
     const count = available === null ? '∞' : formatNumber(available);
-    const label = available === 1 ? 'Credit' : 'Credits';
-    const balance = available === null ? 'Unlimited credits' : `${count} ${label.toLowerCase()} available`;
+    const label = available === 1 ? t('Credit') : t('Credits');
+    const balance = available === null ? t('Unlimited credits')
+      : t(available === 1 ? '{count} credit available' : '{count} credits available', {count});
     if (creditCount.textContent !== count) creditCount.textContent = count;
     creditLabel.textContent = label;
     creditBadge.title = balance;
-    creditBadge.setAttribute('aria-label', `${balance} · Usage`);
+    creditBadge.setAttribute('aria-label', `${balance} · ${t('Usage')}`);
   }
 
   let checkingCredits = false;
@@ -175,8 +180,9 @@ if (studioHeader) {
       const limit = diskLimit(user);
       const credits = availableCredits(user);
       usage.textContent = user.role === 'admin'
-        ? 'Unlimited storage and credits'
-        : `${formatBytes(diskUsed(user))} / ${formatBytes(limit)} · ${formatNumber(credits)} ${credits === 1 ? 'credit' : 'credits'}`;
+        ? t('Unlimited storage and credits')
+        : `${formatBytes(diskUsed(user))} / ${formatBytes(limit)} · ${t(credits === 1 ? '{count} credit' : '{count} credits',
+          {count: formatNumber(credits)})}`;
       usage.hidden = false;
       notice.hidden = true;
     } catch (error) {

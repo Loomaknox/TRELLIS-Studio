@@ -1,10 +1,11 @@
+import {t} from './i18n.js';
 export function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.classList.add('ui-icon');svg.setAttribute('aria-hidden','true');const use=document.createElementNS(svg.namespaceURI,'use');use.setAttribute('href',`/web/icons.svg#${name}`);svg.append(use);return svg;}
 export function createCardMenu({version,remove,details,print,compare,diagnostics,export:exportModel,history,folder,lod,game,refinish,finishingBoard}){
   const menu=document.getElementById('assetMenu');let trigger=null,job=null;
   const boardItem=document.createElement('button');
   boardItem.type='button';boardItem.setAttribute('role','menuitem');boardItem.hidden=true;
   const boardLabel=document.createElement('span'),boardHint=document.createElement('small');
-  boardLabel.textContent='Finishing board';boardHint.textContent='Queue and compare cached variants';
+  boardLabel.textContent=t('Finishing board');boardHint.textContent=t('Queue and compare cached variants');
   boardLabel.append(boardHint);boardItem.append(icon('layers'),boardLabel);
   menu.querySelector('[data-action=refinish]').after(boardItem);
   boardItem.onclick=()=>{const selected=job;close();finishingBoard?.(selected);};
@@ -36,7 +37,7 @@ export function createCardMenu({version,remove,details,print,compare,diagnostics
   window.visualViewport?.addEventListener('scroll',placeMenu,{passive:true});
   document.getElementById('libraryGrid').addEventListener('scroll',close,{passive:true});
   return {close,button(j,{busy,features,activeId}){
-    const b=document.createElement('button');b.type='button';b.className='card-more';b.append(icon('more'));b.setAttribute('aria-label','Actions for '+(j.metadata?.display_name||j.settings.name));b.setAttribute('aria-haspopup','menu');b.setAttribute('aria-controls','assetMenu');b.setAttribute('aria-expanded','false');
+    const b=document.createElement('button');b.type='button';b.className='card-more';b.append(icon('more'));b.setAttribute('aria-label',t('Actions for {name}',{name:j.metadata?.display_name||j.settings.name}));b.setAttribute('aria-haspopup','menu');b.setAttribute('aria-controls','assetMenu');b.setAttribute('aria-expanded','false');
     b.onclick=e=>{e.stopPropagation();if(trigger===b&&menu.matches(':popover-open')){close();return;}close();trigger=b;job=j;
       menu.querySelector('[data-action=version]').disabled=busy;
       menu.querySelector('[data-action=print]').disabled=busy||j.state!=='done';
@@ -55,6 +56,6 @@ export function updateCardStatus(card,j){
   const running=['running','queued'].includes(j.state),percent=Math.min(100,Math.max(0,Math.round(j.progress||0)));
   card.classList.toggle('is-generating',running);card.dataset.state=j.state;
   let progress=card.querySelector('.card-progress');
-  if(running){if(!progress){progress=document.createElement('div');progress.className='card-progress';const row=document.createElement('div');row.className='card-progress-row';const stage=document.createElement('span');stage.className='card-stage';const value=document.createElement('strong');value.className='card-percent';row.append(stage,value);const track=document.createElement('div');track.className='card-track';track.setAttribute('role','progressbar');track.setAttribute('aria-label','Generation progress');track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax','100');track.append(document.createElement('i'));progress.append(row,track);card.append(progress);}const stage=progress.querySelector('.card-stage');stage.textContent=j.stage||'Generating';stage.title=stage.textContent;progress.querySelector('.card-percent').textContent=percent+' %';progress.querySelector('.card-track').setAttribute('aria-valuenow',percent);progress.querySelector('i').style.width=percent+'%';}
+  if(running){if(!progress){progress=document.createElement('div');progress.className='card-progress';const row=document.createElement('div');row.className='card-progress-row';const stage=document.createElement('span');stage.className='card-stage';const value=document.createElement('strong');value.className='card-percent';row.append(stage,value);const track=document.createElement('div');track.className='card-track';track.setAttribute('role','progressbar');track.setAttribute('aria-label',t('Generation progress'));track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax','100');track.append(document.createElement('i'));progress.append(row,track);card.append(progress);}const stage=progress.querySelector('.card-stage');stage.textContent=j.stage?t(j.stage):t('Generating');stage.title=stage.textContent;progress.querySelector('.card-percent').textContent=percent+' %';progress.querySelector('.card-track').setAttribute('aria-valuenow',percent);progress.querySelector('i').style.width=percent+'%';}
   else progress?.remove();
 }

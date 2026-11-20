@@ -1,3 +1,5 @@
+import {t} from './i18n.js';
+
 const element=(tag,className,text)=>{const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;};
 const commonHelp={
   "assetType": "Classifies the model by intended use. Generation creates a static mesh; rigging, moving parts and game behaviours are separate steps.",
@@ -26,7 +28,7 @@ const commonHelp={
   "tags": "Comma-separated keywords to help find your models.",
   "notes": "Notes and intended changes stored with this model. They do not modify geometry."
 };
-function attachCommonHelp(){for(const[id,hint]of Object.entries(commonHelp)){const input=document.getElementById(id);if(!input)continue;input.title=hint;const label=input.closest('label');if(label)label.title=hint;}}
+function attachCommonHelp(){for(const[id,hint]of Object.entries(commonHelp)){const input=document.getElementById(id);if(!input)continue;input.title=t(hint);const label=input.closest('label');if(label)label.title=input.title;}}
 
 export async function createAdvancedControls(container){
   attachCommonHelp();
@@ -41,32 +43,32 @@ export async function createAdvancedControls(container){
     for(const group of schema.groups){
       const details=element('details','option-group');details.dataset.group=group.id;
       details.open=group.id==='geometry';
-      details.append(element('summary','',group.title),element('p','hint',group.hint));
+      details.append(element('summary','',t(group.title)),element('p','hint',t(group.hint)));
       const grid=element('div','option-grid');details.append(grid);
       for(const field of schema.fields.filter(f=>f.group===group.id)){
         const label=element('label',field.type==='boolean'?'check option-boolean':'field');
         label.dataset.option=field.key;
         const input=element(field.type==='choice'?'select':'input');input.id='option_'+field.key;
-        if(field.type==='choice')for(const choice of field.choices){const option=element('option','',choice.label);option.value=choice.value;input.append(option);}
+        if(field.type==='choice')for(const choice of field.choices){const option=element('option','',t(choice.label));option.value=choice.value;input.append(option);}
         else if(field.type==='boolean')input.type='checkbox';
         else{input.type='number';input.min=field.min;input.max=field.max;input.step=field.step;input.required=true;}
-        if(field.hint){label.title=field.hint;input.title=field.hint;}
-        if(field.type==='boolean'){input.checked=field.default;label.append(input,element('span','',field.label));}
-        else{label.append(element('span','',field.label),input);input.value=field.default;}
+        if(field.hint){label.title=t(field.hint);input.title=label.title;}
+        if(field.type==='boolean'){input.checked=field.default;label.append(input,element('span','',t(field.label)));}
+        else{label.append(element('span','',t(field.label)),input);input.value=field.default;}
         inputs.set(field.key,input);grid.append(label);
       }
       container.append(details);
     }
     ready=true;
-  }catch(error){container.append(element('p','advanced-error',error.message));}
+  }catch(error){container.append(element('p','advanced-error',t(error.message)));}
   function read(){
-    if(!ready)throw Error('Advanced settings are not available on this server yet.');
+    if(!ready)throw Error(t('Advanced settings are not available on this server yet.'));
     return Object.fromEntries(schema.fields.map(field=>[field.key,field.type==='boolean'?inputs.get(field.key).checked:field.type==='choice'?inputs.get(field.key).value:Number(inputs.get(field.key).value)]));
   }
   function sync(){
     const remesh=inputs.get('mesh_mode')?.value==='remesh';
     for(const key of ['remesh_project','remesh_band','remesh_resolution'])if(inputs.has(key))inputs.get(key).closest('label').hidden=!remesh;
-    for(const key of ['structure_steps','shape_steps','texture_steps'])if(inputs.has(key))inputs.get(key).placeholder='0 = profile';
+    for(const key of ['structure_steps','shape_steps','texture_steps'])if(inputs.has(key))inputs.get(key).placeholder=t('0 = profile');
   }
   function apply(values={}){
     if(!ready)return;

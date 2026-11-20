@@ -1,0 +1,18 @@
+.studio-language-select {
+  width: auto;
+  min-height: 32px;
+  padding: 4px 7px;
+  border: 1px solid var(--line, #415139);
+  border-radius: 7px;
+  color: var(--text, #e2eadb);
+  background: var(--panel, #1a241f);
+  color-scheme: dark;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.studio-language-select:focus-visible {
+  outline: 2px solid var(--accent, #c5ff63);
+  outline-offset: 2px;
+}
