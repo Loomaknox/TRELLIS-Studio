@@ -78,7 +78,8 @@ def gltf_rig(data):
         scales=np.linalg.norm(matrix[:3,:3],axis=0)
         if np.min(scales)<1e-8:
             raise ValueError('Zero target scale is not supported.')
-        if scales.max()-scales.min()>scales.max()*1e-5:
+        # Blender skin/export roundoff can introduce a few tens of ppm.
+        if scales.max()-scales.min()>scales.max()*1e-4:
             raise ValueError('Nonuniform target scale is not supported. Apply the model transforms before transferring animation.')
         rotation=matrix[:3,:3]/scales
         if np.linalg.det(rotation)<.99999 or np.max(abs(rotation.T@rotation-np.eye(3)))>1e-5:

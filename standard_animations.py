@@ -49,7 +49,7 @@ try:
                 if not (low.z+height*.32<h.z<low.z+height*.68 and v.z<-height*.14 and ct.z<ch.z-height*.13):continue
                 score=abs((h.z-low.z)/height-.54)+abs(h.x-cx)/height*.2
             else:
-                if not (low.z+height*.57<h.z<low.z+height*.9 and abs(h.x-cx)>height*.07 and sign*v.x>height*.065 and abs(v.z)<height*.23 and sign*(ct.x-ch.x)>height*.06):continue
+                if not (low.z+height*.57<h.z<low.z+height*.9 and abs(h.x-cx)>height*.07 and sign*v.x>height*.065 and abs(v.z)<height*.23 and sign*(ct.x-ch.x)>height*.04):continue
                 score=abs(h.x-cx)/height+abs(v.z)/height
             candidates.append((score,b,c))
         if not candidates: raise ValueError('Humanoid limbs could not be identified with enough confidence.')

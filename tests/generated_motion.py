@@ -120,6 +120,8 @@ with TemporaryDirectory(prefix='trellis-generated-motion-') as directory:
     wrong_soma=copy.deepcopy(skeleton);wrong_soma['parents'][13]=6
     reject(lambda:gm.validate_skeleton(wrong_soma),'canonical SOMA30 hierarchy')
     reject(lambda:gm.gltf_rig({'nodes':[{'children':[1]},{'children':[0]}]}),'cyclic')
+    gm.gltf_rig({'nodes':[{'scale':[1.0000282526, .9999997616, 1.0000082254]}]})
+    reject(lambda:gm.gltf_rig({'nodes':[{'scale':[1.001,1,1]}]}),'Nonuniform')
     for scale,expected in [([-1,1,1],'Negative'),([0,0,0],'zero'),([1,2,1],'Nonuniform')]:
         reject(lambda scale=scale:gm.gltf_rig({'nodes':[{'scale':scale}]}),expected)
     shear=np.eye(4);shear[0,1]=shear[1,0]=.2;shear[2,2]=np.sqrt(1.04)
