@@ -286,6 +286,35 @@ function Get-SetupWsl([string]$RequestedDistribution) {
     return $result
 }
 
+function Get-SetupMultiviewTexture([psobject]$Gpu) {
+    $result=[pscustomobject][ordered]@{Supported=$false; Status=''; VramNotice=''}
+    if (-not $Gpu.Supported) {
+        $result.Status=$Gpu.Status
+        return $result
+    }
+    try { $policy=(Read-SetupGpuManifest).multiview_texture }
+    catch { $result.Status=$_.Exception.Message; return $result }
+    if (-not $policy -or -not $policy.compute_capabilities.Count -or
+        [int]$policy.minimum_vram_mib -le 0 -or [int]$policy.recommended_vram_mib -lt [int]$policy.minimum_vram_mib) {
+        $result.Status='The multiview texture hardware policy is missing or invalid. Use the complete Setup package.'
+        return $result
+    }
+    if ($Gpu.Compute -notin $policy.compute_capabilities) {
+        $result.Status='This multiview texture installer supports NVIDIA compute capabilities 8.6 and 8.9.'
+        return $result
+    }
+    if ($Gpu.MemoryMiB -lt [int]$policy.minimum_vram_mib) {
+        $result.Status='Multiview texture refinement requires at least 8 GB of detected VRAM.'
+        return $result
+    }
+    $result.Supported=$true
+    $result.Status='Setup will test FP16 CUDA on the selected GPU before downloading the model files.'
+    if ($Gpu.MemoryMiB -lt [int]$policy.recommended_vram_mib) {
+        $result.VramNotice='12 GB VRAM or more is recommended. Close other GPU-heavy applications if this pass runs out of memory.'
+    }
+    return $result
+}
+
 function Get-SetupDisk([string]$Root) {
     $result=[pscustomobject][ordered]@{FreeGiB=''; Status='Windows disk space could not be checked.'}
     try {
@@ -317,6 +346,10 @@ function Get-SetupInstallPlan([string]$Root) {
     if ($state.licenses.hi3d) {
         try { $hi3dAccepted=$state.licenses.hi3d -ceq (Read-SetupGpuManifest).hi3d.license_sha256 } catch { }
     }
+    $multiviewAccepted=$false
+    if ($state.licenses.multiview_texture) {
+        try { $multiviewAccepted=$state.licenses.multiview_texture -ceq (Read-SetupGpuManifest).multiview_texture.license_sha256 } catch { }
+    }
     return [pscustomobject][ordered]@{
         Saved=$saved
         Trellis='trellis' -in $requested
@@ -324,6 +357,8 @@ function Get-SetupInstallPlan([string]$Root) {
         UniRig='unirig' -in $requested
         Hi3D='hi3d' -in $requested
         Hi3DLicenseAccepted=$hi3dAccepted
+        MultiviewTexture='multiview-texture' -in $requested
+        MultiviewTextureLicenseAccepted=$multiviewAccepted
         Kimodo='kimodo' -in $requested
     }
 }
@@ -340,6 +375,7 @@ function Get-SetupPreflight {
     return [pscustomobject][ordered]@{
         GPU=$gpu
         Hi3D=(Get-SetupHi3d -Gpu $gpu)
+        MultiviewTexture=(Get-SetupMultiviewTexture -Gpu $gpu)
         Blender=$blender
         WSL=(Get-SetupWsl -RequestedDistribution $WslDistribution)
         Disk=(Get-SetupDisk -Root $InstallRoot)

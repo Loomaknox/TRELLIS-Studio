@@ -258,8 +258,9 @@ def verify(rig=True,workshop_only=False):
     if not bundled_web():run('node','--check','web/studio.js')
     if workshop_only:return
     if guided_install(ROOT):
-        for path in ('models/trellis2/pipeline.json','engine/MODELS/dinov3/model.safetensors'):
-            if not (ROOT/path).is_file():raise RuntimeError('Missing generation asset: '+path)
+        run(python, '-B', '-c',
+            "from pathlib import Path; from retexture_runtime import pipeline_config; pipeline_config(Path.cwd())",
+            label='Checking local TRELLIS.2 material refinement assets...')
     run(python,'-B',ROOT/'gpu_runtime.py',label='Executing native CUDA operations...',timeout=180)
     if rig:verify_rig(runtime_distribution('Ubuntu-22.04'))
 

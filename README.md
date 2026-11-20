@@ -27,11 +27,10 @@ One local generation produced two finishes from the same saved source. The high-
 
 Read the [Windows Setup guide](docs/WINDOWS_SETUP.md) for component installation, repair and uninstall. Downloads are resumable and verified with SHA-256. The uninstaller can stop its own idle local services and keeps the library.
 
-**New in 3.11.0** — The redesigned workspace brings together Create, Collection
-and Animation Studio. Windows Setup checks the GPU and offers optional
-**Hi3D detail refinement** on eligible hardware. The component downloads
-approximately 10.66 GB of additional model weights after license acceptance.
-[Release notes](docs/RELEASE_3.11.0.md) · [Hi3D guide](docs/HI3D.md)
+**New in 3.12.0** — Compare texture and geometry variants in the Finishing board.
+High Detail now keeps the decoded source and enables multiview texture refinement
+when the optional runtime is available.
+[Release notes](docs/RELEASE_3.12.0.md) · [Hi3D guide](docs/HI3D.md)
 
 ### Install from source
 
@@ -83,7 +82,7 @@ In **Fixed**, the value is a target. In **Adaptive**, it is a ceiling for the sa
 
 Use **Prepare → Game Copy from HD** to place protected regions on a compatible static model. Set their radius and priority before creating a reduced copy with newly baked textures. The **Humanoid** profile already prioritizes the face and hands on an upright, front-facing T-pose. Add regions for details such as buckles, cables, handles or grille openings. Regions influence where triangles are spent within the selected budget.
 
-Open **Finishing board** from the same card or from **Prepare** to queue several editable finishing recipes from one cache. Compare the measured results at their original scale with the camera held in place, then mark the preferred version. That choice is recorded separately from the asset's visual review.
+Open **Finishing board** from a model card or from **Prepare**. Queue geometry variants from a saved generation cache or choose **Queue texture refinement** for a compatible textured GLB with a saved cutout. The texture copy keeps the mesh, UVs and texture size. **Compare** shows the results at the same scale and camera angle.
 
 The source cache can take hundreds of megabytes per model. Studio stores it once per source and keeps it local to this installation. Collection ZIPs preserve the finished models and recipes. The cache is optional and leaves generation profiles intact.
 
@@ -109,9 +108,17 @@ It uses 2M pre-simplification, initial small-hole repair and DC remeshing capped
 512. This remains the API default and the recipe used by **Reset to Game Asset**.
 Dimensions and seeds belong to individual models.
 
-**High Detail** retains the 1024/20-step/2K sampling setup, targets 250,000 triangles and uses direct simplification to preserve more surface detail. Create custom profiles when you need another recipe; the built-in profiles remain protected. Historical recipes remain readable.
+**High Detail**, the starting profile in Create, uses the TRELLIS.2 1024 cascade
+with 12 / 25 / 12 sampling steps, a 300,000-triangle target and 2K textures. It
+keeps the decoded source for finishing variants. **Multiview texture refinement**
+starts enabled for compatible single-image jobs when its optional runtime is ready.
+Enable the component in Windows Setup on a compatible NVIDIA GPU. See
+[Windows Setup](docs/WINDOWS_SETUP.md) for VRAM and storage guidance.
 
-**Humanoid · Experimental** (`humanoid_experimental`) is an optional comparison recipe: 1024 cascade, 250,000 target triangles, 2K materials and direct simplification. It retains the decoded source automatically and classifies the result as a humanoid. Inspect this detailed master, then use **Refinish model** to compare lighter copies around 10,000–14,000 triangles without generating again. The single-image sampler uses D’s 20-step setup; the Pixal3D version keeps its existing multi-view sampler. It does not automatically reconstruct or replace the face and hands, bake a new high-to-low normal map, generate extra reference views or add a rig. Those anatomy experiments remain separate.
+**Detail Study** is an experimental single-image TRELLIS.2 profile with 12 / 24 / 12
+sampling steps, Hi3D 1024 and a 4K material pass after refinement. **None** in
+**Master finishing** exports the decoded surface with native materials and keeps
+the source for later finishing. Save and delete custom profiles from Create.
 
 512 and 1024 generation are provided by the standard installer. Higher-resolution controls require separate local capability validation and sufficient memory. Texture resolution is independent of geometry resolution.
 

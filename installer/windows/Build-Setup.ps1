@@ -54,6 +54,9 @@ $taskRequired+=@('wtivo_runtime.py','docs/WTIVO.md','master_mesh.py','master_mes
 $taskRequired+=@('hi3d_runtime.py','hi3d_worker.py','hi3d_attention.py','docs/HI3D.md',
     'installer/install_hi3d.py','installer/hi3d-manifest.json','installer/requirements-hi3d.txt',
     'licenses/Hi3D-1.0-LICENSE.md')
+$taskRequired+=@('multiview_texture_runtime.py','multiview_texture_views.py','multiview_texture_fusion.py',
+    'installer/install_multiview_texture.py','installer/multiview-texture-manifest.json',
+    'installer/requirements-multiview-texture.txt','licenses/Stable-Diffusion-2.1-OpenRAIL++-M.txt')
 $taskRequired+=@('studio_release.py','web/release-notification.css','web/release-notification.js')
 $taskRequired+=@('generation_view_projection.py','licenses/AssetFurnace-Apache-2.0.txt',
     'third_party/assetfurnace/image_to_3dlab/__init__.py',

@@ -1,6 +1,6 @@
 # Windows x64 installer
 
-`TRELLIS-Studio-3.11.0-Setup-x64.exe` is the per-user NSIS installer for Windows x64.
+`TRELLIS-Studio-3.12.0-Setup-x64.exe` is the per-user NSIS installer for Windows x64.
 It copies the application and viewer, adds Start menu entries, and never installs
 GPU drivers, Blender or WSL. The executable is unsigned. Do not
 treat a SHA-256 checksum as an Authenticode signature.
@@ -25,6 +25,15 @@ treat a SHA-256 checksum as an Authenticode signature.
    On a new installation it is unchecked. Setup displays the detected GPU, driver
    and VRAM guidance before downloading the model, and asks you to accept the
    Hi3D Open License. See [Hi3D](HI3D.md) for storage and compatibility details.
+
+   **Multiview texture refinement** is optional in both editions and requires
+   the TRELLIS.2 generation runtime. Setup checks for an eligible NVIDIA
+   compute 8.6 or 8.9 GPU with at least 8 GB VRAM, and recommends 12 GB.
+   Allow roughly 3.3 GB of additional model downloads and 4 GB of free space.
+   Setup presents the model terms before downloading the pinned files.
+   **Repair or resume components** can resume an interrupted installation.
+   Read the [model terms](../THIRD_PARTY_NOTICES.md#multiview-texture-refinement)
+   before offering the component to Server users.
 
    The separate **Optional motion generation** page offers Kimodo for either
    edition and component selection. It is unchecked by default. Selecting it
@@ -73,6 +82,9 @@ the collection or resetting accounts and HTTPS settings. The Desktop launcher
 also checks the saved dependency fingerprint before starting. See the
 [CPU finishing setup guide](../INSTALLATION.md#cpu-texture-projection-and-baked-game-copies)
 for source-installation commands and portable Blender configuration.
+
+On an existing TRELLIS.2 installation, generation setup adds about 709 MB for
+the material refinement encoder used by **Retexture after Hi3D**.
 
 For local generation, stop the Studio with **Stop TRELLIS Studio** in the Start
 menu. Choose **Install TRELLIS generation** for the NVIDIA build without WSL, or

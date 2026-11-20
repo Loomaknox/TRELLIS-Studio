@@ -7,6 +7,8 @@ param(
     [switch]$AcceptKimodoModelLicenses,
     [switch]$AcceptHi3dModelLicenses,
     [switch]$SkipHi3d,
+    [switch]$AcceptMultiviewTextureModelLicenses,
+    [switch]$SkipMultiviewTexture,
     [switch]$Guided,
     [string]$Components='',
     [string]$BlenderPath='',
@@ -94,6 +96,8 @@ if ($Mode -ne 'Workshop' -or $taskNeedsWorkshop -or $WithKimodo) {
                 WslDistribution=$WslDistribution; Retry=($Mode -eq 'Retry'); NeedsWorkshop=$taskNeedsWorkshop
                 WithKimodo=$WithKimodo; AcceptKimodoModelLicenses=$AcceptKimodoModelLicenses
                 AcceptHi3dModelLicenses=$AcceptHi3dModelLicenses; SkipHi3d=$SkipHi3d
+                AcceptMultiviewTextureModelLicenses=$AcceptMultiviewTextureModelLicenses
+                SkipMultiviewTexture=$SkipMultiviewTexture
             }
             $taskGuidedStatus=Invoke-GuidedSetup @taskOptions
         } elseif ($Mode -eq 'Generation') {

@@ -264,7 +264,13 @@ def main(model, reference, work):
     from gpu_runtime import configure_attention, select_gpu
 
     select_gpu(ROOT)
-    os.environ['TRELLIS_MAX_RESOLUTION'] = str(MATERIAL_RESOLUTION)
+    os.environ.update({
+        'TRELLIS_MAX_RESOLUTION': str(MATERIAL_RESOLUTION),
+        'TRELLIS_NO_REMBG': '1',
+        'HF_HUB_OFFLINE': '1',
+        'HF_HUB_DISABLE_TELEMETRY': '1',
+        'TRANSFORMERS_OFFLINE': '1',
+    })
     config = pipeline_config(ROOT, verify_encoder=True)
     recipe = checked_recipe(**json.loads((work / 'recipe.json').read_text(encoding='utf-8')))
     (work / 'pipeline.json').write_text(json.dumps(config), encoding='utf-8')

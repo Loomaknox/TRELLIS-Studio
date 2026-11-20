@@ -114,6 +114,12 @@ Generated-motion previews reuse the separately credited Quaternius CC0 mannequin
 
 **Powered by Hi3D 1.0.** Hi3D is licensed under the [Hi3D Open License Agreement Version 1.0](licenses/Hi3D-1.0-LICENSE.md). Copyright © 2026 OCEANO HK HOLDING LIMITED. Hi3D trademarks belong to OCEANO HK HOLDING LIMITED or its applicable affiliate(s).
 
+### Multiview texture refinement
+
+Windows Setup optionally downloads pinned [MV-Adapter source](https://github.com/huanngzh/MV-Adapter/tree/4277e0018232bac82bb2c103caf0893cedb711be) and the [image-and-geometry adapter](https://huggingface.co/huanngzh/mv-adapter/tree/6de4033df6b53366f3c009d22f5ec434bb55e59f) under Apache-2.0. The local download preserves the upstream source license.
+
+The optional component also downloads the [archived Stable Diffusion 2.1 Base FP16 weights](https://huggingface.co/sd2-community/stable-diffusion-2-1-base/tree/4e63672c03103b6c636b8fb4119ba982469b2955). They are governed by the [CreativeML Open RAIL++-M License](licenses/Stable-Diffusion-2.1-OpenRAIL++-M.txt), including its use restrictions. Review the terms before installation and share the applicable restrictions with downstream users when making the component available on a server. The Setup executable contains the integration and model terms. It downloads the weights locally after acceptance.
+
 Windows Setup requests license acceptance before obtaining the pinned Hi3D runtime and weights. See [Hi3D detail refinement](docs/HI3D.md) for upstream sources and requirements.
 
 ## Local license copies

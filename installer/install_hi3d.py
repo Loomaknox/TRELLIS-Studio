@@ -147,6 +147,14 @@ def verify_existing(manifest):
     verify_gpu(runtime)
 
 
+def migrate_default_storage(manifest):
+    config = _read_json(ROOT / 'config' / 'hi3d-runtime.json', 16 * 1024)
+    legacy = ROOT / '.tools' / 'hi3d' / 'weights'
+    target = ROOT / 'models' / 'hi3d'
+    if Path(config['weights']) == legacy and not target.exists():
+        print(f'Hi3D weights are ready at {migrate_weights(ROOT, manifest).relative_to(ROOT)}.', flush=True)
+
+
 def check_migration_path(path):
     try:
         info = path.lstat()
@@ -232,6 +240,8 @@ def main():
     mode.add_argument('--migrate-weights', action='store_true',
                       help='Move the verified default weight store while Studio and Server are stopped.')
     parser.add_argument('--accept-model-licenses', action='store_true')
+    parser.add_argument('--migrate-default-storage', action='store_true',
+                        help='Move an existing default store after verification, once Studio and Server are stopped.')
     mode.add_argument('--check-gpu', nargs='+', type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.check_gpu:
@@ -251,6 +261,8 @@ def main():
             verify_existing(manifest)
         else:
             install(manifest)
+    if args.migrate_default_storage:
+        migrate_default_storage(manifest)
     print('Hi3D Detail Refinement is ready.', flush=True)
 
 

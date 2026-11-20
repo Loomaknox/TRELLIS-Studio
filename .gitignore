@@ -242,6 +242,9 @@
 !/installer/install_hi3d.py
 !/installer/hi3d-manifest.json
 !/installer/requirements-hi3d.txt
+!/installer/install_multiview_texture.py
+!/installer/multiview-texture-manifest.json
+!/installer/requirements-multiview-texture.txt
 !/installer/pixal3d-manifest.json
 !/installer/requirements-pixal3d.txt
 !/installer/manifest.json
@@ -258,6 +261,7 @@
 !/runtime/engine-overrides/o_voxel/uvraster.py
 /licenses/*
 !/licenses/Hi3D-1.0-LICENSE.md
+!/licenses/Stable-Diffusion-2.1-OpenRAIL++-M.txt
 !/licenses/AssetFurnace-Apache-2.0.txt
 !/licenses/DINOv3-LICENSE.md
 !/licenses/Quaternius-UAL1-CC0.txt
@@ -367,3 +371,4 @@
 !/docs/RELEASE_3.10.0.md
 !/docs/RELEASE_3.10.1.md
 !/docs/RELEASE_3.11.0.md
+!/docs/RELEASE_3.12.0.md

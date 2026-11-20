@@ -24,7 +24,11 @@ def file_sha(path):
 
 
 def pipeline_config(root, *, verify_encoder=False):
-    source = (Path(root) / 'models' / 'trellis2').resolve()
+    root = Path(root).resolve()
+    image_encoder = root / 'engine' / 'MODELS' / 'dinov3'
+    if not all((image_encoder / file).is_file() for file in ('config.json', 'model.safetensors')):
+        raise ValueError('Install the local DINOv3 image encoder with TRELLIS.2 generation.')
+    source = (root / 'models' / 'trellis2').resolve()
     config = json.loads((source / 'pipeline.json').read_text(encoding='utf-8'))
     entries = config['args']['models']
     selected = dict(shape_slat_encoder=ENCODER, **{key: entries[key] for key in MATERIAL_MODELS})
