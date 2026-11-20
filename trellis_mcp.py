@@ -174,7 +174,7 @@ async def get_finishing_options(model_id: Identifier) -> dict[str, Any]:
 
 @tool()
 async def queue_refinish(model_id: Identifier, recipe: Refinish) -> dict[str, Any]:
-    """Create a linked variant from the saved cache. For a dense PBR master, pass master_finishing='wtivo_1024', 'studio_768', 'hi3d_512' or 'hi3d_1024' and optionally texture_size. With Hi3D, pass hi3d_options to override refinement settings while reusing the original TRELLIS.2 mesh and prepared cutout. Read get_finishing_options for the saved values, eligibility and runtime availability, then poll get_model."""
+    """Create a linked variant from the saved cache. For a dense PBR master, pass master_finishing='wtivo_1024', 'studio_768', 'hi3d_512' or 'hi3d_1024' and optionally texture_size. With Hi3D, pass hi3d_options to override refinement settings or retexture_after_refinement=True to generate new materials at 12 steps using the chosen texture size. Read get_finishing_options for eligibility and runtime availability, then poll get_model."""
     return await api('POST', f'/models/{model_id}/refinish', recipe.model_dump(exclude_none=True))
 
 @tool(read=True)

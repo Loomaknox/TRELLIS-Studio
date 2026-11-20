@@ -1,4 +1,4 @@
-import {createStudioWorkbench} from './studio-workbench.js?v=board-hi3d';
+import {createStudioWorkbench} from './studio-workbench.js?v=board-retexture-startup';
 import {createViewerLighting,createViewerStage} from './viewer-lighting.js?v=visual-refresh-2';
 import {createHologramViewer} from './hologram-viewer.js?v=visual-refresh-2';
 import {createGenerationWait} from './generation-wait.js?v=studio-visual-refinement';
@@ -15,7 +15,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createAdvancedControls } from './advanced-controls.js?v=board-hi3d';
-import { createProfileControls } from './profiles.js?v=board-hi3d';
+import { createProfileControls } from './profiles.js?v=high-detail-startup';
 import {createCardMenu,updateCardStatus,icon} from './card-menu.js?v=3.4.0';
 import {createCardTurntables} from './card-turntable.js?v=3.4.0';
 const $=id=>document.getElementById(id);
@@ -382,7 +382,7 @@ $('form').onsubmit=async event=>{
     multiview.appendRequest(form);
     form.set('remove_bg',String(multiview.usesPixal||$('removeBg').checked));
     form.set('queue_only','true');
-    if($('keepFinishingSource').checked)form.set('keep_finishing_source','true');
+    form.set('keep_finishing_source',String($('keepFinishingSource').checked));
     if(!multiview.usesPixal)form.set('advanced_settings',JSON.stringify(advancedControls.read()));
     profileControls.appendFinishing(form);
     referencePreview.append(form);

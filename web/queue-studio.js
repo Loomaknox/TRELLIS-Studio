@@ -85,7 +85,11 @@ export function createQueueStudio({api, refresh}) {
 
   async function editDraft(row) {
     const {runtime, schema} = await capabilities();
+    const preset = profiles.find(profile => profile.id === row.profile_id)?.settings.preset;
     const removeBg = checkbox(row.remove_bg);
+    const requiredSource = !!row.master_finishing || ['dense_master', 'humanoid_experimental'].includes(preset);
+    const keepSource = checkbox(requiredSource || row.keep_finishing_source);
+    keepSource.disabled = requiredSource;
     const fullMesh = row.master_finishing === 'none';
     const triangles = fullMesh ? null : triangleInput(row.triangles, schema);
     const texture = select(textureChoices(runtime.texture_sizes), String(row.texture_size));
@@ -112,16 +116,17 @@ export function createQueueStudio({api, refresh}) {
         recipe.notice.textContent = retextureStatus.textContent;
         return;
       }
-      Object.assign(row, {texture_size: Number(texture.value), resolution: Number(resolution.value), remove_bg: removeBg.checked});
+      Object.assign(row, {texture_size: Number(texture.value), resolution: Number(resolution.value),
+        remove_bg: removeBg.checked, keep_finishing_source: keepSource.checked});
       if (triangles) row.triangles = triangles.valueAsNumber;
       if (supportsRetexture) row.retexture_after_refinement = !retexture.disabled && retexture.checked;
       recipe.close();
     });
-    const dense = profiles.find(profile => profile.id === row.profile_id)?.settings.preset === 'dense_master';
     recipe.body.replaceChildren(field('Geometry resolution', resolution),
       fullMesh ? el('p', 'hint', fullMeshNote)
-        : field(dense ? 'Maximum triangles' : 'Triangle target', triangles),
-      field('Texture size', texture), field('Remove image background', removeBg));
+        : field(preset === 'dense_master' ? 'Maximum triangles' : 'Triangle target', triangles),
+      field('Texture size', texture), field('Remove image background', removeBg),
+      field('Keep source for finishing variants', keepSource));
     if (supportsRetexture) {
       recipe.body.append(retextureField, retextureStatus);
       optionHelp(retextureField, 'Retexture after Hi3D',
@@ -140,6 +145,7 @@ export function createQueueStudio({api, refresh}) {
     if (!profile) return;
     const {remove_bg, triangles, texture_size, resolution, advanced, master_finishing, retexture_after_refinement} = profile.settings;
     Object.assign(row, {profile_id: id, remove_bg, triangles, texture_size, resolution,
+      keep_finishing_source: profile.keep_finishing_source === true,
       advanced_settings: structuredClone(advanced)});
     if (master_finishing) row.master_finishing = master_finishing;
     else delete row.master_finishing;

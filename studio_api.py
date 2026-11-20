@@ -92,6 +92,7 @@ class FinishingRecipe(NamedTuple):
     wtivo_reconstruction: bool
     master_finishing: str | None
     hi3d_options: tuple[tuple[str, int | float | bool | str], ...] = ()
+    retexture_after_refinement: bool = False
 
 
 def cached_source_resolution(source):
@@ -240,10 +241,11 @@ class StudioServices:
             hi3d = method in HI3D_FINISHING_METHODS
             allowed = {'master_finishing', 'texture_size'}
             if hi3d:
-                allowed.add('hi3d_options')
+                allowed.update(('hi3d_options', 'retexture_after_refinement'))
             if method not in MASTER_FINISHING_METHODS or data.keys() - allowed:
                 raise ValueError('Choose an HD Master Finishing method and texture size.')
             hi3d_options = ()
+            retexture = data.get('retexture_after_refinement', False)
             if hi3d:
                 overrides = validate_hi3d_overrides(data.get('hi3d_options', {}))
                 hi3d_options = tuple(hi3d_refinement_options({**options, **overrides}).items())
@@ -261,7 +263,11 @@ class StudioServices:
                     raise HTTPException(503, 'Install Blender for WTiVo HD Master Finishing or choose Studio 768.')
             if hi3d:
                 folder = self.output / record['id']
-                source_id = finishing_source(folder, record['settings'])
+                settings = record['settings']
+                validate_post_refinement_texturing(retexture, preset=settings.get('preset'), resolution=source_resolution,
+                                                   master_finishing=method, engine=settings.get('engine', 'trellis2'),
+                                                   view_mode=settings.get('view_mode', 'single'), refinish=True)
+                source_id = finishing_source(folder, settings)
                 if not source_id:
                     raise ValueError('Restore the original model and its finishing cache before using Hi3D.')
                 source = hi3d_source_status(self.output / source_id, source_resolution)
@@ -270,12 +276,16 @@ class StudioServices:
                 runtime = hi3d_status(self.root)
                 if not runtime['available']:
                     raise HTTPException(503, runtime['reason'])
+                if retexture:
+                    material_runtime = self.g['detail_texturing_capability']()
+                    if not material_runtime['available']:
+                        raise HTTPException(503, material_runtime['reason'])
             grid = {'studio_768': 768, 'wtivo_1024': 1024, 'hi3d_512': 512, 'hi3d_1024': 1024}[method]
             ceiling = HI3D_TRIANGLE_CAP if hi3d else MASTER_FINISHING_TRIANGLES
             return FinishingRecipe(ceiling, texture_size, 'direct' if hi3d else 'remesh', method == 'studio_768',
                                    False, False, None, False, False,
                                    grid, 'trilinear', 'decoded',
-                                   method == 'studio_768', method == 'wtivo_1024', method, hi3d_options)
+                                   method == 'studio_768', method == 'wtivo_1024', method, hi3d_options, retexture)
         if not isinstance(data, dict) or set(data) - {'triangles', 'texture_size', 'mesh_mode', 'repair_holes',
                                                         'pre_simplify', 'adaptive_finishing',
                                                         'budget_preset', 'bake_normals', 'repair_surface',
@@ -351,7 +361,7 @@ class StudioServices:
     def create_finishing_variant(self, variant, folder, record, source_id, options, recipe):
         (triangles, texture_size, mesh_mode, repair, pre_simplify, adaptive, preset, bake_normals,
          repair_surface, remesh_resolution, texture_sampling, normal_source, hd_reconstruction, wtivo,
-         master_finishing, hi3d_options) = recipe
+         master_finishing, hi3d_options, retexture) = recipe
         variant_options = {**options, **dict(hi3d_options), 'mesh_mode': mesh_mode, 'repair_holes': repair,
                            'pre_simplify': pre_simplify, 'remesh_resolution': remesh_resolution,
                            'texture_sampling': texture_sampling}
@@ -389,6 +399,8 @@ class StudioServices:
         if master_finishing:
             settings['master_finishing'] = master_finishing
             settings.pop('reproject_face', None)
+        if retexture:
+            settings['retexture_after_refinement'] = True
         if isinstance(settings.get('profile_snapshot'), dict):
             snapshot = settings['profile_snapshot'].copy()
             snapshot.pop('adaptive_finishing', None)
@@ -408,6 +420,8 @@ class StudioServices:
                 snapshot.pop('reproject_face', None)
             if hi3d_options:
                 snapshot['generation_options'] = variant_options
+            if retexture:
+                snapshot['retexture_after_refinement'] = True
             settings['profile_snapshot'] = snapshot
         settings.update(created=time.time(), parent_id=folder.name, source_kind='refinish',
                         finish_source_id=source_id, triangles=triangles, texture_size=texture_size,
@@ -792,7 +806,7 @@ class StudioServices:
                 for file,spec in zip(images,specs):
                     profile=profiles.get(spec.get('profile_id','game_d'))
                     if not profile:raise HTTPException(400,'Profile not found.')
-                    s=profile['settings'];params=dict(name=spec.get('name',Path(file.filename or 'Model').stem),preset=s['preset'],height_m=spec.get('height_m',1),seed=spec.get('seed',42),remove_bg=spec.get('remove_bg',s['remove_bg']),triangles=spec.get('triangles',s['triangles']),asset_type=spec.get('asset_type','object'),texture_size=spec.get('texture_size',s['texture_size']),reference_prompt=spec.get('reference_prompt',''),resolution=spec.get('resolution',s['resolution']),advanced_settings=json.dumps(spec.get('advanced_settings',s['advanced'])),profile_id=profile['id'],parent_id=spec.get('parent_id',''),queue_only=True,queue_priority=spec.get('priority',0),queue_hold=True,keep_finishing_source=spec.get('keep_finishing_source',False))
+                    s=profile['settings'];params=dict(name=spec.get('name',Path(file.filename or 'Model').stem),preset=s['preset'],height_m=spec.get('height_m',1),seed=spec.get('seed',42),remove_bg=spec.get('remove_bg',s['remove_bg']),triangles=spec.get('triangles',s['triangles']),asset_type=spec.get('asset_type','object'),texture_size=spec.get('texture_size',s['texture_size']),reference_prompt=spec.get('reference_prompt',''),resolution=spec.get('resolution',s['resolution']),advanced_settings=json.dumps(spec.get('advanced_settings',s['advanced'])),profile_id=profile['id'],parent_id=spec.get('parent_id',''),queue_only=True,queue_priority=spec.get('priority',0),queue_hold=True,keep_finishing_source=spec.get('keep_finishing_source',profile.get('keep_finishing_source',False)))
                     params['repair_surface'] = spec.get('repair_surface', False)
                     params['hd_reconstruction'] = spec.get('hd_reconstruction', False)
                     params['engine'] = spec.get('engine', 'trellis2')
@@ -861,6 +875,9 @@ class StudioServices:
             if hi3d['available']:
                 hi3d = hi3d_status(self.root)
             hi3d_options = hi3d_refinement_options(options_for_job(record['settings'])) if hi3d['available'] else None
+            material_runtime = self.g['detail_texturing_capability']() if hi3d['available'] else hi3d
+            retexture = dict(available=material_runtime['available'], reason=material_runtime['reason'],
+                             enabled=bool(record['settings'].get('retexture_after_refinement')))
             return dict(source_id=source_id, source_triangles=finishing_source_triangles(source), cache_bytes=cache_bytes,
                         texture_sizes=textures,
                         triangle_limits=dict(min=TRIANGLE_MIN, max=TRIANGLE_MAX),
@@ -872,6 +889,7 @@ class StudioServices:
                         master_finishing=master_finishing_capability(source_resolution, textures, wtivo, wtivo_reason,
                                                                      normal_bake, hi3d),
                         hi3d_options=hi3d_options,
+                        retexture=retexture,
                         remesh_resolutions=[512, 768, 1024], texture_sampling_modes=['trilinear', 'nearest'],
                         normal_sources=normal_sources,
                         parent_normal_source=parent_normal_source,

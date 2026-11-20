@@ -74,8 +74,13 @@ def validate_post_refinement_texturing(enabled, *, preset, resolution, master_fi
                                        view_mode='single', refinish=False):
     if type(enabled) is not bool:
         raise ValueError('Post-refinement texturing must be true or false.')
-    if enabled and (preset not in GENERATION_PRESETS or resolution != 1024 or master_finishing != 'hi3d_1024'
-                    or engine != 'trellis2' or view_mode != 'single' or refinish):
+    if not enabled:
+        return
+    if refinish:
+        if master_finishing not in HI3D_FINISHING_METHODS or engine != 'trellis2' or view_mode not in (None, 'single'):
+            raise ValueError('Post-refinement texturing requires Hi3D and a saved TRELLIS.2 single-image source.')
+    elif (preset not in GENERATION_PRESETS or resolution != 1024 or master_finishing != 'hi3d_1024'
+          or engine != 'trellis2' or view_mode != 'single'):
         raise ValueError('Post-refinement texturing requires TRELLIS.2 single image at 1024 with Detail Refinement (1024).')
 
 

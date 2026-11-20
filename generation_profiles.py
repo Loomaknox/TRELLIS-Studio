@@ -10,6 +10,7 @@ from generation_options import (DENSE_MASTER, DENSE_MASTER_NAME, GENERATION_PRES
 DENSE_MASTER_DESCRIPTION = ('Keeps the complete decoded geometry and materials before finishing. '
                             'Adapts the working copy to the surface, with a default ceiling of 1.2 million triangles.')
 DETAIL_STUDY = 'detail_study'
+STARTUP_PROFILE = 'high_detail'
 
 
 def profile_options(overrides, steps):
@@ -22,7 +23,7 @@ def builtin_profiles():
     # Historical presets stay readable by old jobs, but are no longer offered.
     recipes = [
         ('game_d', 'Game - Default', {}),
-        ('high_detail', 'High Detail', {}),
+        (STARTUP_PROFILE, 'High Detail', dict(keep_finishing_source=True)),
         (HUMANOID_EXPERIMENTAL, 'Humanoid · Experimental', dict(
             experimental=True, asset_type='humanoid', keep_finishing_source=True,
             description='Dense comparison master. Keeps the finishing source; review anatomy before reducing. No automatic local reconstruction or rig.')),
@@ -33,6 +34,10 @@ def builtin_profiles():
         steps, triangles, texture_size = GENERATION_PRESETS[key]
         settings = dict(preset=key, resolution=1024, triangles=triangles, texture_size=texture_size,
                         remove_bg=True, advanced=profile_options(PROFILE_ADVANCED[key], steps))
+        if key == STARTUP_PROFILE:
+            settings['triangles'] = 300_000
+            settings['advanced'].update(structure_steps=12, shape_steps=25, texture_steps=12,
+                                        mesh_mode='remesh', remesh_resolution=1024)
         profiles.append(dict(id=key, name=name, builtin=True, settings=settings, **flags))
     profiles.append(dict(id=DETAIL_STUDY, name='Detail Study', builtin=True, experimental=True,
                          keep_finishing_source=True,

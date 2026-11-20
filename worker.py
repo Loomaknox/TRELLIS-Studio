@@ -1,5 +1,7 @@
 """One generation per process: release CUDA and RAM fully after each object."""
+from contextlib import nullcontext
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import gc, hashlib, json, os, sys, time, traceback
 
 ROOT = Path(__file__).resolve().parent
@@ -365,15 +367,18 @@ def project_requested_face():
     return report
 
 
-def validate_retexture_request():
+def validate_retexture_request(source_id=None):
     requested = settings.get('retexture_after_refinement', False)
+    refinish = settings.get('source_kind') == 'refinish'
     validate_post_refinement_texturing(
         requested, preset=settings.get('preset'), resolution=requested_resolution,
         master_finishing=settings.get('master_finishing'), engine=settings.get('engine', 'trellis2'),
-        view_mode=settings.get('view_mode', 'single'), refinish=settings.get('source_kind') == 'refinish',
+        view_mode=settings.get('view_mode', 'single'), refinish=refinish,
     )
     if not requested:
         return
+    if refinish and not source_id:
+        raise ValueError('Restore the original generation and its decoded cache before refining materials.')
     from retexture_runtime import availability
 
     capability = availability(ROOT)
@@ -381,22 +386,63 @@ def validate_retexture_request():
         raise ValueError(capability['reason'])
 
 
-def refine_materials(torch, result):
+CACHED_MATERIAL_SAMPLER = dict(steps=12, guidance_strength=1., guidance_rescale=0., rescale_t=3.)
+
+
+def cached_material_source(source_id, source_resolution, scratch):
+    from PIL import Image
+    from reference_preparation import _cropped, _trellis_frame, parse_reference_edits
+    from retexture_runtime import file_sha
+    from studio_workspace import read
+
+    cutout = hi3d_reference(source_id, source_resolution)
+    origin = cutout.parent
+    saved = read(origin / 'settings.json')
+    seed = saved.get('seed', 42)
+    reference = origin / 'conditioning.png'
+    reference_kind = 'saved_conditioning'
+    try:
+        if reference.is_symlink():
+            raise ValueError('The saved conditioning image must belong to the original generation.')
+        with Image.open(reference) as image:
+            if image.format != 'PNG' or image.mode != 'RGB':
+                raise ValueError('The saved conditioning image must be an RGB PNG.')
+            image.load()
+    except (OSError, ValueError, Image.DecompressionBombError):
+        # The cutout already contains the saved foreground edits. Apply only its saved crop.
+        edits = parse_reference_edits(json.dumps(saved.get('reference_edits', {})), ('front',))
+        crop = edits.get('front', {}).get('crop')
+        reference = Path(scratch) / 'conditioning.png'
+        with Image.open(cutout) as image:
+            _trellis_frame(_cropped(image, crop, 'front')).save(reference)
+        reference_kind = 'recovered_conditioning'
+    provenance = dict(source_id=source_id, reference_kind=reference_kind, reference_sha256=file_sha(reference))
+    return reference, seed, provenance
+
+
+def refine_materials(torch, result, source_id=None, source_resolution=None):
     from retexture_runtime import retexture
 
     status('running', 'Generating TRELLIS.2 materials for the refined surface', 95)
     gc.collect()
     torch.cuda.synchronize()
     torch.cuda.empty_cache()
-    seed = options['texture_seed']
-    if seed < 0:
-        seed = settings['seed']
+    provenance = {}
     try:
-        report = retexture(ROOT, JOB / 'model.glb', JOB / 'conditioning.png', settings['texture_size'],
-                           seed, sampler_options(options)['texture'])
-    except (OSError, ValueError) as error:
+        workspace = TemporaryDirectory(prefix='.conditioning-', dir=JOB) if source_id else nullcontext()
+        with workspace as scratch:
+            if source_id:
+                reference, seed, provenance = cached_material_source(source_id, source_resolution, scratch)
+                sampler = CACHED_MATERIAL_SAMPLER
+            else:
+                reference = JOB / 'conditioning.png'
+                sampler = sampler_options(options)['texture']
+                seed = options['texture_seed'] if options['texture_seed'] >= 0 else settings['seed']
+            report = retexture(ROOT, JOB / 'model.glb', reference, settings['texture_size'], seed, sampler)
+    except (OSError, ValueError, KeyError, TypeError) as error:
         traceback.print_exc()
         report = dict(state='failed', reason=str(error))
+    report.update(provenance)
     result.metadata['finishing']['retexture_after_refinement'] = report
     return report
 
@@ -422,7 +468,7 @@ def preserve_master_generation_views(source_id, result):
 
 def main():
     source_id = settings.get('finish_source_id') if settings.get('source_kind') == 'refinish' else None
-    validate_retexture_request()
+    validate_retexture_request(source_id)
     import torch
     torch.set_num_threads(6)
     if not torch.cuda.is_available():
@@ -441,7 +487,8 @@ def main():
             save_finishing_source(torch, source)
     resolution = source['resolution']
     result = finish_mesh(torch, source, source_id)
-    material_report = refine_materials(torch, result) if settings.get('retexture_after_refinement') else None
+    material_report = (refine_materials(torch, result, source_id, resolution)
+                       if settings.get('retexture_after_refinement') else None)
     face_report = project_requested_face()
     if source_id and settings.get('master_finishing'):
         preserve_master_generation_views(source_id, result)

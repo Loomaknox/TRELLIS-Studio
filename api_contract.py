@@ -84,7 +84,7 @@ class MultiViewGeneration(ReferenceUploads):
     master_finishing: CreateMasterFinishing | None = None
     parent_id: Identifier | None = None
     reference_prompt: str = Field(default='', max_length=6000)
-    keep_finishing_source: bool = False
+    keep_finishing_source: bool | None = None
     repair_surface: bool = False
     hd_reconstruction: bool = Field(default=False, strict=True, description='Reconstruct the Dense Master at grid 768. Mutually exclusive with repair_surface.')
     reproject_face: bool = False
@@ -273,6 +273,8 @@ class Refinish(Contract):
     master_finishing: MasterFinishing | None = Field(default=None,
         description='Create an HD Master Finishing variant. Choose the reconstruction method and optionally the texture size.')
     hi3d_options: dict | None = Field(default=None, description='Optional Hi3D controls from the generation options schema. Omitted controls inherit the selected model’s values.')
+    retexture_after_refinement: bool | None = Field(default=None, strict=True,
+        description='Generate new TRELLIS.2 materials at 12 steps after cached Hi3D refinement, using the chosen texture size.')
     triangles: int | None = Field(default=None, ge=TRIANGLE_MIN, le=TRIANGLE_MAX)
     budget_preset: Literal['low', 'medium', 'high', 'ultra'] | None = None
     texture_size: Literal[1024, 2048, 4096] | None = None
@@ -298,8 +300,11 @@ class Refinish(Contract):
     def validate_budget(self):
         if self.hi3d_options is not None and self.master_finishing not in HI3D_FINISHING_METHODS:
             raise ValueError('Advanced Hi3D controls require Detail Refinement (512 or 1024).')
-        if self.master_finishing is not None and self.model_dump(exclude_none=True).keys() - {'master_finishing', 'texture_size', 'hi3d_options'}:
-            raise ValueError('HD Master Finishing accepts a reconstruction method, texture size and Hi3D controls when eligible.')
+        if self.retexture_after_refinement is not None and self.master_finishing not in HI3D_FINISHING_METHODS:
+            raise ValueError('Post-refinement texturing requires Detail Refinement (512 or 1024).')
+        allowed = {'master_finishing', 'texture_size', 'hi3d_options', 'retexture_after_refinement'}
+        if self.master_finishing is not None and self.model_dump(exclude_none=True).keys() - allowed:
+            raise ValueError('HD Master Finishing accepts a reconstruction method, texture size and eligible Hi3D options.')
         if self.triangles is not None and self.budget_preset is not None:
             raise ValueError('Choose either a triangle count or a preset.')
         return self
@@ -331,6 +336,12 @@ class MasterFinishingOptions(Contract):
     default_texture_size: int
 
 
+class CachedRetextureOptions(Contract):
+    available: bool
+    reason: str
+    enabled: bool
+
+
 class FinishingOptions(Contract):
     source_id: Identifier
     source_triangles: int | None
@@ -345,6 +356,7 @@ class FinishingOptions(Contract):
     wtivo_reason: str = ''
     master_finishing: MasterFinishingOptions | None = None
     hi3d_options: dict | None = None
+    retexture: CachedRetextureOptions | None = None
     remesh_resolutions: list[int]
     texture_sampling_modes: list[str]
     normal_sources: list[str]

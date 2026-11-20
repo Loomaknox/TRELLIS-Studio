@@ -80,7 +80,13 @@ with isolated_workspace('humanoid_profiles'):
         # No lifespan worker: each route writes only to the isolated queue.
         profiles=client.get('/api/profiles').json()
         assert profiles['default_profile']=='game_d' and profiles['profiles'][0]==before
-        assert profiles['startup_profile']==DENSE_MASTER
+        assert profiles['startup_profile']=='high_detail'
+        high = next(p for p in profiles['profiles'] if p['id'] == 'high_detail')
+        assert high['keep_finishing_source'] is True
+        assert high['settings']['triangles'] == 300_000 and high['settings']['texture_size'] == 2048
+        high_options = high['settings']['advanced']
+        assert [high_options[f'{phase}_steps'] for phase in ('structure', 'shape', 'texture')] == [12, 25, 12]
+        assert high_options['mesh_mode'] == 'remesh' and high_options['remesh_resolution'] == 1024
         assert not any(p['id']=='humanoid_experimental' for p in profiles['profiles'])
         experimental=next(p for p in app.builtin_profiles() if p['id']=='humanoid_experimental')
         assert experimental['experimental'] and experimental['keep_finishing_source']
@@ -107,6 +113,13 @@ with isolated_workspace('humanoid_profiles'):
         assert s['preset']=='game_d' and s['triangles']==28000 and s['texture_size']==2048
         assert s['asset_type']=='object' and not s.get('keep_finishing_source',False)
         assert s['generation_options']==options_for_job({'preset':'game_d'})
+        for keep in (True, False):
+            overrides = {} if keep else {'keep_finishing_source': False}
+            result = send(client, '/api/v1/generations', json={
+                'upload_id': front, 'profile_id': 'high_detail', 'overrides': overrides})
+            recipe = settings(result['id'])
+            assert recipe.get('keep_finishing_source', False) is keep
+            assert recipe['triangles'] == 300_000 and recipe['generation_options']['shape_steps'] == 25
 
         for overrides in ({},{'triangles':12000,'keep_finishing_source':False,'asset_type':'object'}):
             result=send(client,'/api/v1/generations',json={'upload_id':front,'profile_id':'humanoid_experimental','overrides':overrides})
@@ -146,6 +159,12 @@ with isolated_workspace('humanoid_profiles'):
         assert cap['profile']==standard_profile and cap['default_profile']=='character_pixal'
         assert [p['id'] for p in cap['profiles']]==['character_pixal',DENSE_MASTER]
         assert cap['profiles'][-1]['triangles'] == 1_200_000
+        for keep in (True, False):
+            recipe = dict(upload_id=front, left_upload_id=side, profile_id='high_detail')
+            if not keep:
+                recipe['keep_finishing_source'] = False
+            result = send(client, '/api/v1/generations/multiview', json=recipe)
+            assert settings(result['id'])['keep_finishing_source'] is keep
         files={'image':image(),'left_image':image()}
         for profile in ('character_pixal','humanoid_experimental'):
             result=send(client,'/api/generate-multiview',files=files,data={'profile_id':profile,'keep_finishing_source':'false'})

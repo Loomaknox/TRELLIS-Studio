@@ -46,6 +46,8 @@
 .finishing-hi3d-options .option-group{margin:0}
 .finishing-hi3d-options .option-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 .finishing-hi3d-options .option-help-heading{font-size:11px}
+.finishing-retexture .option-help-heading{margin:0}
+.finishing-retexture>.hint{margin:5px 0 0}
 .finishing-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .finishing-form h3,.finishing-form>.hint{grid-column:1/-1;margin:0}
 .finishing-recipe{display:grid;gap:12px;min-width:0;margin:0;padding:12px;border:1px solid #526346;border-radius:8px;background:#182119}

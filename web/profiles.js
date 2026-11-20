@@ -4,7 +4,7 @@ import {optionHelp} from './advanced-controls.js?v=board-hi3d';
 
 const $=id=>document.getElementById(id);
 const steps={game_d:20,high_detail:20,humanoid_experimental:20,dense_master:20,fast:8,balanced:12,detail:20};
-const startupKey='trellis.studio.startup-profile';
+const startupKey='trellis.studio.startup-profile.v2';
 const profileNames={game_d:'Game Asset',dense_master:'HD Master'};
 const finishingNames={
   none:'None',
@@ -48,7 +48,8 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
   function read(){
     const {texture_seed,...options}=advanced.read();
     const preset=$('preset').value;
-    const defaults=selected?.settings.preset===preset ? selected.settings : null;
+    const defaults=selected?.settings.preset===preset
+      ? selected.settings : profiles.find(profile=>profile.id===preset)?.settings;
     const requestedTriangles=Number($('triangles').value);
     const retainBudget=readFinishing()!=='none'||(Number.isInteger(requestedTriangles)&&requestedTriangles>=1000&&requestedTriangles<=8000000);
     return {
@@ -254,6 +255,8 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     $('denseMasterFinishing').value=s.master_finishing||standardFinishing;
     $('advancedMasterFinishing').value='';
     retexture.checked=s.retexture_after_refinement===true;
+    sourceRequired=false;
+    $('keepFinishingSource').checked=selected.keep_finishing_source===true;
     for(const [key,value] of Object.entries({preset:s.preset,resolution:s.resolution,triangles:s.triangles,textureSize:s.texture_size}))$(key).value=String(value);
     const textureSeed=advanced.read().texture_seed;
     $('removeBg').checked=s.remove_bg;advanced.apply({...s.advanced,texture_seed:textureSeed});

@@ -20,7 +20,7 @@ from generation_options import (normalize_options, options_for_job, schema as ge
                                 validate_create_master_finishing,
                                 validate_post_refinement_texturing)
 from asset_taxonomy import ASSET_TYPES, SYSTEM_TYPES, schema as taxonomy_schema
-from generation_profiles import DETAIL_STUDY, DENSE_MASTER_DESCRIPTION, ProfileStore, builtin_profiles
+from generation_profiles import DETAIL_STUDY, DENSE_MASTER_DESCRIPTION, STARTUP_PROFILE, ProfileStore, builtin_profiles
 from gpu_runtime import guided_install
 from studio_import import FORMATS, MAX_BYTES, find_blender, validate_glb, copy_version
 from animation_edits import recover as recover_animation
@@ -664,7 +664,7 @@ def generation_options_schema():
 def profiles_list():
     try:
         available = [profile for profile in PROFILES.list() if profile['id'] != HUMANOID_EXPERIMENTAL]
-        return {'default_profile': DEFAULT_PROFILE, 'startup_profile': DENSE_MASTER, 'profiles': available}
+        return {'default_profile': DEFAULT_PROFILE, 'startup_profile': STARTUP_PROFILE, 'profiles': available}
     except ValueError as error: raise HTTPException(422, str(error))
 
 async def save_profile(request, identifier=None):
@@ -1127,7 +1127,7 @@ async def generate_multiview(
     texture_size: Annotated[int, Form()] = 0,
     parent_id: Annotated[str, Form()] = '',
     reference_prompt: Annotated[str, Form()] = '',
-    keep_finishing_source: Annotated[bool, Form()] = False,
+    keep_finishing_source: Annotated[bool | None, Form()] = None,
     repair_surface: Annotated[bool, Form()] = False,
     hd_reconstruction: Annotated[bool, Form()] = False,
     reproject_face: Annotated[bool, Form()] = False,
@@ -1166,7 +1166,9 @@ async def generate_multiview(
                                          hd_reconstruction=hd_reconstruction, engine='pixal3d')
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
-    keep_finishing_source = keep_finishing_source or preset in (DENSE_MASTER, HUMANOID_EXPERIMENTAL) or profile.get('keep_finishing_source', False)
+    if keep_finishing_source is None:
+        keep_finishing_source = profile.get('keep_finishing_source', False)
+    keep_finishing_source = keep_finishing_source or preset in (DENSE_MASTER, HUMANOID_EXPERIMENTAL)
     if (side_angle not in (40, 90) or not 0.01 <= height_m <= 100
         or not 0 <= seed <= 2147483647 or not -2 <= queue_priority <= 2
         or not TRIANGLE_MIN <= triangles <= TRIANGLE_MAX

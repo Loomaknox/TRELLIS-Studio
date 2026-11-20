@@ -120,6 +120,8 @@ def run():
                     eligible = name in ('valid', 'high', 'variant')
                     assert info['master_finishing']['methods']['hi3d_512']['available'] == eligible, (name, info)
                     assert (info['hi3d_options'] is not None) is eligible
+                    assert info['retexture']['available'] is eligible
+                    assert info['retexture']['enabled'] is False
                     if eligible:
                         assert info['hi3d_options']['hi3d_steps'] == (31 if name == 'variant' else 25)
                     if not eligible:
@@ -127,7 +129,8 @@ def run():
                              json={'master_finishing': 'hi3d_512'})
                 for method in ('hi3d_512', 'hi3d_1024'):
                     route = f'/api/v1/models/{identifiers["variant"]}/refinish'
-                    identifier = call('POST', route, 202, json={'master_finishing': method, 'texture_size': 2048,
+                    identifier = call('POST', route, 202, json={'master_finishing': method, 'texture_size': 4096,
+                                      'retexture_after_refinement': True,
                                       'hi3d_options': {'hi3d_seed': 180, 'hi3d_scheduler': 'euler'}})['id']
                     settings = read(app.OUTPUT / identifier / 'settings.json')
                     assert settings['master_finishing'] == method
@@ -137,8 +140,25 @@ def run():
                     assert settings['generation_options']['hi3d_seed'] == 180
                     assert settings['generation_options']['hi3d_scheduler'] == 'euler'
                     assert settings['profile_snapshot']['generation_options'] == settings['generation_options']
+                    assert settings['texture_size'] == 4096 and settings['retexture_after_refinement'] is True
+                    assert settings['profile_snapshot']['retexture_after_refinement'] is True
+                    folder = app.OUTPUT / identifier
+                    app.write_json(folder / 'status.json', dict(state='done', progress=100))
+                    variant_board = call('GET', f'/api/v1/models/{identifier}/finishing-board')
+                    assert variant_board['retexture']['enabled'] is True
+                    assert variant_board['source_id'] == identifiers['valid']
                 recipe = {'master_finishing': 'hi3d_1024', 'texture_size': 2048}
                 board_route = f'/api/v1/models/{identifiers["variant"]}/finishing-board'
+                texture_batch = call('POST', board_route, 202, json={'variants': [
+                    recipe, {**recipe, 'retexture_after_refinement': True},
+                ]})
+                assert [read(app.OUTPUT / item / 'settings.json').get('retexture_after_refinement', False)
+                        for item in texture_batch['ids']] == [False, True]
+                with patch.object(app, 'detail_texturing_capability', return_value=unavailable):
+                    assert call('GET', board_route)['retexture']['available'] is False
+                    call('POST', route, 503, json={**recipe, 'retexture_after_refinement': True})
+                call('POST', route, 422, json={**recipe, 'retexture_after_refinement': 'true'})
+                call('POST', route, 422, json={'master_finishing': 'studio_768', 'retexture_after_refinement': True})
                 batch = call('POST', board_route, 202, json={'variants': [
                     {**recipe, 'hi3d_options': {'hi3d_steps': 18}},
                     {**recipe, 'hi3d_options': {'hi3d_steps': 32}},

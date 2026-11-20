@@ -1,6 +1,6 @@
 import {button, dialog, el, field, input, select} from './workbench-ui.js?v=3.4.0';
 import {detailRefinements} from './hd-master-finishing.js?v=detail-refinement-native';
-import {createAdvancedControls} from './advanced-controls.js?v=board-hi3d';
+import {createAdvancedControls, optionHelp} from './advanced-controls.js?v=board-hi3d';
 
 const number = value => Number.isFinite(value) ? value.toLocaleString('en-US') : '—';
 const nameOf = job => job?.metadata?.display_name || job?.settings?.name || 'Source model';
@@ -49,13 +49,24 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
     const refinementSettings = el('fieldset', 'finishing-hi3d-options');
     refinementSettings.hidden = refinementSettings.disabled = true;
     refinementSettings.setAttribute('aria-label', 'Advanced Hi3D settings');
+    const retextureField = el('div', 'finishing-retexture');
+    retextureField.hidden = true;
+    const retexture = input('checkbox', '', {id: 'boardRetextureAfterHi3d', 'aria-describedby': 'boardRetextureStatus'});
+    const retextureLabel = el('label', 'check');
+    retextureLabel.append(retexture, el('span', '', 'Retexture after Hi3D'));
+    const retextureStatus = el('p', 'hint');
+    retextureStatus.id = 'boardRetextureStatus';
+    retextureStatus.setAttribute('role', 'status');
+    retextureField.append(retextureLabel, retextureStatus);
+    optionHelp(retextureLabel, 'Retexture after Hi3D',
+        'Generates new PBR materials from the saved cutout on the refined mesh. Uses 12 steps, guidance 1 and the selected texture size.');
     const refinementTexture = select([], '');
     const refinementActions = el('div', 'finishing-refinement-actions');
     const refinementQueue = button('Queue refinement', 'layers', 'primary');
     refinementQueue.type = 'submit';
     refinementQueue.disabled = true;
     refinementActions.append(field('Texture size', refinementTexture), refinementQueue);
-    refinement.append(refinementHead, refinementHint, refinementGroup, refinementSettings, refinementActions);
+    refinement.append(refinementHead, refinementHint, refinementGroup, refinementSettings, retextureField, refinementActions);
     const results = el('section', 'finishing-results');
     const rows = el('div', 'finishing-rows');
     results.setAttribute('aria-labelledby', 'finishingBoardResults');
@@ -71,6 +82,7 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
 
     let base = null, board = null, drafts = [], opening = 0, pending = false;
     let hi3dControls, hi3dControlsPromise;
+    let textureDefault, textureChosen;
     const cards = new Map();
     const request = (method, value) => api(`/api/jobs/${base.id}/finishing-board`, {
         method,
@@ -99,8 +111,17 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         const editable = !!board?.hi3d_options && availableRefinement && chosenRefinement;
         refinementSettings.hidden = !editable;
         refinementSettings.disabled = pending || !editable;
+        const showRetexture = !!board?.retexture && availableRefinement && chosenRefinement;
+        retextureField.hidden = !showRetexture;
+        retexture.disabled = pending || !showRetexture || board.retexture.available !== true;
         refinementQueue.disabled = pending || !board || !availableRefinement || !chosenRefinement
             || !refinementTexture.value || (editable && !hi3dControls?.ready);
+    }
+
+    function selectRefinementTexture() {
+        if (textureChosen) return;
+        const canUse4k = [...refinementTexture.options].some(option => option.value === '4096');
+        refinementTexture.value = retexture.checked && canUse4k ? '4096' : textureDefault;
     }
 
     function configureRefinement() {
@@ -110,9 +131,16 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         if (refinement.hidden) return;
         const textureSizes = board.texture_sizes.filter(size => [1024, 2048, 4096].includes(size));
         refinementTexture.replaceChildren(...textureSizes.map(size => new Option(`${size / 1024}K`, size)));
-        const textureDefault = [base.settings.texture_size, config.default_texture_size, textureSizes[0]]
+        const size = [base.settings.texture_size, config.default_texture_size, textureSizes[0]]
             .find(size => textureSizes.includes(size));
-        refinementTexture.value = String(textureDefault || '');
+        textureDefault = String(size || '');
+        refinementTexture.value = textureDefault;
+        textureChosen = base.settings.source_kind === 'refinish' && !!detailRefinements[base.settings.master_finishing];
+        retexture.checked = board.retexture?.available === true && board.retexture.enabled === true;
+        retextureStatus.textContent = board.retexture?.available === false
+            ? board.retexture.reason || 'The local texturing pipeline is unavailable.' : '';
+        retextureStatus.hidden = !retextureStatus.textContent;
+        selectRefinementTexture();
         for (const {method, control, detail} of refinementChoices) {
             const capability = support[control.value];
             control.disabled = capability?.available !== true;
@@ -310,6 +338,9 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
             if (Number.isFinite(result.seconds)) pieces.push(`${result.seconds} s`);
             if (Number.isFinite(result.peak_vram_gib)) pieces.push(`${result.peak_vram_gib} GiB peak VRAM`);
             if (!isSource && result.neural_inferences === 0) pieces.push('Cached source');
+            const retextureResult = result.finishing?.retexture_after_refinement;
+            if (retextureResult?.state === 'done') pieces.push('Retextured after Hi3D');
+            if (retextureResult?.state === 'failed') pieces.push('Source materials baked after the texture pass failed');
             card.title.textContent = nameOf(job);
             card.metrics.textContent = pieces.join(' · ');
             renderHi3dRecipe(card, !isSource && detailRefinements[job.settings?.master_finishing]
@@ -347,6 +378,8 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
     }
 
     refinement.onchange = updateQueueButton;
+    refinementTexture.onchange = () => { textureChosen = true; };
+    retexture.onchange = selectRefinementTexture;
     refinementSettings.addEventListener('invalid', () => hi3dControls?.openGroup('hi3d'), true);
     refinement.onsubmit = async event => {
         event.preventDefault();
@@ -358,6 +391,7 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
             texture_size: Number(refinementTexture.value),
         };
         if (!refinementSettings.disabled) payload.hi3d_options = hi3dControls.read();
+        if (board.retexture) payload.retexture_after_refinement = !retexture.disabled && retexture.checked;
         const token = opening;
         pending = true;
         ui.notice.textContent = 'Queueing detail refinement…';
