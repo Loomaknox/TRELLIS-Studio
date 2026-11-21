@@ -5,6 +5,13 @@
 !/.github/
 /.github/*
 !/.github/FUNDING.yml
+!/.github/ISSUE_TEMPLATE/
+/.github/ISSUE_TEMPLATE/*
+!/.github/ISSUE_TEMPLATE/bug-report.yml
+!/.github/ISSUE_TEMPLATE/feature-request.yml
+!/.github/pull_request_template.md
+!/CODE_OF_CONDUCT.md
+!/CONTRIBUTING.md
 !/animation_edits.py
 !/animation_blend.py
 !/animation_worker.py
