@@ -22,6 +22,9 @@
 !/normal_bake_blender.py
 !/normal_glb.py
 !/generation_profiles.py
+!/figure_master_repair.py
+!/collection_preview.py
+!/collection_preview_renderer.py
 !/glb_data.py
 !/humanoid_mapping.py
 !/import_blender.py
@@ -64,6 +67,8 @@
 !/multiview_texture_runtime.py
 !/multiview_texture_views.py
 !/multiview_texture_fusion.py
+!/ultratex_runtime.py
+!/ultratex_worker.py
 !/generation_view_projection.py
 !/wtivo_runtime.py
 !/hi3d_runtime.py
@@ -142,6 +147,7 @@
 !/web/texture-projection-geometry.js
 !/web/texture-projection-auto-align.js
 !/web/texture-projection.css
+!/web/texture-methods.js
 !/web/game-copy-regions.js
 !/web/reduction-region-preview.js
 !/web/advanced-controls.js
@@ -155,6 +161,9 @@
 !/web/button-icons.js
 !/web/card-menu.js
 !/web/card-turntable.js
+!/web/collection-previews.js
+!/web/collection-preview-capture.js
+!/web/collection-preview-render.js
 !/web/collection-transfer.js
 !/web/compare-studio.js
 !/web/details.css
@@ -245,6 +254,10 @@
 !/installer/install_multiview_texture.py
 !/installer/multiview-texture-manifest.json
 !/installer/requirements-multiview-texture.txt
+!/installer/install_ultratex.py
+!/installer/ultratex-manifest.json
+!/installer/requirements-ultratex-comfy.txt
+!/installer/requirements-ultratex-gguf.txt
 !/installer/pixal3d-manifest.json
 !/installer/requirements-pixal3d.txt
 !/installer/manifest.json
@@ -262,6 +275,7 @@
 /licenses/*
 !/licenses/Hi3D-1.0-LICENSE.md
 !/licenses/Stable-Diffusion-2.1-OpenRAIL++-M.txt
+!/licenses/FLUX.2-klein-base-9B-LICENSE.md
 !/licenses/AssetFurnace-Apache-2.0.txt
 !/licenses/DINOv3-LICENSE.md
 !/licenses/Quaternius-UAL1-CC0.txt
@@ -372,3 +386,5 @@
 !/docs/RELEASE_3.10.1.md
 !/docs/RELEASE_3.11.0.md
 !/docs/RELEASE_3.12.0.md
+!/docs/RELEASE_3.13.0.md
+!/docs/ULTRATEX.md

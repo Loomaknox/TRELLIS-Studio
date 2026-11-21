@@ -1,6 +1,6 @@
 import {button, dialog, el, field, input, select} from './workbench-ui.js?v=3.4.0';
 import {detailRefinements} from './hd-master-finishing.js?v=detail-refinement-native';
-import {createAdvancedControls, optionHelp} from './advanced-controls.js?v=board-hi3d';
+import {createAdvancedControls, optionHelp} from './advanced-controls.js?v=figure-master-ultratex';
 import {canOpenFinishingBoard} from './card-menu.js?v=texture-variant';
 
 const number = value => Number.isFinite(value) ? value.toLocaleString('en-US') : '—';
@@ -20,19 +20,23 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
     const summary = el('p', 'finishing-summary');
     const texture = el('section', 'finishing-refinement');
     const textureHead = el('div', 'finishing-refinement-head');
-    const textureTitle = el('h3', '', 'Multiview texture refinement');
+    const textureTitle = el('h3', '', 'Texture refinement');
     textureTitle.id = 'finishingBoardTexture';
     textureHead.append(textureTitle);
     texture.setAttribute('aria-labelledby', textureTitle.id);
     const textureHint = el('p', 'hint');
     textureHint.id = 'finishingBoardTextureHint';
     textureHint.setAttribute('role', 'status');
+    const textureMethod = select([['multiview', 'Multiview refinement'],
+        ['ultratex', 'UltraTex · 2K (local preview)']], 'multiview');
+    textureMethod.setAttribute('aria-describedby', textureHint.id);
+    const textureMethodField = field('Texture method', textureMethod);
     const textureActions = el('div', 'finishing-refinement-actions');
     const textureQueue = button('Queue texture refinement', 'image', 'secondary');
     textureQueue.setAttribute('aria-describedby', textureHint.id);
     textureActions.append(textureQueue);
     const textureRows = el('div', 'finishing-rows');
-    texture.append(textureHead, textureHint, textureActions, textureRows);
+    texture.append(textureHead, textureMethodField, textureHint, textureActions, textureRows);
     const selected = el('p', 'finishing-choice');
     const form = el('form', 'finishing-form');
     form.id = 'finishingBoardRecipes';
@@ -126,14 +130,19 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
     function updateTexture() {
         const variants = textureVariants();
         const active = variants.some(job => job.state === 'queued' || job.state === 'running');
-        textureQueue.disabled = pending || textureInfo?.ready !== true || active;
-        let hint = textureInfo?.reason || 'Texture refinement is unavailable for this model.';
-        if (textureInfo?.ready === true) {
-            const size = textureInfo.atlas;
-            const recipe = [Number.isFinite(textureInfo.triangles) ? `${number(textureInfo.triangles)} triangles` : '',
+        const option = textureInfo?.methods?.[textureMethod.value]
+            || (textureMethod.value === 'multiview' ? textureInfo : null);
+        textureMethod.disabled = pending || !textureInfo;
+        textureQueue.disabled = pending || option?.ready !== true || active;
+        let hint = option?.reason || textureInfo?.reason || 'Texture refinement is unavailable for this model.';
+        if (option?.ready === true) {
+            const size = option.atlas;
+            const recipe = [Number.isFinite(option.triangles) ? `${number(option.triangles)} triangles` : '',
                 Array.isArray(size) && size.length === 2 ? `${size[0]} × ${size[1]} texture` : '']
                 .filter(Boolean).join(' · ');
-            hint = 'Refines the baked texture from six generated views. The copy keeps its mesh, UVs and texture size.';
+            hint = textureMethod.value === 'ultratex'
+                ? 'Generates color, metal and roughness from six views on the existing 2K UV atlas. Local non-commercial testing.'
+                : 'Refines the baked color from six generated views and keeps the existing UVs and material maps.';
             if (recipe) hint += ` ${recipe}.`;
         } else if (!textureInfo) {
             hint = 'Checking the saved model and reference…';
@@ -175,14 +184,19 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
 
     async function loadTextureCapability(id, token) {
         try {
-            const capability = await api(textureEndpoint(id));
-            if (token === opening) textureInfo = capability || {ready: false};
+            const capability = await api(`${textureEndpoint(id)}?include_methods=true`);
+            if (token === opening) {
+                textureInfo = capability || {ready: false};
+                textureMethod.value = !capability?.ready && capability?.methods?.ultratex?.ready
+                    ? 'ultratex' : 'multiview';
+            }
         } catch (error) {
             if (token === opening) textureInfo = {ready: false, reason: error.message};
         }
         if (token === opening) update();
     }
 
+    textureMethod.onchange = updateTexture;
     textureQueue.onclick = async () => {
         if (textureQueue.disabled) return;
         const token = opening;
@@ -190,7 +204,8 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         ui.notice.textContent = 'Queueing texture refinement…';
         update();
         try {
-            await api(textureEndpoint(base.id), {method: 'POST'});
+            const params = new URLSearchParams({texture_method: textureMethod.value});
+            await api(`${textureEndpoint(base.id)}?${params}`, {method: 'POST'});
             if (token === opening) ui.notice.textContent = 'Texture refinement queued. The new copy will appear here.';
             await refresh();
         } catch (error) {

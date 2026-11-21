@@ -154,7 +154,7 @@ async def upload_source(file_path:str)->dict[str,Any]:
 
 @tool()
 async def queue_generation(recipe:Generation)->dict[str,Any]:
-    """Queue an uploaded image with TRELLIS.2 or engine='pixal3d_single' (MoGe camera estimation). Select master_finishing='none' to export the decoded geometry without reduction and keep the source cache, or select an available reconstruction. Hi3D refines the chosen TRELLIS.2 single-image resolution using its prepared transparent cutout. Check studio_status and poll get_model."""
+    """Queue an uploaded image with TRELLIS.2 or engine='pixal3d_single' (MoGe camera estimation). Choose texture_method='trellis', 'multiview' or 'ultratex'; UltraTex requires 2K textures and its installed component. Figure Master is a TRELLIS.2 profile with one 1024 reconstruction and defaults to multiview textures. Select master_finishing='none' for the decoded geometry or an available reconstruction. Check studio_status and poll get_model."""
     return await api('POST','/generations',recipe.model_dump())
 
 @tool()

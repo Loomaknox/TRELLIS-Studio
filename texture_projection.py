@@ -238,6 +238,40 @@ def normalize_projection_options(options):
     return result
 
 
+def _projection_normals(vertices, normals, indices):
+    """Fill zero vectors for projection weights without rewriting the GLB."""
+    missing = np.linalg.norm(normals, axis=1) < 1e-8
+    if not missing.any():
+        return normals
+    faces = indices[missing[indices].any(axis=1)]
+    if len(faces) == 0:
+        return normals
+    corners = vertices[faces].astype(np.float64)
+    face_normals = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
+    areas = np.linalg.norm(face_normals, axis=1)
+    estimates = np.zeros(vertices.shape, dtype=np.float64)
+    for corner in faces.T:
+        np.add.at(estimates, corner, face_normals)
+    lengths = np.linalg.norm(estimates, axis=1)
+    unresolved = missing & (lengths == 0)
+    if unresolved.any():
+        # Coincident faces with opposite winding can cancel exactly.
+        order = np.argsort(-areas, kind='stable')
+        order = order[areas[order] > 0]
+        best = np.full(len(vertices), len(order), dtype=np.int64)
+        ranks = np.arange(len(order))
+        for corner in faces[order].T:
+            np.minimum.at(best, corner, ranks)
+        fallback = unresolved & (best < len(order))
+        face = order[best[fallback]]
+        estimates[fallback] = face_normals[face]
+        lengths[fallback] = areas[face]
+    repairable = missing & (lengths > 0)
+    complete = normals.copy()
+    complete[repairable] = estimates[repairable] / lengths[repairable, None]
+    return complete
+
+
 def _load_mesh(path):
     try:
         document, binary = read(path)
@@ -273,8 +307,6 @@ def _load_mesh(path):
                 or indices.min() < 0 or indices.max() >= len(vertices)
                 or not all(np.isfinite(a).all() for a in (vertices, normals, uv))):
             raise TextureProjectionError('Repair invalid geometry, normals, or UV coordinates before projecting.')
-        if np.any(np.linalg.norm(normals, axis=1) < 1e-8):
-            raise TextureProjectionError('Recalculate missing vertex normals before projecting.')
         if uv.min() < -1e-6 or uv.max() > 1 + 1e-6:
             raise TextureProjectionError('Use a non-repeating UV atlas inside the 0 to 1 range.')
         material_index = primitive.get('material')
@@ -295,6 +327,7 @@ def _load_mesh(path):
         if max(atlas_image.size) > MAX_ATLAS or min(atlas_image.size) < 1:
             raise TextureProjectionError('Use a base-color atlas no larger than 4096 by 4096 for this operation.')
         atlas = np.asarray(atlas_image.convert('RGBA')).copy()
+        normals = _projection_normals(vertices, normals, indices)
         return document, binary, primitive, material_index, atlas, vertices, normals, uv, indices
     except TextureProjectionError:
         raise

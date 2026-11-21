@@ -5,7 +5,8 @@ import re
 import subprocess
 
 PRIVATE_ROOTS = {'config', 'state', 'generated-animations', 'server-data', 'outputs', 'trash', 'exports', 'models', 'engine',
-                 '.git', '.venv', '.mcp-venv', '.downloads', 'logs', 'qa', 'temp'}
+                 '.git', '.venv', '.mcp-venv', '.downloads', 'logs', 'qa', 'temp', 'builds'}
+PRIVATE_RUNTIME = ('runtime', 'figure-master')
 SECRETS = (
     re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----'),
     re.compile(r'\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b'),
@@ -19,6 +20,7 @@ def audit(root, paths, deny_literals=()):
         path = PurePosixPath(name)
         if (path.is_absolute() or '..' in path.parts or '\\' in name or ':' in name
                 or not path.parts or path.parts[0].lower() in PRIVATE_ROOTS
+                or tuple(part.lower() for part in path.parts[:2]) == PRIVATE_RUNTIME
                 or path.suffix.lower() in {'.sqlite', '.sqlite3', '.db', '.pem', '.key', '.log', '.pfx', '.p12', '.crt', '.cer', '.jks'}
                 or path.name in {'AGENTS.md', 'LOCAL_PRODUCT_BACKLOG.md'}):
             errors.append((name, 'private or unsafe path'))
@@ -27,6 +29,7 @@ def audit(root, paths, deny_literals=()):
         resolved = file.resolve()
         if (file.is_symlink() or not resolved.is_relative_to(root.resolve()) or not file.is_file()
                 or resolved.relative_to(root.resolve()).parts[0].lower() in PRIVATE_ROOTS
+                or tuple(part.lower() for part in resolved.relative_to(root.resolve()).parts[:2]) == PRIVATE_RUNTIME
                 or any(parent.is_symlink() or (hasattr(parent, 'is_junction') and parent.is_junction())
                        for parent in file.parents if parent != root and root in parent.parents)):
             errors.append((name, 'not a regular payload file'))

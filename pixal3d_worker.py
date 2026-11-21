@@ -318,7 +318,9 @@ def run_job():
         multiview_report = refine_multiview_texture(torch, result, pixal=True)
         face_report = project_requested_face()
         finishing = result.metadata['finishing']
-        if multiview_report is not None:
+        from generation_options import resolve_texture_method
+        texture_method = resolve_texture_method(settings.get('texture_method'), settings.get('multiview_texture_refinement'))
+        if multiview_report is not None and texture_method == 'multiview':
             finishing['multiview_texture_refinement'] = multiview_report
         with (JOB / 'model.glb').open('rb') as model_file:
             finishing['model_sha256'] = hashlib.file_digest(model_file, 'sha256').hexdigest()
@@ -336,6 +338,7 @@ def run_job():
             dimensions_m=result.extents.tolist(), resolution=resolution,
             requested_resolution=1024, pipeline_type='pixal3d_1024_monoview' if single_image else 'pixal3d_1024_multiview',
             texture_size=settings['texture_size'], generation_options=options, sampler_options=sampling,
+            texture_method=texture_method,
             settings_version=settings_version, neural_inferences=1, raw_triangles=raw_triangles,
             view_count=len(views), views=views, view_mode='single' if single_image else 'multi',
             peak_vram_gib=round(torch.cuda.max_memory_allocated()/1024**3, 2),

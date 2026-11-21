@@ -27,7 +27,7 @@ from server_runtime import ROOT, ServerRuntime, remove_child, tree_bytes
 from server_store import DEFAULT_DISK_LIMIT, SESSION_SECONDS, Store, StoreError
 from server_setup import network_settings
 from studio_version import VERSION
-from studio_release import release_status, render_studio_version
+from studio_release import UI_REVISION, release_status, render_studio_version
 from studio_workspace import ID, read, write
 
 
@@ -583,7 +583,7 @@ def app_for(data, public_url, setup_token=None, on_setup=None):
         html = (ROOT / 'web' / 'studio.html').read_text(encoding='utf-8')
         shell = ('<link rel="stylesheet" href="/web/server.css?v=studio-visual-refresh">'
                  f'<script type="module" src="/web/server-shell.js?v={VERSION}"></script>')
-        return HTMLResponse(render_studio_version(html).replace('</head>', shell + '</head>', 1))
+        return HTMLResponse(render_studio_version(html, ui_revision=UI_REVISION).replace('</head>', shell + '</head>', 1))
 
     @app.get('/api/release-status')
     def studio_release_status(request: Request):

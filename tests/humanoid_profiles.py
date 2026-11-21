@@ -33,7 +33,7 @@ with isolated_workspace('humanoid_profiles'):
 
     before = copy.deepcopy(builtin_profiles()[0])
     refinement_profiles = {p['id']: p['settings']['multiview_texture_refinement'] for p in builtin_profiles()}
-    assert {identifier for identifier, enabled in refinement_profiles.items() if enabled} == {'high_detail'}
+    assert {identifier for identifier, enabled in refinement_profiles.items() if enabled} == {'high_detail', 'figure_master'}
     standard_options = copy.deepcopy(app.PIXAL_CHARACTER_OPTIONS)
     standard_profile = copy.deepcopy(app.PIXAL_CHARACTER_PROFILE)
     assert DEFAULT_PROFILE == Generation.model_fields['profile_id'].default == 'game_d'
@@ -143,6 +143,18 @@ with isolated_workspace('humanoid_profiles'):
             assert recipe['triangles'] == 300_000 and recipe['generation_options']['shape_steps'] == 25
 
         with patch.object(app, 'multiview_texture_capability', return_value={'available': True, 'reason': ''}):
+            figure = send(client, '/api/v1/generations', json={
+                'upload_id': front, 'profile_id': 'figure_master'})
+            figure_recipe = settings(figure['id'])
+            assert figure_recipe['texture_method'] == 'multiview' and figure_recipe['keep_finishing_source']
+            assert figure_recipe['resolution'] == 1024 and figure_recipe['triangles'] == 800_000
+            f = figure_recipe['generation_options']
+            assert [f[k + '_steps'] for k in ('structure', 'shape', 'texture')] == [30, 35, 12]
+            assert [f[k + '_guidance'] for k in ('structure', 'shape')] == [6.5, 6.5]
+            assert [f[k + '_rescale'] for k in ('structure', 'shape')] == [.2, .2]
+            assert [f[k + '_rescale_t'] for k in ('structure', 'shape')] == [4, 4]
+            assert f['mesh_mode'] == 'remesh' and f['remesh_resolution'] == 1024 and not f['pre_simplify']
+            assert not figure_recipe.get('retexture_after_refinement')
             for profile_id, override, enabled in (
                     ('high_detail', {}, True),
                     ('high_detail', {preference: False}, False),
@@ -154,6 +166,22 @@ with isolated_workspace('humanoid_profiles'):
                 assert actual['texture_size'] == 2048
             send(client, '/api/v1/generations', expected=422, json={
                 'upload_id': front, preference: 'true'})
+        with patch.object(app, 'ultratex_texture_capability', return_value={'available': True, 'reason': ''}):
+            ultra = send(client, '/api/v1/generations', json={
+                'upload_id': front, 'profile_id': 'high_detail', 'texture_method': 'ultratex',
+                'multiview_texture_refinement': True})
+            ultra_recipe = settings(ultra['id'])
+            assert ultra_recipe['texture_method'] == 'ultratex' and not ultra_recipe.get(preference)
+            send(client, '/api/v1/generations', expected=400, json={
+                'upload_id': front, 'texture_method': 'ultratex', 'overrides': {'texture_size': 4096}})
+            send(client, '/api/v1/generations/multiview', expected=400, json={
+                'upload_id': front, 'left_upload_id': side, 'texture_method': 'ultratex'})
+            send(client, '/api/v1/generations', expected=400, json={
+                'upload_id': front, 'profile_id': 'figure_master', 'engine': 'pixal3d_single'})
+            custom = send(client, '/api/profiles', expected=201, json={
+                'name': 'UltraTex preference', 'settings': {**before['settings'], 'texture_method': 'ultratex'}})
+            assert custom['settings']['texture_method'] == 'ultratex' and not custom['settings'][preference]
+            assert client.request('DELETE', '/api/profiles/' + custom['id']).status_code == 200
         with patch.object(app, 'multiview_texture_capability',
                           return_value={'available': False, 'reason': 'Runtime missing.'}):
             fallback = send(client, '/api/v1/generations', json={

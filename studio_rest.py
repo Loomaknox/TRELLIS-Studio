@@ -3,7 +3,7 @@ from pathlib import Path
 from contextlib import ExitStack
 import inspect,io,json,time,uuid,hashlib,os
 from fastapi import APIRouter,UploadFile,File,HTTPException,Query
-from fastapi.responses import FileResponse,HTMLResponse,RedirectResponse
+from fastapi.responses import FileResponse,HTMLResponse,RedirectResponse,Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.openapi.docs import get_swagger_ui_html
 from starlette.requests import Request
@@ -168,7 +168,7 @@ def install(app,g):
         if set(data.overrides)-{'triangles','texture_size','resolution','remove_bg','advanced_settings','asset_type','reference_prompt','parent_id','keep_finishing_source','repair_surface','hd_reconstruction'}:raise HTTPException(400,'Unsupported recipe override.')
         source,entry=upload(data.upload_id,'image');spec=dict(name=data.name,profile_id=data.profile_id,height_m=data.height_m,seed=data.seed,priority=data.priority,**data.overrides)
         spec.update(data.model_dump(include={'reference_edits', 'engine', 'master_finishing', 'reproject_face',
-                                             'retexture_after_refinement', 'multiview_texture_refinement'},
+                                             'retexture_after_refinement', 'multiview_texture_refinement', 'texture_method'},
                                     exclude_none=True))
         with source.open('rb') as stream:
             result=await legacy('POST','/api/queue/batch',images=[UploadFile(file=stream,filename=entry['name'])],specifications=json.dumps([spec]))
@@ -207,6 +207,8 @@ def install(app,g):
         summaries=[]
         for r in records[offset:offset+limit]:
             summaries.append(dict(id=r['id'],name=r['metadata'].get('display_name',r['settings']['name']),state=r['state'],progress=r.get('progress',0),metadata=r['metadata'],media=r.get('media',{}),parent_id=r['settings'].get('parent_id'),status_url='/api/v1/jobs/'+r['id'],model_url='/api/v1/models/'+r['id']+'/files/model.glb'))
+            if r.get('collection_preview'):
+                summaries[-1]['collection_preview'] = r['collection_preview']
         return dict(total=len(records),offset=offset,limit=limit,models=summaries)
 
     @router.get('/jobs/{identifier}',tags=['Models'],summary='Read job progress, recipe, rig, clips and prepared resources')
@@ -264,6 +266,12 @@ def install(app,g):
         'prepared.png', 'prepared-left.png', 'prepared-back.png', 'prepared-right.png', 'conditioning.png',
     ]):
         return await g['files'](identifier, filename)
+
+    @router.get('/models/{identifier}/collection-preview/{revision}/{mode}.webp', tags=['Models'],
+                summary='Download a saved Collection thumbnail', response_class=Response,
+                responses={200: {'content': {'image/webp': {}}}})
+    def collection_preview(identifier: Identifier, revision: str, mode: Literal['textured', 'clay']):
+        return g['collection_preview'](identifier, revision, mode)
 
     @router.get('/models/{identifier}/presentation/{filename}', tags=['Models'],
                 summary='Download a saved thumbnail, capture or turntable')

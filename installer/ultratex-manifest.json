@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "license": {
+    "path": "licenses/FLUX.2-klein-base-9B-LICENSE.md",
+    "sha256": "468d9f4332c0c895e9132c035982a40a12750092603a2e910913cb49aa887d3b",
+    "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B/blob/8e4154e4c94c6eb08644d0761d404e1c28d325c2/LICENSE.md"
+  },
+  "sources": [
+    {
+      "id": "comfy",
+      "destination": "ComfyUI",
+      "revision": "0decb39ee5b5e17c200334589fc317dbbe98310e",
+      "url": "https://codeload.github.com/Comfy-Org/ComfyUI/zip/0decb39ee5b5e17c200334589fc317dbbe98310e",
+      "bytes": 13681098,
+      "sha256": "a1fe84019da79ddb005d97a73ff76360300119e9a3bd7dc0837cfef516d7fb22",
+      "source_files": 1340,
+      "source_tree_sha256": "5391431cfa06d9fc3769d1fdf15af8ec4ddfa42f6b159a973cbf679cd5ed9109",
+      "license": "GPL-3.0"
+    },
+    {
+      "id": "gguf",
+      "destination": "repos/ComfyUI-GGUF",
+      "revision": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+      "url": "https://codeload.github.com/city96/ComfyUI-GGUF/zip/6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+      "bytes": 38051,
+      "sha256": "aad273a0b774684285b4496f6edff7e2293bd29d71ef89926d6861bfdf4947ac",
+      "source_files": 16,
+      "source_tree_sha256": "40d73095f18e6ca079c7e61c6023611f57efe72aad9c5721ef920bfeae2ad483",
+      "license": "Apache-2.0"
+    },
+    {
+      "id": "ultratex",
+      "destination": "repos/UltraTex",
+      "revision": "8b3715605fa5f08d4de7f858d3ba8c16f94e7b0c",
+      "url": "https://codeload.github.com/Mstafa-awad/UltraTex-ComfyUI-nodes/zip/8b3715605fa5f08d4de7f858d3ba8c16f94e7b0c",
+      "bytes": 703431,
+      "sha256": "abc01fb7aa804a15cdf8ac0284478fb919983c7f9b73ed9ded6e54f17511de49",
+      "source_files": 90,
+      "source_tree_sha256": "a300c6d5aed64dc6e39e8cb29fd7d37c1554ac53f26cdd9c4a919b208bce363d",
+      "license": "GPL-3.0"
+    }
+  ],
+  "assets": [
+    {
+      "path": "diffusion_models/flux-2-klein-base-9b-Q4_0.gguf",
+      "url": "https://huggingface.co/unsloth/FLUX.2-klein-base-9B-GGUF/resolve/62ede6c5d20015b63112603ae59b556ca75f5bc9/flux-2-klein-base-9b-Q4_0.gguf",
+      "bytes": 5616228640,
+      "sha256": "02d4c2b55b5a6d4aca65eafd0f0eabe8c1e3837391042b6879be04eb99c7e116",
+      "license": "FLUX Non-Commercial License v2.1"
+    },
+    {
+      "path": "text_encoders/Qwen3-8B-Q6_K.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/a6adef130ffb23ddaf1a62fec9dced968c9bc482/Qwen3-8B-Q6_K.gguf",
+      "bytes": 6725900096,
+      "sha256": "0eaec718fdeab0f429dfa0ec481c090388811f5e63785ddb582292f4ef3c3827",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "vae/flux2-vae.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/flux2-dev/resolve/9630c1b4b6e690497ae0c19bb6b1b35d4ebedcb7/split_files/vae/flux2-vae.safetensors",
+      "bytes": 336213556,
+      "sha256": "d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5",
+      "license": "FLUX Non-Commercial License v2.1"
+    },
+    {
+      "path": "loras/ultratex_flux2.safetensors",
+      "url": "https://www.modelscope.ai/models/Yibo-Zhang/UltraTex/resolve/526614b481738d367f91889e531b6e30545fdf59/flux2/lora/dit_lora.safetensors",
+      "bytes": 478172752,
+      "sha256": "3b1915177a81bc2ab43f501355bf39113df0128e6cbc6fedf8b8621d5e06a01c",
+      "license": "MIT (publisher model card)"
+    },
+    {
+      "path": "loras/ultratex_flux2_mr.safetensors",
+      "url": "https://www.modelscope.ai/models/Yibo-Zhang/UltraTex/resolve/a9c9bbdd0c299f4015198672c87c6ea870e8b213/flux2_mr/lora/dit_lora.safetensors",
+      "bytes": 478172752,
+      "sha256": "13e94f5a30a789b1e3e76d8c96cbba5f52fb2f68411e56377f382e145da23fc1",
+      "license": "MIT (publisher model card)"
+    },
+    {
+      "path": "ultratex/ultratex_flux2_decoder.pt",
+      "url": "https://www.modelscope.ai/models/Yibo-Zhang/UltraTex/resolve/13bfe2d6bab5325141203902a3cd671b7faacfcb/flux2/decoder.pt",
+      "bytes": 99261764,
+      "sha256": "981dc4c52481687c6da4e6211617615a2b2bcc33456e1953ee6c5478aa00025b",
+      "license": "MIT (publisher model card)"
+    }
+  ]
+}

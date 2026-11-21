@@ -6,9 +6,9 @@ const commonHelp={
   "preset": "Game - Default targets 28,000 triangles. Dense Master measures surface error to choose a lighter working mesh within a default ceiling of 1.2 million triangles. It saves the decoded source for later finishing.",
   "resolution": "3D generation grid: 512\u00b3, 1024\u00b3 or 1536\u00b3. Higher values require more time and memory. Texture size is independent.",
   "height": "Final model height in metres. Dimensions scale proportionally, with the origin placed at ground level.",
-  "textureSize": "Square texture size. Pixels are shared across all surfaces. Use profile default chooses its automatic size.",
+  "textureSize": "Square texture size. Pixels are shared across all surfaces. UltraTex uses a fixed 2K atlas.",
   "removeBg": "Removes an opaque background. Images that are already transparent keep their cutout.",
-  "triangles": "Triangle ceiling for Dense Master. Other profiles use this as a target. Enter zero to use the profile or choose 1,000\u20138,000,000.",
+  "triangles": "Triangle budget for the final mesh. Higher values can retain details that are already present in the generated surface. Enter zero to use the profile budget.",
   "seed": "Random seed for geometry generation. Keep it fixed to compare settings; small GPU variations may remain.",
   "advancedMasterFinishing": "Overrides the selected master finishing for this generation. Direct Export simplifies the generated surface. Repair Holes rebuilds the surface to fill small openings.",
   "reprojectFace": "Blends the visible face from the front reference into the Pixal3D texture after generation.",
@@ -150,7 +150,7 @@ export async function createAdvancedControls(container,{groupId,title,idPrefix='
   let fields=[];
   const inputs=new Map();
   try{
-    const [response,helpResponse]=await Promise.all([fetch('/api/generation-options'),fetch('/web/generation-help.en.json?v=2.6')]);
+    const [response,helpResponse]=await Promise.all([fetch('/api/generation-options'),fetch('/web/generation-help.en.json?v=figure-master')]);
     if(!response.ok)throw Error('Restart the TRELLIS server and reload the page to enable advanced settings.');
     schema=await response.json();
     const help=helpResponse.ok?await helpResponse.json():{};

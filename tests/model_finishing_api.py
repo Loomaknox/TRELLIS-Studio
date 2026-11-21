@@ -46,6 +46,7 @@ def run():
                                                **support(None), 'protected_region_limit': PROTECTED_REGION_LIMIT},
                                            normalize_game_copy_options=lambda options: options),
         'multiview_texture_runtime': SimpleNamespace(availability=lambda _: texture_runtime),
+        'ultratex_runtime': SimpleNamespace(availability=lambda _: texture_runtime),
     }
     with TemporaryDirectory(prefix='trellis-model-finishing-') as directory, patch.dict(sys.modules, prototype):
         root = Path(directory)
@@ -267,6 +268,19 @@ def run():
             assert not (variant / 'raw_state.pt').exists()
             assert call(base, 'GET', accepted['status_url'], client=alice).json()['state'] == 'queued'
             call(base, 'GET', accepted['status_url'], 404, bob)
+
+            methods = call(base, 'GET', texture_url + '?include_methods=true', client=alice).json()['methods']
+            assert methods['ultratex']['ready'] and methods['ultratex']['atlas'] == [2048, 2048]
+            ultra_url = texture_url + '?texture_method=ultratex'
+            call(base, 'POST', ultra_url, 404, bob)
+            ultra = call(base, 'POST', ultra_url, 202, alice).json()
+            ultra_copy = source.parent / ultra['id']
+            ultra_recipe = read(ultra_copy / 'finishing-request.json')
+            ultra_settings = read(ultra_copy / 'settings.json')
+            assert ultra_recipe['texture_method'] == ultra_settings['texture_method'] == 'ultratex'
+            assert ultra_recipe['multiview_reference'] == recipe['multiview_reference']
+            assert ultra_settings['multiview_texture_refinement'] is False
+            assert read(ultra_copy / 'metadata.json')['display_name'].endswith(' · UltraTex 2K')
 
             linked = source.parent / ('a' * 32)
             linked.mkdir()

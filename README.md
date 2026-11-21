@@ -27,10 +27,10 @@ One local generation produced two finishes from the same saved source. The high-
 
 Read the [Windows Setup guide](docs/WINDOWS_SETUP.md) for component installation, repair and uninstall. Downloads are resumable and verified with SHA-256. The uninstaller can stop its own idle local services and keeps the library.
 
-**New in 3.12.0** — Compare texture and geometry variants in the Finishing board.
-High Detail now keeps the decoded source and enables multiview texture refinement
-when the optional runtime is available.
-[Release notes](docs/RELEASE_3.12.0.md) · [Hi3D guide](docs/HI3D.md)
+**New in 3.13.0** — Create dense character meshes with **Figure Master**,
+choose an optional **UltraTex** 2K texture pass, and compare clay and textured
+views directly on saved Collection cards.
+[Release notes](docs/RELEASE_3.13.0.md) · [UltraTex guide](docs/ULTRATEX.md)
 
 ### Install from source
 

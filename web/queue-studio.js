@@ -1,11 +1,10 @@
 import {button, dialog, el, field, input, select, action} from './workbench-ui.js?v=3.4.0';
-import {optionHelp} from './advanced-controls.js?v=board-hi3d';
+import {optionHelp} from './advanced-controls.js?v=figure-master-ultratex';
+import {textureMethodAvailability,textureMethodChoices,textureMethodHelp,textureMethodOf,textureMethodRestriction} from './texture-methods.js?v=figure-master-ultratex';
 
 const PRIORITIES = [['2', 'Highest'], ['1', 'High'], ['0', 'Normal'], ['-1', 'Low'], ['-2', 'Lowest']];
 const STATE_ORDER = {running: 0, queued: 1, error: 2, cancelled: 2, done: 3};
 const fullMeshNote = 'Master finishing · None. Exports the decoded mesh at its original triangle count.';
-const textureRefinementLabel = 'Multiview texture refinement';
-const textureRefinementDescription = 'Harmonizes colors and refines the baked texture from six generated views.';
 const json = (method, data) => ({
   method,
   headers: {'Content-Type': 'application/json'},
@@ -85,14 +84,37 @@ export function createQueueStudio({api, refresh}) {
     return {runtime, schema};
   }
 
-  function appendTextureRefinement(container, capability, checked, id) {
-    const control = checkbox(checked);
+  function appendTextureMethod(container, runtime, settings, size, id) {
+    const capabilities=textureMethodAvailability(runtime);
+    const method=textureMethodOf(settings);
+    const restriction=textureMethodRestriction(method,capabilities,true);
+    const control=select(textureMethodChoices,restriction?'trellis':method);
     control.id = id;
-    control.disabled = capability.available !== true;
-    const label = field(textureRefinementLabel, control, control.disabled
-      ? capability.reason || 'The local multiview texture runtime is unavailable.' : textureRefinementDescription);
-    container.append(label);
-    optionHelp(label, textureRefinementLabel, 'Runs after the texture is baked and adds processing time.');
+    for(const option of control.options){
+      option.title=textureMethodRestriction(option.value,capabilities,true);
+      option.disabled=!!option.title;
+    }
+    const label=field('Texture method',control);
+    const status=el('p','hint');
+    status.setAttribute('role','status');
+    status.textContent=restriction?`${restriction} Using Native PBR for this attempt.`:'';
+    status.hidden=!status.textContent;
+    container.append(label,status);
+    optionHelp(label,'Texture method',textureMethodHelp);
+    let previousSize=null;
+    const sync=()=>{
+      if(control.value==='ultratex'){
+        if(previousSize===null)previousSize=size.value;
+        size.value='2048';
+        size.disabled=true;
+      }else if(previousSize!==null){
+        size.value=previousSize;
+        previousSize=null;
+        size.disabled=false;
+      }
+    };
+    control.addEventListener('change',()=>{status.hidden=true;sync();});
+    sync();
     return control;
   }
 
@@ -113,7 +135,7 @@ export function createQueueStudio({api, refresh}) {
     retexture.id = 'queueRetextureAfterRefinement';
     const retextureField = field('Retexture after Hi3D', retexture);
     const retextureStatus = el('p', 'hint');
-    let textureRefinement;
+    let textureMethod;
     const syncRetexture = () => {
       retexture.disabled = Number(resolution.value) !== 1024;
       retextureStatus.textContent = retexture.disabled
@@ -135,7 +157,10 @@ export function createQueueStudio({api, refresh}) {
         remove_bg: removeBg.checked, keep_finishing_source: keepSource.checked});
       if (triangles) row.triangles = triangles.valueAsNumber;
       if (supportsRetexture) row.retexture_after_refinement = !retexture.disabled && retexture.checked;
-      if (textureRefinement && !textureRefinement.disabled) row.multiview_texture_refinement = textureRefinement.checked;
+      if (textureMethod) {
+        row.texture_method=textureMethod.value;
+        delete row.multiview_texture_refinement;
+      }
       recipe.close();
     });
     recipe.body.replaceChildren(field('Geometry resolution', resolution),
@@ -150,11 +175,7 @@ export function createQueueStudio({api, refresh}) {
       syncRetexture();
       resolution.addEventListener('change', syncRetexture);
     }
-    if (runtime.multiview_texture_refinement) {
-      textureRefinement = appendTextureRefinement(recipe.body, runtime.multiview_texture_refinement,
-        row.multiview_texture_refinement ?? (profileSettings?.multiview_texture_refinement === true),
-        'queueMultiviewTextureRefinement');
-    }
+    textureMethod=appendTextureMethod(recipe.body,runtime,{...profileSettings,...row},texture,'queueTextureMethod');
     recipe.body.append(el('p', 'hint',
       'Sampling and finishing controls come from this image’s profile. Save a custom profile in Create for a different recipe.'));
     recipe.foot.replaceChildren(apply);
@@ -172,6 +193,7 @@ export function createQueueStudio({api, refresh}) {
     else delete row.master_finishing;
     if (retexture_after_refinement !== undefined) row.retexture_after_refinement = retexture_after_refinement;
     else delete row.retexture_after_refinement;
+    delete row.texture_method;
     delete row.multiview_texture_refinement; // A new profile restores its texture refinement preference.
   }
 
@@ -333,9 +355,8 @@ export function createQueueStudio({api, refresh}) {
         canBakeNormals ? '' : 'Blender is unavailable. Clear this option to retry without a normal map.'));
     }
     const singleImage = pixal ? saved.view_mode === 'single' : (saved.view_mode ?? 'single') === 'single';
-    const textureRefinement = !refinish && singleImage && runtime.multiview_texture_refinement
-      ? appendTextureRefinement(retry.body, runtime.multiview_texture_refinement,
-          saved.multiview_texture_refinement === true, 'retryMultiviewTextureRefinement') : null;
+    const textureMethod = !refinish && singleImage
+      ? appendTextureMethod(retry.body,runtime,saved,texture,'retryTextureMethod') : null;
 
     const log = el('pre', 'queue-log');
     log.hidden = true;
@@ -360,10 +381,7 @@ export function createQueueStudio({api, refresh}) {
         return;
       }
       const changes = {texture_size: Number(texture.value), height_m: height.valueAsNumber, priority: Number(priority.value)};
-      if (textureRefinement) {
-        const enabled = !textureRefinement.disabled && textureRefinement.checked;
-        if (enabled !== (saved.multiview_texture_refinement === true)) changes.multiview_texture_refinement = enabled;
-      }
+      if (textureMethod && textureMethod.value!==textureMethodOf(saved)) changes.texture_method=textureMethod.value;
       if (!master) changes.triangles = triangles.valueAsNumber;
       if (!fixedResolution) changes.resolution = Number(resolution.value);
       if (refinish && bakeNormals.checked !== !!saved.bake_normals) changes.bake_normals = bakeNormals.checked;

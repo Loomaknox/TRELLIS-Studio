@@ -90,6 +90,12 @@ Var SkipMultiviewTexture
 Var MultiviewTextureCheckbox
 Var AcceptMultiviewTextureLicenses
 Var MultiviewTextureLicenseCheckbox
+Var InstallUltraTex
+Var UltraTexSupported
+Var SkipUltraTex
+Var UltraTexCheckbox
+Var AcceptUltraTexLicenses
+Var UltraTexLicenseCheckbox
 Var InstallKimodo
 Var KimodoCheckbox
 Var AcceptKimodoLicenses
@@ -107,6 +113,7 @@ Page custom ShowHardware SaveHardware
 Page custom ShowComponentMode SaveComponentMode
 Page custom ShowHi3dOptions SaveHi3dOptions
 Page custom ShowMultiviewTextureOptions SaveMultiviewTextureOptions
+Page custom ShowUltraTexOptions SaveUltraTexOptions
 Page custom ShowKimodoOptions SaveKimodoOptions
 Page custom ShowShortcutOptions SaveShortcutOptions
 !insertmacro MUI_PAGE_INSTFILES
@@ -180,6 +187,9 @@ Function .onInit
   StrCpy $InstallMultiviewTexture "0"
   StrCpy $SkipMultiviewTexture "0"
   StrCpy $AcceptMultiviewTextureLicenses "0"
+  StrCpy $InstallUltraTex "0"
+  StrCpy $SkipUltraTex "0"
+  StrCpy $AcceptUltraTexLicenses "0"
   StrCpy $InstallKimodo "0"
   StrCpy $AcceptKimodoLicenses "0"
   ${IfNot} ${IsNativeAMD64}
@@ -289,6 +299,14 @@ Function ShowHardware
     ReadINIStr $AcceptHi3dLicenses "$PLUGINSDIR\preflight.ini" "Plan" "Hi3DLicenseAccepted"
     ReadINIStr $InstallMultiviewTexture "$PLUGINSDIR\preflight.ini" "Plan" "MultiviewTexture"
     ReadINIStr $AcceptMultiviewTextureLicenses "$PLUGINSDIR\preflight.ini" "Plan" "MultiviewTextureLicenseAccepted"
+    ReadINIStr $InstallUltraTex "$PLUGINSDIR\preflight.ini" "Plan" "UltraTex"
+    ReadINIStr $AcceptUltraTexLicenses "$PLUGINSDIR\preflight.ini" "Plan" "UltraTexLicenseAccepted"
+    ${If} $InstallUltraTex != "1"
+      StrCpy $InstallUltraTex "0"
+    ${EndIf}
+    ${If} $AcceptUltraTexLicenses != "1"
+      StrCpy $AcceptUltraTexLicenses "0"
+    ${EndIf}
     ${If} $InstallMultiviewTexture != "1"
       StrCpy $InstallMultiviewTexture "0"
     ${EndIf}
@@ -650,6 +668,71 @@ Function SaveMultiviewTextureOptions
   ${EndIf}
 FunctionEnd
 
+Function UltraTexChoiceChanged
+  Pop $0
+  ${NSD_GetState} $UltraTexCheckbox $InstallUltraTex
+  EnableWindow $UltraTexLicenseCheckbox $InstallUltraTex
+FunctionEnd
+
+Function OpenUltraTexLicense
+  Pop $0
+  ExecShell "open" "$PLUGINSDIR\FLUX.2-klein-base-9B-LICENSE.txt"
+FunctionEnd
+
+Function ShowUltraTexOptions
+  !insertmacro MUI_HEADER_TEXT "Optional UltraTex 2K preview" "Local evaluation with Desktop or Server on validated NVIDIA hardware."
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\FLUX.2-klein-base-9B-LICENSE.txt "${PAYLOAD_ROOT}\licenses\FLUX.2-klein-base-9B-LICENSE.md"
+  nsDialogs::Create 1018
+  Pop $0
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+  ${NSD_CreateCheckbox} 0 3u 100% 15u "Install UltraTex 2K preview (optional)"
+  Pop $UltraTexCheckbox
+  ${NSD_OnClick} $UltraTexCheckbox UltraTexChoiceChanged
+  ${NSD_CreateLabel} 13u 20u -13u 30u "Six-view PBR texturing for non-commercial, non-production evaluation. Requires TRELLIS.2 and downloads about 14 GB of model files."
+  Pop $0
+  ReadINIStr $1 "$PLUGINSDIR\preflight.ini" "UltraTex" "Status"
+  ReadINIStr $2 "$PLUGINSDIR\preflight.ini" "UltraTex" "Guidance"
+  ReadINIStr $UltraTexSupported "$PLUGINSDIR\preflight.ini" "UltraTex" "Supported"
+  ${If} $1 == ""
+    StrCpy $1 "NVIDIA hardware could not be checked. You can continue with the other components."
+  ${EndIf}
+  ${NSD_CreateLabel} 13u 50u -13u 23u "$1"
+  Pop $0
+  ${NSD_CreateLabel} 13u 75u -13u 21u "$2"
+  Pop $0
+  ${NSD_CreateLink} 13u 98u 90% 11u "Read the FLUX.2 [klein] 9B model terms"
+  Pop $0
+  ${NSD_OnClick} $0 OpenUltraTexLicense
+  ${NSD_CreateCheckbox} 0 111u 100% 22u "I have read and accept the FLUX.2 [klein] 9B model terms."
+  Pop $UltraTexLicenseCheckbox
+  ${If} $UltraTexSupported != "1"
+    StrCpy $InstallUltraTex "0"
+    EnableWindow $UltraTexCheckbox 0
+  ${EndIf}
+  ${NSD_SetState} $UltraTexCheckbox $InstallUltraTex
+  ${NSD_SetState} $UltraTexLicenseCheckbox $AcceptUltraTexLicenses
+  EnableWindow $UltraTexLicenseCheckbox $InstallUltraTex
+  nsDialogs::Show
+FunctionEnd
+
+Function SaveUltraTexOptions
+  ${NSD_GetState} $UltraTexCheckbox $InstallUltraTex
+  ${NSD_GetState} $UltraTexLicenseCheckbox $AcceptUltraTexLicenses
+  StrCpy $SkipUltraTex "0"
+  ${If} $UltraTexSupported == "1"
+  ${AndIf} $InstallUltraTex == "0"
+    StrCpy $SkipUltraTex "1"
+  ${EndIf}
+  ${If} $InstallUltraTex == "1"
+  ${AndIf} $AcceptUltraTexLicenses != "1"
+    MessageBox MB_ICONEXCLAMATION "Accept the FLUX.2 [klein] 9B model terms or clear the optional UltraTex selection." /SD IDOK
+    Abort
+  ${EndIf}
+FunctionEnd
+
 Function OpenKimodoNvidiaLicense
   ExecShell "open" "https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/"
 FunctionEnd
@@ -868,6 +951,13 @@ Section "${SETUP_NAME}"
       StrCpy $ComponentsArgument "$ComponentsArgument,multiview-texture"
     ${EndIf}
   ${EndIf}
+  ${If} $InstallUltraTex == "1"
+    ${If} $ComponentsArgument == ""
+      StrCpy $ComponentsArgument "ultratex"
+    ${Else}
+      StrCpy $ComponentsArgument "$ComponentsArgument,ultratex"
+    ${EndIf}
+  ${EndIf}
   ${If} $ComponentsArgument != ""
     StrCpy $HardwareArguments '-Components "$ComponentsArgument"'
     ${If} $GpuUuid != ""
@@ -889,6 +979,12 @@ Section "${SETUP_NAME}"
     StrCpy $HardwareArguments "$HardwareArguments -AcceptMultiviewTextureModelLicenses"
   ${ElseIf} $SkipMultiviewTexture == "1"
     StrCpy $HardwareArguments "$HardwareArguments -SkipMultiviewTexture"
+  ${EndIf}
+  ${If} $InstallUltraTex == "1"
+  ${AndIf} $AcceptUltraTexLicenses == "1"
+    StrCpy $HardwareArguments "$HardwareArguments -AcceptUltraTexModelLicenses"
+  ${ElseIf} $SkipUltraTex == "1"
+    StrCpy $HardwareArguments "$HardwareArguments -SkipUltraTex"
   ${EndIf}
   ${If} $BlenderReady == "1"
   ${AndIf} $BlenderPath != ""

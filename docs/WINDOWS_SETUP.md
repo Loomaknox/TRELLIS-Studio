@@ -1,6 +1,6 @@
 # Windows x64 installer
 
-`TRELLIS-Studio-3.12.0-Setup-x64.exe` is the per-user NSIS installer for Windows x64.
+`TRELLIS-Studio-3.13.0-Setup-x64.exe` is the per-user NSIS installer for Windows x64.
 It copies the application and viewer, adds Start menu entries, and never installs
 GPU drivers, Blender or WSL. The executable is unsigned. Do not
 treat a SHA-256 checksum as an Authenticode signature.
@@ -35,6 +35,11 @@ treat a SHA-256 checksum as an Authenticode signature.
    Read the [model terms](../THIRD_PARTY_NOTICES.md#multiview-texture-refinement)
    before offering the component to Server users.
 
+   **UltraTex · 2K preview** is an optional local evaluation component. Setup
+   checks CUDA eligibility and shows VRAM, memory and storage guidance. The
+   FLUX.2 Klein 9B weights require acceptance of non-commercial, non-production
+   terms. See the [UltraTex guide](ULTRATEX.md) before enabling it.
+
    The separate **Optional motion generation** page offers Kimodo for either
    edition and component selection. It is unchecked by default. Selecting it
    requires explicit acceptance of the NVIDIA Open Model License and Meta Llama 3
@@ -64,6 +69,10 @@ transfer. Standard Blender installations are discovered automatically. Blender
 is not installed by Setup, and Workshop still works when it is absent; the
 setup diagnostic and the operation's availability message explain the missing
 component. Texture projection needs neither Blender nor an NVIDIA GPU.
+
+Collection cards use two saved WebP renders. Studio creates them in an
+installed Edge, Chrome or Chromium renderer on the host while compute jobs
+are idle. Until a preview pair is ready, the card displays its reference image.
 
 **HD Master Finishing** supports Studio 768 on a host with the TRELLIS.2
 runtime and a compatible saved source. WTiVo 1024 requires Blender and a

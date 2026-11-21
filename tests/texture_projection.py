@@ -34,7 +34,7 @@ def write_glb(path, doc, binary):
                      + struct.pack('<I4s', len(binary), b'BIN\0') + binary)
 
 
-def fixture(path, *, occluder=True, overlap=False):
+def fixture(path, *, occluder=True, overlap=False, zero_normals=(), opposing_faces=False):
     vertices, normals, uv, faces = [], [], [], []
 
     def quad(x0, y0, x1, y1, z, rect, back=False):
@@ -50,6 +50,14 @@ def fixture(path, *, occluder=True, overlap=False):
     quad(-.4, -.4, .4, .4, -.1, (.05, .05, .45, .45) if overlap else (.55, .05, .95, .45), True)
     if occluder:
         quad(-.08, -.4, .08, .4, .2, (.55, .55, .95, .95))
+    if opposing_faces:
+        start = len(vertices)
+        vertices.extend([(-.15, -.15, -1), (.15, -.15, -1), (.15, .15, -1)])
+        normals.extend([(0, 0, 1)] * 3)
+        uv.extend([(.99, .99)] * 3)
+        faces.extend([(start, start + 1, start + 2), (start, start + 2, start + 1)])
+    for index in zero_normals:
+        normals[index] = (0, 0, 0)
     doc = {'asset': {'version': '2.0'}, 'scene': 0, 'scenes': [{'nodes': [0]}],
            'nodes': [{'mesh': 0}], 'meshes': [{'primitives': [{}]}], 'materials': [],
            'buffers': [{'byteLength': 0}], 'bufferViews': [], 'accessors': [],
@@ -147,6 +155,25 @@ class TextureProjectionTests(unittest.TestCase):
         self.assertEqual(int(new[64, 64, 0]), 0)  # The raised strip hides this panel location.
         self.assertFalse(np.any(new[15:110, 145:235, :3]))  # Separate back-face UV island.
         self.assertEqual(int(new[192, 192, 0]), 188)  # Visible strip itself receives the reference.
+
+    def test_missing_vertex_directions_are_derived_without_modifying_the_glb(self):
+        fixture(self.source, opposing_faces=True)
+        self.run_projection()
+        expected = color(self.output)
+        self.output.unlink()
+        fixture(self.source, zero_normals=(0, 4, 12, 13, 14), opposing_faces=True)
+        original = self.source.read_bytes()
+        before, binary = read(self.source)
+
+        self.assertTrue(projection.inspect_texture_projection(self.source)['supported'])
+        self.run_projection()
+
+        after, saved = read(self.output)
+        self.assertEqual(self.source.read_bytes(), original)
+        self.assertEqual(saved[:len(binary)], binary)
+        self.assertEqual(after['meshes'], before['meshes'])
+        self.assertEqual(after['accessors'], before['accessors'])
+        np.testing.assert_array_equal(color(self.output), expected)
 
     def test_saved_generation_projection_preserves_non_base_data_and_verifies_the_staged_references(self):
         model = self.root / 'model.glb'

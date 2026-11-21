@@ -90,13 +90,15 @@ export function createCardTurntables(grid) {
 
   return {
     stop,
-    attach(card, image, job, name) {
+    attach(card, image, job, name, {media: existingMedia, hover = true} = {}) {
       const revision = job.presentation?.library_turntable?.revision;
       if (job.state !== 'done' || revision == null) return;
-      const media = document.createElement('span');
-      media.className = 'card-turntable-media';
-      image.before(media);
-      media.append(image);
+      const media = existingMedia || document.createElement('span');
+      media.classList.add('card-turntable-media');
+      if (!existingMedia) {
+        image.before(media);
+        media.append(image);
+      }
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'card-turntable-play';
@@ -118,6 +120,7 @@ export function createCardTurntables(grid) {
       if (more) actions.append(more);
       card.append(actions);
       button.addEventListener('click', () => active?.card === card ? stop() : start(entry, false));
+      if (!hover) return;
       card.addEventListener('pointerenter', event => {
         if (event.pointerType !== 'mouse' || !canHover.matches || reducedMotion.matches || active?.card === card) return;
         clearHover();
