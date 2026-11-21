@@ -168,7 +168,7 @@ def install(app,g):
         if set(data.overrides)-{'triangles','texture_size','resolution','remove_bg','advanced_settings','asset_type','reference_prompt','parent_id','keep_finishing_source','repair_surface','hd_reconstruction'}:raise HTTPException(400,'Unsupported recipe override.')
         source,entry=upload(data.upload_id,'image');spec=dict(name=data.name,profile_id=data.profile_id,height_m=data.height_m,seed=data.seed,priority=data.priority,**data.overrides)
         spec.update(data.model_dump(include={'reference_edits', 'engine', 'master_finishing', 'reproject_face',
-                                             'retexture_after_refinement', 'multiview_texture_refinement'},
+                                             'retexture_after_refinement', 'multiview_texture_refinement', 'texture_method'},
                                     exclude_none=True))
         with source.open('rb') as stream:
             result=await legacy('POST','/api/queue/batch',images=[UploadFile(file=stream,filename=entry['name'])],specifications=json.dumps([spec]))

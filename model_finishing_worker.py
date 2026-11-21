@@ -35,30 +35,47 @@ def retain_generation_views(folder, source, provenance, report, operation):
                           camera_model=provenance.get('camera_model'))
 
 
-def refine_multiview_texture(folder, source, target, recipe, progress):
+def refine_multiview_texture(folder, source, target, recipe, progress, method='multiview'):
     from generation_view_projection import digest
     from gpu_runtime import select_gpu
-    from multiview_texture_runtime import refine
 
     reference = staged_reference(folder, recipe['reference_file'])
     source_sha = recipe['source_sha256']
     reference_sha = recipe['reference_sha256']
     if digest(source) != source_sha or digest(reference) != reference_sha:
-        raise ValueError('The model or saved cutout changed before multiview texture refinement.')
+        raise ValueError('The model or saved cutout changed before texture refinement.')
     select_gpu(ROOT)
-    milestones = {96: .16, 97: .48, 99: .78}
+    milestones = {94: .08, 95: .10, 96: .16, 97: .48, 99: .78}
     # The original baked maps stay in source.glb. The optional runtime may modify this work copy.
     copyfile(source, target)
-    report = refine(ROOT, target, reference,
-                    lambda stage, percent: progress(stage, milestones.get(percent, percent / 100)))
+    def notify(stage, percent):
+        progress(stage, milestones.get(percent, percent / 100))
+    if method == 'ultratex':
+        from ultratex_runtime import refine
+
+        settings = read(folder / 'settings.json')
+        seed = settings.get('generation_options', {}).get('texture_seed', -1)
+        if type(seed) is not int or seed < 0:
+            seed = settings.get('seed', 42)
+        if type(seed) is not int or not 0 <= seed <= 2147483647:
+            seed = 42
+        report = refine(ROOT, target, reference, 2048, seed, progress=notify)
+        verified = 'geometry_uv_equal'
+    elif method == 'multiview':
+        from multiview_texture_runtime import refine
+
+        report = refine(ROOT, target, reference, notify)
+        verified = 'geometry_uv_and_other_pbr_equal'
+    else:
+        raise ValueError('Unsupported texture refinement method.')
     if report.get('state') != 'applied':
-        raise ValueError(report.get('reason') or 'Multiview texture refinement could not be completed.')
+        raise ValueError(report.get('reason') or 'Texture refinement could not be completed.')
     model_sha = digest(target)
-    if (report.get('geometry_uv_and_other_pbr_equal') is not True or report.get('source_sha256') != source_sha
+    if (report.get(verified) is not True or report.get('source_sha256') != source_sha
             or report.get('output_sha256') != model_sha or model_sha == source_sha
             or digest(source) != source_sha or digest(reference) != reference_sha):
-        raise ValueError('Multiview texture refinement could not verify the new color map.')
-    return {**report, 'model_sha256': model_sha}
+        raise ValueError('Texture refinement could not verify the new materials and source geometry.')
+    return {**report, 'model_sha256': model_sha, 'texture_method': method}
 
 
 def run(folder):
@@ -109,8 +126,9 @@ def run(folder):
                                       reference_sha256=cutout['reference_sha256'], model_sha256=digest(target))
                 completed = 'Texture projection ready'
             elif operation == 'multiview_texture_refinement':
-                report = refine_multiview_texture(folder, source, target, request['multiview_reference'], progress)
-                completed = 'Multiview texture ready'
+                method = request.get('texture_method', 'multiview')
+                report = refine_multiview_texture(folder, source, target, request['multiview_reference'], progress, method)
+                completed = 'UltraTex 2K ready' if method == 'ultratex' else 'Multiview texture ready'
             elif operation == 'baked_game_copy':
                 from baked_game_copy import run_baked_game_copy
                 report = run_baked_game_copy(source, target, options=request['options'], progress=progress)

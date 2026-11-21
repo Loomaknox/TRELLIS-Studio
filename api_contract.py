@@ -17,6 +17,7 @@ SingleImageEngine = Literal['trellis2', 'pixal3d_single']
 ReferenceEngine = Literal['trellis2', 'pixal3d_single', 'pixal3d']
 MasterFinishing = Literal['studio_768', 'wtivo_1024', 'hi3d_512', 'hi3d_1024']
 CreateMasterFinishing = MasterFinishing | Literal['none']
+TextureMethod = Literal['trellis', 'multiview', 'ultratex']
 
 
 class ReferenceStroke(Contract):
@@ -68,6 +69,7 @@ class Generation(Contract):
     master_finishing: CreateMasterFinishing | None = None
     reproject_face: bool = False
     retexture_after_refinement: bool | None = None
+    texture_method: TextureMethod | None = None
     multiview_texture_refinement: bool | None = Field(default=None, strict=True,
                                                       description='Apply palette and multiview refinement to the baked texture.')
     overrides:dict=Field(default_factory=dict,examples=[{}],description='Optional recipe overrides: triangles, texture_size, resolution, remove_bg, advanced_settings, asset_type, reference_prompt, parent_id, keep_finishing_source, repair_surface or hd_reconstruction (Dense Master only).')
@@ -84,6 +86,7 @@ class MultiViewGeneration(ReferenceUploads):
     texture_size: Literal[1024, 2048] | None = None
     asset_type: str = Field(default='humanoid', max_length=80)
     master_finishing: CreateMasterFinishing | None = None
+    texture_method: TextureMethod | None = None
     parent_id: Identifier | None = None
     reference_prompt: str = Field(default='', max_length=6000)
     keep_finishing_source: bool | None = None
@@ -270,6 +273,7 @@ class JobRetry(Contract):
     hd_reconstruction: bool | None = Field(default=None, strict=True)
     wtivo_reconstruction: bool | None = Field(default=None, strict=True)
     multiview_texture_refinement: bool | None = Field(default=None, strict=True)
+    texture_method: TextureMethod | None = None
 
 
 class Refinish(Contract):

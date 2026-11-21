@@ -7,6 +7,8 @@ TRIANGLE_MAX = 8_000_000
 DEFAULT_PROFILE = 'game_d'
 HUMANOID_EXPERIMENTAL = 'humanoid_experimental'
 DENSE_MASTER = 'dense_master'
+FIGURE_MASTER = 'figure_master'
+TEXTURE_METHODS = ('trellis', 'multiview', 'ultratex')
 DENSE_MASTER_NAME = 'Dense Master'
 DENSE_MASTER_TRIANGLES = 1_200_000
 MASTER_FINISHING_TRIANGLES = 3_000_000
@@ -88,6 +90,7 @@ GENERATION_PRESETS = {
     'game_d': (20, 28000, 2048), 'high_detail': (20, 250000, 2048),
     HUMANOID_EXPERIMENTAL: (20, 250000, 2048), DENSE_MASTER: (20, DENSE_MASTER_TRIANGLES, 2048),
     'fast': (8, 25000, 1024), 'balanced': (12, 50000, 2048), 'detail': (20, 100000, 2048),
+    FIGURE_MASTER: (30, 800000, 2048),
 }
 DEFAULT_GENERATION = dict(preset=DEFAULT_PROFILE, resolution=1024, triangles=28000, texture_size=2048)
 
@@ -175,6 +178,37 @@ GAME_D_ADVANCED.update(texture_guidance=2.0,repair_holes=True)
 PROFILE_ADVANCED = {'game_d': GAME_D_ADVANCED, 'high_detail': {**GAME_D_ADVANCED, 'mesh_mode': 'direct'},
                     HUMANOID_EXPERIMENTAL: {**GAME_D_ADVANCED, 'mesh_mode': 'direct'},
                     DENSE_MASTER: {**GAME_D_ADVANCED, **DENSE_MASTER_FINISHING}}
+PROFILE_ADVANCED[FIGURE_MASTER] = {
+    **GAME_D_ADVANCED, 'structure_steps': 30, 'shape_steps': 35, 'texture_steps': 12,
+    'structure_guidance': 6.5, 'shape_guidance': 6.5,
+    'structure_rescale': .2, 'shape_rescale': .2,
+    'structure_rescale_t': 4, 'shape_rescale_t': 4,
+    'texture_guidance': 1, 'mesh_mode': 'remesh', 'pre_simplify': False,
+    'remesh_resolution': 1024, 'remesh_band': 1., 'remesh_project': 0., 'repair_holes': True,
+}
+
+
+def resolve_texture_method(method=None, legacy=None, default='trellis'):
+    if legacy is not None and type(legacy) is not bool:
+        raise ValueError('Multiview texture refinement must be true or false.')
+    if method is not None:
+        if method not in TEXTURE_METHODS:
+            raise ValueError('Choose TRELLIS, Multiview or UltraTex for textures.')
+        return method
+    if legacy is not None:
+        return 'multiview' if legacy else 'trellis'
+    if default not in TEXTURE_METHODS:
+        raise ValueError('Invalid default texture method.')
+    return default
+
+
+def validate_texture_method(method, *, engine='trellis2', view_mode='single', texture_size=2048):
+    resolve_texture_method(method)
+    if method != 'trellis' and (engine not in ('trellis2', 'pixal3d', 'pixal3d_single')
+                               or view_mode not in (None, 'single')):
+        raise ValueError('Multiview and UltraTex textures require single-image generation.')
+    if method == 'ultratex' and texture_size != 2048:
+        raise ValueError('UltraTex requires a 2K texture atlas.')
 
 def normalize_options(overrides=None,base_steps=12):
     if overrides is None:overrides={}

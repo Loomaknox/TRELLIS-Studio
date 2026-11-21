@@ -3,6 +3,7 @@ import asyncio
 import shutil
 import time
 import uuid
+from typing import Literal
 
 from fastapi import HTTPException
 from PIL import Image
@@ -23,6 +24,7 @@ REFERENCE_LABELS = {
     'input': 'Original reference',
 }
 MULTIVIEW_OPERATION = 'multiview_texture_refinement'
+TextureRefinementMethod = Literal['multiview', 'ultratex']
 OPERATION_LABELS = {
     'texture_projection': 'Texture projection',
     'baked_game_copy': 'Baked game copy',
@@ -84,9 +86,9 @@ def install(router, app, upload):
         ]
 
     async def prepare_copy(folder, record, source, operation, *, options=None, projections=(), generation_views=None,
-                           generation_cutout=None, multiview_reference=None):
+                           generation_cutout=None, multiview_reference=None, texture_method='multiview'):
         target = app['OUTPUT'] / uuid.uuid4().hex
-        label = OPERATION_LABELS[operation]
+        label = 'UltraTex 2K' if operation == MULTIVIEW_OPERATION and texture_method == 'ultratex' else OPERATION_LABELS[operation]
         settings = {
             **record['settings'],
             'parent_id': folder.name,
@@ -102,6 +104,7 @@ def install(router, app, upload):
         if operation == 'baked_game_copy':
             settings.update(triangles=options['triangles'], texture_size=options['texture_size'])
         elif operation == MULTIVIEW_OPERATION:
+            settings.update(texture_method=texture_method, multiview_texture_refinement=texture_method == 'multiview')
             source_id = finishing_source(folder, record['settings'])
             if source_id:
                 settings['finish_source_id'] = source_id
@@ -110,6 +113,8 @@ def install(router, app, upload):
         suffix = ' · ' + label
         metadata['display_name'] = display[:80 - len(suffix)].rstrip() + suffix
         request = dict(operation=operation, result=record.get('result') or {})
+        if operation == MULTIVIEW_OPERATION:
+            request['texture_method'] = texture_method
         staged_references = {}
         projection_requests = []
         for index, (reference, view_options) in enumerate(projections, start=1):
@@ -267,42 +272,56 @@ def install(router, app, upload):
                 break
         return None, 'This model has no saved cutout with a transparent background in its source lineage.'
 
-    async def multiview_options(folder, record, source):
-        from multiview_texture_runtime import availability
+    async def texture_options(folder, record, source, methods):
+        from multiview_texture_runtime import availability as multiview_available
         from texture_projection import MAX_REFERENCE_PIXELS, inspect_texture_projection
         support = await asyncio.to_thread(inspect_texture_projection, source)
         if not support['supported']:
-            return {**support, 'ready': False}, None
+            return {method: {**support, 'ready': False} for method in methods}, None
         support = {key: support[key] for key in ('supported', 'reason', 'atlas', 'triangles')}
-        if support['atlas'] not in ([1024, 1024], [2048, 2048], [4096, 4096]):
-            return {**support, 'supported': False, 'ready': False,
-                    'reason': 'Use a square 1K, 2K or 4K color atlas for multiview texture refinement.'}, None
         reference, reason = await multiview_cutout(folder, record, MAX_REFERENCE_PIXELS)
         if reference is None:
-            return {**support, 'supported': False, 'ready': False, 'reason': reason}, None
-        runtime = await asyncio.to_thread(availability, app['ROOT'])
-        return {**support, 'ready': runtime['available'], 'reason': runtime['reason']}, reference
+            return {method: {**support, 'supported': False, 'ready': False, 'reason': reason}
+                    for method in methods}, None
+        choices = {}
+        for method in methods:
+            if method == 'ultratex':
+                from ultratex_runtime import availability
+                sizes = (2048,)
+                advisor = 'UltraTex uses the existing 2K UV atlas. Choose a model with a square 2K texture.'
+            else:
+                availability = multiview_available
+                sizes = (1024, 2048, 4096)
+                advisor = 'Use a square 1K, 2K or 4K color atlas for multiview texture refinement.'
+            if not any(support['atlas'] == [size, size] for size in sizes):
+                choices[method] = {**support, 'supported': False, 'ready': False, 'reason': advisor}
+                continue
+            runtime = await asyncio.to_thread(availability, app['ROOT'])
+            choices[method] = {**support, 'ready': runtime['available'], 'reason': runtime['reason']}
+        return choices, reference
 
     @router.get('/models/{identifier}/multiview-texture-refinement', tags=['Models'],
                 summary='Check multiview texture support for a completed model')
-    async def multiview_texture_options(identifier: Identifier):
-        support, _ = await multiview_options(*model(identifier))
-        return support
+    async def multiview_texture_options(identifier: Identifier, include_methods: bool = False):
+        choices, _ = await texture_options(*model(identifier),
+                                           ('multiview', 'ultratex') if include_methods else ('multiview',))
+        return {**choices['multiview'], 'methods': choices} if include_methods else choices['multiview']
 
     @router.post('/models/{identifier}/multiview-texture-refinement', tags=['Models'], status_code=202,
                  response_model=JobAccepted, summary='Queue multiview texture refinement on a linked copy')
-    async def make_multiview_texture_copy(identifier: Identifier):
+    async def make_multiview_texture_copy(identifier: Identifier, texture_method: TextureRefinementMethod = 'multiview'):
         async with app['LOCK']:
             if app.get('SHUTTING_DOWN'):
                 raise HTTPException(503, 'Studio is stopping.')
             folder, record, source = model(identifier)
-            support, reference = await multiview_options(folder, record, source)
+            choices, reference = await texture_options(folder, record, source, (texture_method,))
+            support = choices[texture_method]
             if not support['supported']:
                 raise HTTPException(400, support['reason'])
             if not support['ready']:
                 raise HTTPException(503, support['reason'])
             return await prepare_copy(folder, record, source, MULTIVIEW_OPERATION,
-                                      multiview_reference=reference)
+                                      multiview_reference=reference, texture_method=texture_method)
 
     @router.get('/models/{identifier}/baked-game-copy', tags=['Models'],
                 summary='Check support for a reduced and baked copy of the selected master')

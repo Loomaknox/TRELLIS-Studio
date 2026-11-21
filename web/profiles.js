@@ -1,9 +1,11 @@
 // Recipes are persisted by the local server, independently from object history.
 import {detailRefinements} from './hd-master-finishing.js?v=detail-refinement-native';
-import {optionHelp} from './advanced-controls.js?v=board-hi3d';
+import {optionHelp} from './advanced-controls.js?v=figure-master-ultratex';
+import {textureMethodChoices,textureMethodHelp,textureMethodOf,textureMethodRestriction} from './texture-methods.js?v=figure-master-ultratex';
 
 const $=id=>document.getElementById(id);
 const steps={game_d:20,high_detail:20,humanoid_experimental:20,dense_master:20,fast:8,balanced:12,detail:20};
+const figureSteps={structure_steps:30,shape_steps:35,texture_steps:12};
 const startupKey='trellis.studio.startup-profile.v2';
 const profileNames={game_d:'Game Asset',dense_master:'HD Master'};
 const finishingNames={
@@ -29,22 +31,21 @@ const inlineFinishingLimit=3000000;
 const detailRefinementLimit=1000000;
 const detailSourceResolutions=[512,1024,1536];
 const retextureHelp='Generates new PBR materials from the reference on the refined geometry. Uses the texture settings below and adds processing time.';
-const textureRefinementHelp='Harmonizes colors and refines the baked texture from six generated views.';
 export async function createProfileControls(advanced,{changed=()=>{},usePixal=()=>false,isMultiview=()=>false,describeMethod=()=>'',useNativeMethod=()=>{}}={}){
   let profiles=[],selected=null,saving=false,edit=false,sourceRequired=false,previousKeep=false;
   let deletingProfile=null,deleting=false,serverStartup='';
   let repairSupported=false, hdSupported=false, masterSupport={};
   let detailTexturing={};
-  let textureRefinementSupport;
+  let textureSupport={},preferredTextureMethod='trellis',ultraAtlas=null;
   let startupProfile='', refinementInputs=null, standardFinishing='', pixalFallback=false, pixalAtlas=null;
   const retexture=$('retextureAfterRefinement');
   const retextureField=$('detailTexturingField');
   const retextureStatus=$('detailTexturingStatus');
   optionHelp(retexture.closest('label'), 'Retexture after Hi3D', retextureHelp);
-  const textureRefinement=$('multiviewTextureRefinement');
-  const textureRefinementStatus=$('multiviewTextureRefinementStatus');
-  optionHelp(textureRefinement.closest('label'), 'Multiview texture refinement',
-    'Runs after the texture is baked and adds processing time. It keeps the geometry and UV layout.');
+  const textureMethod=$('textureMethod');
+  const textureMethodStatus=$('textureMethodStatus');
+  textureMethod.replaceChildren(...textureMethodChoices.map(([id,name])=>new Option(name,id)));
+  optionHelp(textureMethod.closest('label'),'Texture method',textureMethodHelp);
   const textures=advanced.group('texture');
   if(textures)textures.querySelector('.option-grid').prepend(retextureField);
   const readFinishing=()=>$('preset').value==='dense_master'&&$('advancedMasterFinishing').value
@@ -61,7 +62,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     return {
       preset,resolution:Number($('resolution').value),
       triangles:(retainBudget&&requestedTriangles)||defaults?.triangles||
-        ({game_d:28000,high_detail:250000,humanoid_experimental:250000,dense_master:1200000,
+        ({game_d:28000,high_detail:250000,figure_master:800000,humanoid_experimental:250000,dense_master:1200000,
           character_pixal:28000,fast:25000,balanced:50000,detail:100000}[preset]),
       texture_size:Number($('textureSize').value)||defaults?.texture_size||(preset==='fast'?1024:2048),
       remove_bg:$('removeBg').checked,advanced:options,
@@ -96,18 +97,19 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     }
     if(finishing==='none')recipe={...recipe,master_finishing:finishing};
     if(finishing==='hi3d_1024')recipe={...recipe,retexture_after_refinement:wantsRetexture()};
-    if(textureRefinementSupport||profiles.some(profile=>typeof profile.settings.multiview_texture_refinement==='boolean')){
-      recipe={...recipe,multiview_texture_refinement:textureRefinement.checked};
-    }
-    return recipe;
+    const method=preferredTextureMethod==='ultratex'&&recipe.texture_size!==2048?'trellis':preferredTextureMethod;
+    return {...recipe,texture_method:method};
   }
   function resolved(s){
     const copy=structuredClone(s);
-    for(const key of ['structure_steps','shape_steps','texture_steps'])if(copy.advanced[key]===0)copy.advanced[key]=steps[copy.preset];
+    for(const key of ['structure_steps','shape_steps','texture_steps']){
+      if(copy.advanced[key]===0)copy.advanced[key]=copy.preset==='figure_master'?figureSteps[key]:steps[copy.preset];
+    }
     copy.master_finishing=copy.master_finishing||defaultFinishing(copy.preset);
     if(detailRefinements[copy.master_finishing])copy.triangles=Math.min(copy.triangles,detailRefinementLimit);
     copy.retexture_after_refinement=copy.retexture_after_refinement===true;
-    copy.multiview_texture_refinement=copy.multiview_texture_refinement===true;
+    copy.texture_method=textureMethodOf(copy);
+    delete copy.multiview_texture_refinement;
     return copy;
   }
   const equal=(a,b)=>{const x=resolved(a),y=resolved(b);return Object.keys(x).every(k=>k==='advanced'?Object.keys(x[k]).every(f=>x[k][f]===y[k][f]):x[k]===y[k]);};
@@ -115,6 +117,9 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     if(!selected)return;
     const activePreset=$('preset').value;
     const experimental=activePreset==='humanoid_experimental', dense=activePreset==='dense_master';
+    const figureUnsupported=activePreset==='figure_master'&&usePixal();
+    $('generationProfileStatus').textContent=figureUnsupported?'Figure Master uses TRELLIS.2 · Single image. Choose that engine or another profile.':'';
+    $('generationProfileStatus').hidden=!figureUnsupported;
     const finishing=$('denseMasterFinishing');
     const override=$('advancedMasterFinishing');
     if(!dense)override.value='';
@@ -146,12 +151,27 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       ? 'Choose 1024³ for the 3D resolution to use this option.'
       : detailTexturing.available!==true ? detailTexturing.reason||'The local texturing pipeline is unavailable.' : '';
     retextureStatus.hidden=!retextureStatus.textContent;
-    textureRefinement.disabled=isMultiview()||textureRefinementSupport?.available!==true;
-    textureRefinementStatus.textContent=isMultiview() ? 'Choose a single-image generation method to use this option.'
-      : textureRefinement.disabled ? textureRefinementSupport?.reason||'The local multiview texture runtime is unavailable.'
-        : textureRefinementHelp;
+    const textureModeRestriction=method=>textureMethodRestriction(method,textureSupport,!isMultiview());
+    for(const option of textureMethod.options){
+      option.title=textureModeRestriction(option.value);
+      option.disabled=!!option.title;
+    }
+    const textureFallback=textureModeRestriction(preferredTextureMethod);
+    textureMethod.value=textureFallback?'trellis':preferredTextureMethod;
+    textureMethod.disabled=false;
+    textureMethodStatus.textContent=textureFallback?`${textureFallback} Using Native PBR for this generation.`:'';
+    textureMethodStatus.hidden=!textureMethodStatus.textContent;
     syncRefinementBudget(Boolean(detail));
     const textureSize=$('textureSize');
+    const ultraSelected=textureMethod.value==='ultratex';
+    if(ultraSelected){
+      if(ultraAtlas===null)ultraAtlas=textureSize.value;
+      textureSize.value='2048';
+    }else if(ultraAtlas!==null){
+      textureSize.value=ultraAtlas;
+      ultraAtlas=null;
+    }
+    textureSize.disabled=ultraSelected;
     if(usePixal()&&read().texture_size===4096){
       pixalAtlas=textureSize.value;
       textureSize.value='2048';
@@ -238,7 +258,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       : reconstruction?'Up to 3,000,000. 0 uses the profile ceiling.'
       : dense?'0 uses the profile ceiling.':'0 uses the profile target.';
     const caption=selected.variant?'Model settings':profileNames[selected.id]||selected.name;
-    $('generationSummary').textContent=[caption,describeMethod(),detail?`${actual.resolution}³ source`:'',finishingName(selectedFinish)].filter(Boolean).join(' · ');
+    $('generationSummary').textContent=[caption,describeMethod(),detail?`${actual.resolution}³ source`:'',finishingName(selectedFinish),textureMethod.selectedOptions[0]?.textContent].filter(Boolean).join(' · ');
     $('updateProfile').hidden=selected.builtin;
     $('deleteProfile').hidden=selected.builtin||!selected.id;
     const startup=$('useProfileAtStartup');
@@ -265,11 +285,12 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     refinementInputs=null;
     pixalFallback=false;
     pixalAtlas=null;
+    ultraAtlas=null;
     standardFinishing=detailRefinements[s.master_finishing]?defaultFinishing(s.preset):s.master_finishing||defaultFinishing(s.preset);
     $('denseMasterFinishing').value=s.master_finishing||standardFinishing;
     $('advancedMasterFinishing').value='';
     retexture.checked=s.retexture_after_refinement===true;
-    textureRefinement.checked=s.multiview_texture_refinement===true;
+    preferredTextureMethod=textureMethodOf(s);
     sourceRequired=false;
     $('keepFinishingSource').checked=selected.keep_finishing_source===true;
     for(const [key,value] of Object.entries({preset:s.preset,resolution:s.resolution,triangles:s.triangles,textureSize:s.texture_size}))$(key).value=String(value);
@@ -277,7 +298,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     $('removeBg').checked=s.remove_bg;advanced.apply({...s.advanced,texture_seed:textureSeed});
     $('profileChoice').value=id;$('profileId').value=id;
     if(s.preset==='humanoid_experimental')$('assetType').value='humanoid';
-    if(detailRefinements[s.master_finishing])useNativeMethod();
+    if(detailRefinements[s.master_finishing]||s.preset==='figure_master')useNativeMethod();
     $('profileNotice').textContent='';sync();
   }
   async function request(url,options){const r=await fetch(url,options),data=await r.json();if(!r.ok)throw Error(typeof data.detail==='string'?data.detail:'Profiles unavailable.');return data;}
@@ -314,6 +335,8 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     }
   };
   $('form').addEventListener('input',sync);$('form').addEventListener('change',sync);
+  textureMethod.addEventListener('input',()=>{preferredTextureMethod=textureMethod.value;});
+  textureMethod.addEventListener('change',()=>{preferredTextureMethod=textureMethod.value;});
   $('denseMasterFinishing').addEventListener('change',()=>{
     const method=$('denseMasterFinishing').value;
     pixalFallback=false;
@@ -380,17 +403,17 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     finally{saving=false;$('confirmProfile').disabled=false;}
   };
   return {sync,reset:()=>apply('game_d'),
-    setFinishingCapabilities(available, hdAvailable, methods, texturing, multiviewTexturing){
+    setFinishingCapabilities(available, hdAvailable, methods, texturing, textureMethods){
       const supported=methods||{};
       const texturingSupport=texturing||{};
       if(repairSupported===available&&hdSupported===hdAvailable&&JSON.stringify(masterSupport)===JSON.stringify(supported)
         &&JSON.stringify(detailTexturing)===JSON.stringify(texturingSupport)
-        &&JSON.stringify(textureRefinementSupport)===JSON.stringify(multiviewTexturing))return;
+        &&JSON.stringify(textureSupport)===JSON.stringify(textureMethods))return;
       repairSupported=available;
       hdSupported=hdAvailable;
       masterSupport=supported;
       detailTexturing=texturingSupport;
-      textureRefinementSupport=multiviewTexturing;
+      textureSupport=textureMethods;
       sync();
     },
     appendFinishing(form){
@@ -402,24 +425,24 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       if(!usePixal()&&(value==='hi3d_1024'||selected?.settings.retexture_after_refinement)){
         form.set('retexture_after_refinement', String(wantsRetexture()));
       }
-      if(textureRefinementSupport){
-        form.set('multiview_texture_refinement', String(!textureRefinement.disabled&&textureRefinement.checked));
-      }
+      form.set('texture_method',textureMethod.value);
     },
     restoreFinishing(settings){
       refinementInputs=null;
       pixalFallback=false;
       pixalAtlas=null;
+      ultraAtlas=null;
       const method=settings.master_finishing||(settings.hd_reconstruction?'studio_768':defaultFinishing(settings.preset));
       standardFinishing=detailRefinements[method]?defaultFinishing(settings.preset):method;
       $('denseMasterFinishing').value=method;
       $('advancedMasterFinishing').value=settings.preset!=='dense_master'||settings.master_finishing||settings.hd_reconstruction
         ? '' : settings.repair_surface ? 'repair' : 'direct';
       retexture.checked=settings.retexture_after_refinement===true;
-      textureRefinement.checked=settings.multiview_texture_refinement===true;
+      preferredTextureMethod=textureMethodOf(settings);
     },
     budget,
     get finishingReady(){
+      if(usePixal()&&$('preset').value==='figure_master')return false;
       const value=readFinishing();
       if (value==='repair') return repairSupported;
       if (!value||value==='direct') return true;

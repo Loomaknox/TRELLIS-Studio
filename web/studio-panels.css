@@ -262,6 +262,11 @@ body:not(.library-mode) #creationPanel:has(> #form:not([hidden])),
 }
 #form .output-budget .ui-icon { flex-shrink: 0; width: 15px; height: 15px; color: #b5cfaa; }
 #form #profileSummary { margin: 0; color: #dbe5d8; font-size: 10px; line-height: 1.45; }
+#form .texture-method-choice { margin-top: 9px; }
+#form .texture-method-choice .option-help-heading { margin-top: 0; }
+#form .texture-method-choice .field { margin: 4px 0 0; }
+#form .texture-method-choice .generation-select { display: block; }
+#form #textureMethodStatus { margin: 4px 0 0; }
 #form .generation-identity { gap: 7px; }
 #form .generation-identity .field { margin-top: 8px; }
 #form .generation-identity input { min-height: 30px; padding-block: 5px; font-size: 11px; }

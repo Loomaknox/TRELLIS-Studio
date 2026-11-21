@@ -22,6 +22,7 @@
 !/normal_bake_blender.py
 !/normal_glb.py
 !/generation_profiles.py
+!/figure_master_repair.py
 !/glb_data.py
 !/humanoid_mapping.py
 !/import_blender.py
@@ -64,6 +65,8 @@
 !/multiview_texture_runtime.py
 !/multiview_texture_views.py
 !/multiview_texture_fusion.py
+!/ultratex_runtime.py
+!/ultratex_worker.py
 !/generation_view_projection.py
 !/wtivo_runtime.py
 !/hi3d_runtime.py
@@ -142,6 +145,7 @@
 !/web/texture-projection-geometry.js
 !/web/texture-projection-auto-align.js
 !/web/texture-projection.css
+!/web/texture-methods.js
 !/web/game-copy-regions.js
 !/web/reduction-region-preview.js
 !/web/advanced-controls.js
@@ -155,6 +159,7 @@
 !/web/button-icons.js
 !/web/card-menu.js
 !/web/card-turntable.js
+!/web/collection-previews.js
 !/web/collection-transfer.js
 !/web/compare-studio.js
 !/web/details.css

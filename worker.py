@@ -23,9 +23,9 @@ os.environ.update({
 sys.path[:0] = [str(ROOT), str(ROOT / 'engine'), str(ROOT / 'engine' / 'o-voxel')]
 os.chdir(ROOT / 'engine')
 from generation_options import (options_for_job, sampler_options, export_options, configure_simplifier,
-                                MASTER_FINISHING_METHODS, MASTER_FINISHING_TRIANGLES, NO_MASTER_FINISHING,
+                                FIGURE_MASTER, MASTER_FINISHING_METHODS, MASTER_FINISHING_TRIANGLES, NO_MASTER_FINISHING,
                                 TRIANGLE_MIN, hi3d_refinement_options, validate_hd_reconstruction,
-                                validate_post_refinement_texturing)
+                                validate_post_refinement_texturing, resolve_texture_method, validate_texture_method)
 from gpu_runtime import configure_attention, select_gpu
 from hi3d_runtime import HI3D_METHODS, hi3d_source_status
 from studio_workspace import write
@@ -67,7 +67,7 @@ def generate_source(torch):
     pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(config_folder))
     pipeline.cuda()
     if not reviewed and any(settings.get(key) for key in (
-            'keep_finishing_source', 'retexture_after_refinement', 'multiview_texture_refinement')):
+            'keep_finishing_source', 'retexture_after_refinement', 'multiview_texture_refinement', 'texture_method')):
         prepare_image = pipeline.preprocess_image
         def record_conditioning(image):
             prepared = prepare_image(image)
@@ -262,6 +262,25 @@ def finish_mesh(torch, source, source_id=None):
         vertices, faces = mesh.read()
         del mesh
         torch.cuda.empty_cache()
+    figure_reconstruction = None
+    if (settings.get('preset') == FIGURE_MASTER and options['mesh_mode'] == 'remesh' and not master_finishing
+            and not wtivo and not adaptive and not hd_reconstruction and not repair_surface):
+        from figure_master_repair import availability, reconstruct
+
+        capability = availability(ROOT)
+        if capability['available']:
+            replacement, figure_reconstruction = reconstruct(
+                ROOT, vertices, faces, resolution=min(source_resolution, options['remesh_resolution']),
+                band=options['remesh_band'], project=options['remesh_project'], target=triangle_ceiling,
+                repair_holes=options['repair_holes'],
+                progress=lambda label, percent: status('running', label, percent),
+            )
+            export_kwargs.update(remesh=False, repair_holes=False, reconstructed_mesh=replacement,
+                                 finalized_reconstruction=True)
+            status('running', 'Unwrapping the surface and baking native materials', 87)
+        else:
+            figure_reconstruction = dict(method='native_dc', reason=capability['reason'])
+            print(capability['reason'] + ' Using the built-in surface reconstruction.', flush=True)
     result = export(
         vertices=vertices, faces=faces, attr_volume=source['attr_volume'], coords=source['coords'],
         attr_layout=source['attr_layout'], voxel_size=source['voxel_size'],
@@ -273,6 +292,13 @@ def finish_mesh(torch, source, source_id=None):
         requested_generation_resolution=requested_resolution,
         pre_simplified=len(faces) != len(source['faces']),
     )
+    if figure_reconstruction is not None:
+        result.metadata['finishing']['figure_master_reconstruction'] = figure_reconstruction
+        if figure_reconstruction['method'] != 'native_dc':
+            result.metadata['finishing'].update(
+                method=figure_reconstruction['method'], remesh_resolution_requested=options['remesh_resolution'],
+                remesh_resolution_actual=figure_reconstruction['grid_resolution'],
+            )
     if hd_reconstruction:
         result.metadata['finishing']['hd_reconstruction'] = True
     if wtivo_report is not None:
@@ -349,8 +375,24 @@ def finish_mesh(torch, source, source_id=None):
 
 
 def refine_multiview_texture(torch, result, *, pixal=False):
-    if not settings.get('multiview_texture_refinement'):
+    method = resolve_texture_method(settings.get('texture_method'), settings.get('multiview_texture_refinement'))
+    if method == 'trellis':
         return None
+    validate_texture_method(method, engine=settings.get('engine', 'trellis2'),
+                            view_mode=settings.get('view_mode') or ('multi' if settings.get('views') else 'single'),
+                            texture_size=settings['texture_size'])
+    if method == 'ultratex':
+        from ultratex_runtime import refine as refine_ultratex
+        gc.collect()
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        seed = options['texture_seed'] if options['texture_seed'] >= 0 else settings['seed']
+        report = refine_ultratex(ROOT, JOB / 'model.glb', JOB / 'prepared.png', settings['texture_size'],
+                                 seed, progress=lambda stage, percent: status('running', stage, percent))
+        if report.get('state') != 'applied':
+            raise RuntimeError(report.get('reason', 'UltraTex could not produce the selected texture.'))
+        result.metadata['finishing']['ultratex_texture_refinement'] = report
+        return report
     from multiview_texture_runtime import refine, supports_single_image
     from texture_projection import MAX_TRIANGLES
 
@@ -535,7 +577,10 @@ def main():
     if face_report is not None:
         stats['face_projection'] = face_report
     if multiview_report is not None:
-        result.metadata['finishing']['multiview_texture_refinement'] = multiview_report
+        method = resolve_texture_method(settings.get('texture_method'), settings.get('multiview_texture_refinement'))
+        if method == 'multiview':
+            result.metadata['finishing']['multiview_texture_refinement'] = multiview_report
+    stats['texture_method'] = resolve_texture_method(settings.get('texture_method'), settings.get('multiview_texture_refinement'))
     if source_id:
         stats['finish_source_id'] = source_id
     if 'adaptive_finishing' in result.metadata:

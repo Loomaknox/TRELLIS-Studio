@@ -2,7 +2,7 @@
 from pathlib import Path
 from studio_workspace import ID, finishing_source, read as read_workspace_json
 from studio_version import VERSION
-from studio_release import release_status, render_studio_version
+from studio_release import UI_REVISION, release_status, render_studio_version
 from contextlib import asynccontextmanager
 from tempfile import TemporaryDirectory
 import asyncio, base64, hashlib, io, json, os, re, shutil, subprocess, sys, time, uuid
@@ -14,10 +14,10 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from generation_options import (normalize_options, options_for_job, schema as generation_schema,
                                 DEFAULT_PROFILE, DEFAULT_GENERATION, GENERATION_PRESETS, GAME_D_ADVANCED, PROFILE_ADVANCED,
-                                DENSE_MASTER, DENSE_MASTER_NAME, DENSE_MASTER_TRIANGLES, DENSE_MASTER_FINISHING,
+                                DENSE_MASTER, DENSE_MASTER_NAME, DENSE_MASTER_TRIANGLES, DENSE_MASTER_FINISHING, FIGURE_MASTER,
                                 HUMANOID_EXPERIMENTAL, TRIANGLE_MIN, TRIANGLE_MAX, validate_hd_reconstruction,
                                 HI3D_FINISHING_METHODS, NO_MASTER_FINISHING, master_finishing_options,
-                                validate_create_master_finishing,
+                                validate_create_master_finishing, resolve_texture_method, validate_texture_method,
                                 validate_post_refinement_texturing)
 from asset_taxonomy import ASSET_TYPES, SYSTEM_TYPES, schema as taxonomy_schema
 from generation_profiles import DETAIL_STUDY, DENSE_MASTER_DESCRIPTION, STARTUP_PROFILE, ProfileStore, builtin_profiles
@@ -52,7 +52,6 @@ REFERENCE_FILES = tuple(VIEW_FILES.values())
 _bundle = ROOT/'bundled-web.json'
 SOURCE_REVISION=(json.loads(_bundle.read_text(encoding='utf-8'))['source_revision'] if _bundle.is_file()
                  else hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
-UI_REVISION=VERSION
 def gpu_description():
     try:
         value=subprocess.check_output(['nvidia-smi','--query-gpu=name,memory.total','--format=csv,noheader,nounits'],text=True,timeout=5,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0)).splitlines()[0]
@@ -264,6 +263,21 @@ def multiview_texture_capability():
     return availability(ROOT)
 
 
+def ultratex_texture_capability():
+    try:
+        from ultratex_runtime import availability
+        return availability(ROOT)
+    except ImportError:
+        return dict(available=False, reason='Install the optional UltraTex texture component.')
+
+
+def require_texture_method(method):
+    capability = (multiview_texture_capability() if method == 'multiview'
+                  else ultratex_texture_capability() if method == 'ultratex' else None)
+    if capability and not capability['available']:
+        raise HTTPException(503, capability['reason'])
+
+
 def detail_texturing_capability():
     from retexture_runtime import availability
     return availability(ROOT)
@@ -305,6 +319,9 @@ def status():
                 generation_methods=generation_methods, create_master_finishing=create_master_finishing_capabilities(),
                 detail_texturing=detail_texturing_capability(),
                 multiview_texture_refinement=multiview_texture_capability(),
+                ultratex_texture_refinement=ultratex_texture_capability(),
+                texture_methods=dict(trellis=dict(available=True, reason=''),
+                                     multiview=multiview_texture_capability(), ultratex=ultratex_texture_capability()),
                 edition='server' if WORKSPACE_CONFIG else 'desktop',
                 features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','hd_reconstruction','hd_master_finishing','pixal3d_multiview','pixal3d_face_projection','texture_projection','multiview_texture_refinement','baked_game_copy'], texture_sizes=textures,supported_resolutions=resolutions)
 
@@ -1147,6 +1164,7 @@ async def generate_multiview(
     preset: Annotated[str, Form()] = '',
     asset_type: Annotated[str, Form()] = 'humanoid',
     master_finishing: Annotated[str | None, Form()] = None,
+    texture_method: Annotated[str | None, Form()] = None,
 ):
     profile = next((p for p in PIXAL_PROFILES if p['id'] == profile_id), None)
     if profile is None:
@@ -1161,6 +1179,8 @@ async def generate_multiview(
         profile.pop('master_finishing', None)
         profile.pop('retexture_after_refinement', None)
     preset = preset or profile.get('preset', profile['id'])
+    if preset == FIGURE_MASTER:
+        raise HTTPException(400, 'Figure Master uses TRELLIS.2 Single image. Choose another profile for Pixal3D.')
     if preset != 'character_pixal' and preset not in GENERATION_PRESETS:
         raise HTTPException(400, 'Unknown generation preset.')
     if repair_surface and preset != DENSE_MASTER:
@@ -1170,6 +1190,8 @@ async def generate_multiview(
     triangles = triangles or profile['triangles']
     texture_size = texture_size or profile['texture_size']
     try:
+        texture_method = resolve_texture_method(texture_method)
+        validate_texture_method(texture_method, engine='pixal3d', view_mode='multi', texture_size=texture_size)
         validate_hd_reconstruction(hd_reconstruction, preset=preset, resolution=1024,
                                    repair_surface=repair_surface)
         validate_create_master_finishing(master_finishing, preset=preset, resolution=1024,
@@ -1208,6 +1230,7 @@ async def generate_multiview(
         generation_options.update(DENSE_MASTER_FINISHING)
     safe_name = re.sub(r'[^A-Za-z0-9_-]+', '-', name.strip()).strip('-')[:50] or 'Character'
     settings = dict(name=safe_name, engine='pixal3d', preset=preset, view_mode='multi',
+                    texture_method=texture_method,
                     profile=dict(id=profile['id'], name=profile['name']),
                     asset_type=asset_type, height_m=height_m, seed=seed,
                     triangles=triangles, texture_size=texture_size,
@@ -1275,12 +1298,15 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                    master_finishing: Annotated[str | None, Form()] = None,
                    reproject_face: Annotated[bool, Form()] = False,
                    retexture_after_refinement: Annotated[bool, Form()] = False,
-                   multiview_texture_refinement: Annotated[bool, Form()] = False):
+                   multiview_texture_refinement: Annotated[bool | None, Form()] = None,
+                   texture_method: Annotated[str | None, Form()] = None):
     if WORKSPACE_CONFIG:
         queue_only = True
     if engine not in ('trellis2', 'pixal3d_single'):
         raise HTTPException(400, 'Choose a supported single-image method.')
     pixal = engine == 'pixal3d_single'
+    if pixal and preset == FIGURE_MASTER:
+        raise HTTPException(400, 'Figure Master uses TRELLIS.2 Single image. Choose another profile for Pixal3D.')
     if pixal:
         if resolution != 1024 or (texture_size and texture_size not in PIXAL_TEXTURE_SIZES):
             raise HTTPException(400, 'Pixal3D Single image uses resolution 1024 and a 1K or 2K atlas.')
@@ -1289,7 +1315,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
         raise HTTPException(400, 'Face reprojection requires Pixal3D.')
     # Legacy multipart profile_id is provenance; an edited base preset wins.
     experimental = preset == HUMANOID_EXPERIMENTAL
-    cache_required = preset in (HUMANOID_EXPERIMENTAL, DENSE_MASTER)
+    cache_required = preset in (HUMANOID_EXPERIMENTAL, DENSE_MASTER, FIGURE_MASTER)
     if repair_surface and preset != DENSE_MASTER:
         raise HTTPException(400, 'Choose Dense Master to repair the surface during generation.')
     if cache_required:
@@ -1304,6 +1330,10 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
     triangles = triangles or default_triangles
     texture = texture_size or default_texture
     try:
+        texture_method = resolve_texture_method(texture_method, multiview_texture_refinement,
+                                                'multiview' if preset == FIGURE_MASTER else 'trellis')
+        validate_texture_method(texture_method, engine=engine, texture_size=texture)
+        multiview_texture_refinement = texture_method == 'multiview'
         validate_hd_reconstruction(hd_reconstruction, preset=preset, resolution=resolution,
                                    repair_surface=repair_surface)
         validate_create_master_finishing(master_finishing, preset=preset, resolution=resolution,
@@ -1331,10 +1361,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
         except ValueError as error: raise HTTPException(422, str(error))
         if profile is None: raise HTTPException(400, 'Profile not found; reload profiles.')
     require_create_master_finishing(master_finishing)
-    if multiview_texture_refinement:
-        refinement_runtime = multiview_texture_capability()
-        if not refinement_runtime['available']:
-            raise HTTPException(503, refinement_runtime['reason'])
+    require_texture_method(texture_method)
     if retexture_after_refinement:
         texture_runtime = detail_texturing_capability()
         if not texture_runtime['available']:
@@ -1363,6 +1390,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
         folder = OUTPUT / identifier
         safe_name = re.sub(r'[^A-Za-z0-9_-]+', '-', name.strip()).strip('-')[:50] or 'Object'
         settings = dict(name=safe_name, preset=preset, height_m=height_m, seed=seed, remove_bg=remove_bg,
+                        texture_method=texture_method,
                         steps=steps, triangles=triangles, texture_size=texture, created=time.time(), asset_type=asset_type,
                         resolution=resolution,pipeline_type={512:'512',1024:'1024_cascade',1536:'1536_cascade'}[resolution],
                         generation_options=advanced,settings_version=2)
@@ -1383,6 +1411,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                 engine='pixal3d' if pixal else 'trellis2', asset_type=asset_type, keep_finishing_source=True,
                 preset=preset, resolution=resolution, triangles=triangles, texture_size=texture,
                 generation_options=advanced)
+            settings['profile_snapshot']['texture_method'] = texture_method
             if experimental:
                 settings['profile_snapshot']['experimental'] = True
             if preset == DENSE_MASTER and not (hd_reconstruction or master_finishing):
@@ -1537,7 +1566,8 @@ async def files(identifier: str, filename: str):
 @app.get('/')
 def index():
     html = (ROOT / 'web' / 'studio.html').read_text(encoding='utf-8')
-    return HTMLResponse(render_studio_version(html), headers={'Cache-Control': 'no-cache, must-revalidate'})
+    return HTMLResponse(render_studio_version(html, ui_revision=UI_REVISION),
+                        headers={'Cache-Control': 'no-cache, must-revalidate'})
 
 
 @app.get('/api/release-status', include_in_schema=False)

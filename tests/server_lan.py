@@ -137,7 +137,8 @@ def run():
             call(base, 'POST', '/server/api/profile/avatar', client=alice, files={'file': ('avatar.png', png, 'image/png')})
             call(base, 'GET', '/server/api/avatar/' + alice_id, client=alice)
             call(base, 'GET', '/server/api/avatar/' + alice_id, 404, bob)
-            request_data = dict(files={'image': ('ref.png', png, 'image/png')}, data={'name': 'Alice’s mesh'})
+            request_data = dict(files={'image': ('ref.png', png, 'image/png')},
+                                data={'name': 'Alice’s mesh', 'texture_method': 'trellis'})
             cookies = alice.cookies.get_dict()
             with ThreadPoolExecutor(2) as pool:
                 results = list(pool.map(lambda _: requests.post(base + '/api/generate', cookies=cookies,
@@ -146,6 +147,7 @@ def run():
             identifier = next(r.json()['id'] for r in results if r.ok)
             alice_path = data / 'users' / alice_id / 'outputs'
             assert [path.name for path in alice_path.iterdir()] == [identifier]
+            assert json.loads((alice_path / identifier / 'settings.json').read_text())['texture_method'] == 'trellis'
             call(base, 'PATCH', '/api/queue/' + identifier, client=alice, json={'priority': 1})
             call(base, 'GET', '/api/jobs/' + identifier, client=alice)
             for path in ('/api/jobs/' + identifier, '/api/jobs/' + identifier + '/files/input.png', '/api/v1/jobs/' + identifier):

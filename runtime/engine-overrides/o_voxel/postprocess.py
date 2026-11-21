@@ -88,6 +88,7 @@ def to_glb(
     remesh_resolution: int = 512,
     texture_sampling: str = 'trilinear',
     reconstructed_mesh: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+    finalized_reconstruction: bool = False,
     master_finishing: bool = False,
     preserve_decoded_mesh: bool = False,
 ):
@@ -130,6 +131,8 @@ def to_glb(
         raise ValueError('Surface repair requires reconstruction.')
     if reconstructed_mesh is not None and (remesh or repair_holes or adaptive_mesh is not None):
         raise ValueError('External reconstruction requires its own finishing recipe.')
+    if finalized_reconstruction and reconstructed_mesh is None:
+        raise ValueError('A finished reconstruction requires replacement geometry.')
     if type(remesh_resolution) is not int or remesh_resolution not in (512, 768, 1024):
         raise ValueError('Reconstruction grid ceiling must be 512, 768 or 1024.')
     if texture_sampling not in ('trilinear', 'nearest'):
@@ -313,7 +316,10 @@ def to_glb(
         if verbose:
             print(f"After remeshing: {mesh.num_vertices} vertices, {mesh.num_faces} faces")
         
-        if adaptive_mesh is None:
+        if finalized_reconstruction:
+            if mesh.num_faces > decimation_target:
+                raise ValueError('The finished reconstruction exceeds the triangle ceiling.')
+        elif adaptive_mesh is None:
             # A master already trimmed in Blender keeps its indexed connectivity.
             if not (master_finishing and reconstructed_mesh is not None):
                 if not master_finishing or mesh.num_faces > decimation_target:

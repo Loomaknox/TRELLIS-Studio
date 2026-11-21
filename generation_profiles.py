@@ -3,9 +3,10 @@ from pathlib import Path
 import json
 import time
 import uuid
-from generation_options import (DENSE_MASTER, DENSE_MASTER_NAME, GENERATION_PRESETS, HUMANOID_EXPERIMENTAL,
+from generation_options import (DENSE_MASTER, DENSE_MASTER_NAME, FIGURE_MASTER, GENERATION_PRESETS, HUMANOID_EXPERIMENTAL,
                                 PROFILE_ADVANCED, TRIANGLE_MIN, TRIANGLE_MAX, normalize_options,
-                                validate_create_master_finishing, validate_post_refinement_texturing)
+                                resolve_texture_method, validate_create_master_finishing,
+                                validate_post_refinement_texturing, validate_texture_method)
 
 DENSE_MASTER_DESCRIPTION = ('Keeps the complete decoded geometry and materials before finishing. '
                             'Adapts the working copy to the surface, with a default ceiling of 1.2 million triangles.')
@@ -24,6 +25,8 @@ def builtin_profiles():
     recipes = [
         ('game_d', 'Game - Default', {}),
         (STARTUP_PROFILE, 'High Detail', dict(keep_finishing_source=True)),
+        (FIGURE_MASTER, 'Figure Master', dict(keep_finishing_source=True,
+            description='1024 cascade with 30 structure and 35 shape steps, one 1024 surface reconstruction and an 800,000 triangle ceiling.')),
         (HUMANOID_EXPERIMENTAL, 'Humanoid · Experimental', dict(
             experimental=True, asset_type='humanoid', keep_finishing_source=True,
             description='Dense comparison master. Keeps the finishing source; review anatomy before reducing. No automatic local reconstruction or rig.')),
@@ -39,6 +42,9 @@ def builtin_profiles():
             settings['triangles'] = 300_000
             settings['advanced'].update(structure_steps=12, shape_steps=25, texture_steps=12,
                                         mesh_mode='remesh', remesh_resolution=1024)
+        if key == FIGURE_MASTER:
+            settings['texture_method'] = 'multiview'
+            settings['multiview_texture_refinement'] = True
         profiles.append(dict(id=key, name=name, builtin=True, settings=settings, **flags))
     profiles.append(dict(id=DETAIL_STUDY, name='Detail Study', builtin=True, experimental=True,
                          keep_finishing_source=True,
@@ -60,7 +66,7 @@ def validate_recipe(data):
         raise ValueError('Choose a single-line name of 1–60 characters.')
     s = data['settings']
     keys = {'preset', 'resolution', 'triangles', 'texture_size', 'remove_bg', 'advanced'}
-    optional = {'master_finishing', 'retexture_after_refinement', 'multiview_texture_refinement'}
+    optional = {'master_finishing', 'retexture_after_refinement', 'multiview_texture_refinement', 'texture_method'}
     if not isinstance(s, dict) or not keys <= set(s) <= keys | optional:
         raise ValueError('Incomplete or unknown profile settings.')
     if not isinstance(s['preset'], str) or s['preset'] not in GENERATION_PRESETS:
@@ -75,6 +81,9 @@ def validate_recipe(data):
     multiview_texture_refinement = s.get('multiview_texture_refinement', False)
     if type(multiview_texture_refinement) is not bool:
         raise ValueError('Multiview texture refinement must be true or false.')
+    texture_method = resolve_texture_method(s.get('texture_method'),
+        s.get('multiview_texture_refinement'))
+    validate_texture_method(texture_method, texture_size=s['texture_size'])
     finishing = s.get('master_finishing')
     if finishing is not None and not isinstance(finishing, str):
         raise ValueError('Choose a supported master finishing method.')
@@ -83,6 +92,8 @@ def validate_recipe(data):
                                        resolution=s['resolution'], master_finishing=finishing)
     s = dict(s, multiview_texture_refinement=multiview_texture_refinement,
              advanced=profile_options(s['advanced'], GENERATION_PRESETS[s['preset']][0]))
+    if 'texture_method' in s:
+        s.update(texture_method=texture_method, multiview_texture_refinement=texture_method == 'multiview')
     return dict(name=name.strip(), settings=s)
 
 

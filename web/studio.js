@@ -1,4 +1,4 @@
-import {createStudioWorkbench} from './studio-workbench.js?v=texture-variant';
+import {createStudioWorkbench} from './studio-workbench.js?v=figure-master-ultratex';
 import {createViewerLighting,createViewerStage} from './viewer-lighting.js?v=visual-refresh-2';
 import {createHologramViewer} from './hologram-viewer.js?v=visual-refresh-2';
 import {createGenerationWait} from './generation-wait.js?v=studio-visual-refinement';
@@ -14,12 +14,15 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { createAdvancedControls } from './advanced-controls.js?v=board-hi3d';
-import { createProfileControls } from './profiles.js?v=texture-variant';
+import { createAdvancedControls } from './advanced-controls.js?v=figure-master-ultratex';
+import { createProfileControls } from './profiles.js?v=figure-master-ultratex';
+import { textureMethodAvailability, textureMethodChoices } from './texture-methods.js?v=figure-master-ultratex';
 import {createCardMenu,updateCardStatus,icon} from './card-menu.js?v=texture-variant';
-import {createCardTurntables} from './card-turntable.js?v=3.4.0';
+import {createCardTurntables} from './card-turntable.js?v=figure-master-ultratex';
+import {createCollectionPreviews} from './collection-previews.js?v=figure-master-ultratex';
 const $=id=>document.getElementById(id);
 const cardTurntables=createCardTurntables($('libraryGrid'));
+const collectionPreviews=createCollectionPreviews($('libraryGrid'));
 let cardTurntablesAvailable=false;
 const cardMenu=createCardMenu({version:reuseJob,remove:requestDelete,details:openDetails,print:j=>printCopy.open(j),compare:j=>studioTools.compare.open(j),diagnostics:j=>studioTools.diagnostics.open(j),export:j=>studioTools.exports.open(j),history:j=>workbench.history.open(j),folder:j=>workbench.workspace.move(j),lod:j=>workbench.prepare.open(j,'lod'),game:j=>workbench.prepare.open(j,'game'),refinish:openRefinish,finishingBoard:j=>workbench.finishingBoard.open(j)});
 const labels={done:'Completed',running:'Generating',error:'Failed',cancelled:'Cancelled',queued:'Queued'},reviews={review:'To review',retouch:'Needs changes',retained:'Retained',rejected:'Rejected'};
@@ -86,7 +89,7 @@ function syncCapabilities(status){
   for(const option of $('resolution').options)option.disabled=!availableResolutions.includes(Number(option.value));
   profileControls?.setFinishingCapabilities(status.features?.includes('repair_surface')===true,
     status.features?.includes('hd_reconstruction')===true,status.create_master_finishing,status.detail_texturing,
-    status.multiview_texture_refinement);
+    textureMethodAvailability(status));
   explainCost();
 }
 function explainCost(){const hint=$('qualityHint');if(!hint)return;const notes=[];if(Number($('resolution').value)===1536)notes.push('1536³ requires more processing time and memory.');if(Number($('textureSize').value)===4096)notes.push('4K uses larger textures; reserve it for close-up objects and large surfaces.');hint.textContent=notes.join(' ');hint.hidden=!notes.length;}
@@ -324,6 +327,14 @@ function renderSelected(){const j=jobOf();generationWait.update(j,{hasModel:!!mo
     $('empty').hidden = false;
   }
   const entries=[['Asset type',assetTypeName(j.metadata?.asset_type||j.settings.asset_type)],['Engine',external?(j.settings.asset_type==='print'?'Blender voxel remesh':j.result?.rig_engine||'Local import'):terrain?'Procedural':pixal?`Pixal3D / ${resolutionOf(j)}³`:`TRELLIS.2 / ${resolutionOf(j)}³`],['Height',j.settings.height_m+' m'],['Texture',j.settings.texture_size+' px'],['Seed',j.settings.seed??'—'],['Status',labels[j.state]||j.state],['Created',new Date(j.settings.created*1000).toLocaleDateString('en-US')]];const o=j.generation_options;
+  const textureMethod=r?.texture_method||j.settings.texture_method;
+  const textureLabel=textureMethodChoices.find(([method])=>method===textureMethod)?.[1];
+  const refinement=r?.finishing?.multiview_texture_refinement;
+  if(textureLabel&&!terrain){
+    const label=textureMethod==='multiview'&&refinement&&refinement.state!=='applied'
+      ? 'Native PBR · multiview refinement skipped' : textureLabel;
+    entries.push(['Texture method',label]);
+  }
   const triangleBudget=[j.settings.adaptive_finishing?'Triangle ceiling':'Target triangles',Number(j.settings.triangles).toLocaleString('en-US')];
   if(pixal){
     if (pixalSingle) {
@@ -345,8 +356,116 @@ function renderNavigation(){const select=$('librarySelect'),signature=records.ma
 function setMode(terrain){animationStudio?.closeRig();animationMode=false;document.body.classList.remove('animation-mode');document.body.classList.remove('library-mode');$('rigPanel').hidden=true;$('rigTab').setAttribute('aria-pressed','false');showCollection(false);$('openLibrary').setAttribute('aria-pressed','false');$('form').hidden=terrain;$('terrainForm').hidden=!terrain;$('imageTab').setAttribute('aria-pressed',!terrain);$('terrainTab').setAttribute('aria-pressed',terrain);document.querySelector('h1').textContent=terrain?'Create terrain':'Image to 3D';$('workspaceIntro').textContent=terrain?'Textured procedural terrain, ready to adapt to your scene.':'';$('workspaceIntro').hidden=!terrain;}
 function selectJob(id){const keepAnimation=animationMode;if(!records.some(j=>j.id===id))return;if(id!==selectedId){selectedId=id;metadataId=null;inspectId=null;++inspectVersion;$('textureGallery').replaceChildren();$('textureSummary').textContent='Inspecting textures…';}setMode(jobOf()?.settings.asset_type==='terrain_unity');if(keepAnimation)openAnimationStudio();renderNavigation();renderSelected();renderLibrary();updateButtons();refreshLog();}
 $('librarySelect').onchange=()=>selectJob($('librarySelect').value);$('imageTab').onclick=()=>{$('parentId').value='';setMode(false);};$('terrainTab').onclick=()=>{$('terrainForm').dataset.parentId='';setMode(true);};$('openLibrary').onclick=()=>{animationStudio?.closeRig();document.body.classList.remove('collection-collapsed');document.body.classList.add('library-mode');showCollection(false);for(const id of['imageTab','terrainTab','rigTab'])$(id).setAttribute('aria-pressed','false');$('openLibrary').setAttribute('aria-pressed','true');renderLibrary();};
-function renderLibrary(){studioTools?.selection.sync(records,trashMode);const q=$('librarySearch').value.toLocaleLowerCase('en'),filter=$('libraryFilter').value,list=(trashMode?trashRecords:records).filter(j=>{const m=j.metadata||{},text=[nameOf(j),m.category,assetTypeName(m.asset_type||j.settings.asset_type),...(m.tags||[])].join(' ').toLocaleLowerCase('en');return (!workbench||workbench.workspace.matches(j))&&text.includes(q)&&(filter==='all'||filter==='favorite'&&m.favorite||filter===j.state||filter===j.settings.asset_type||filter===m.review_state||filter==='type:'+(m.asset_type||j.settings.asset_type));}),pages=Math.max(1,Math.ceil(list.length/24));page=Math.max(0,Math.min(page,pages-1));studioTools?.selection.visible(list.slice(page*24,page*24+24),list);const signature=JSON.stringify([q,filter,page,trashMode,features,selectedId,cardTurntablesAvailable,list.map(j=>[j.id,nameOf(j),j.state,j.metadata,j.media,j.presentation?.thumbnail?.revision,j.presentation?.library_turntable?.revision])]);if($('libraryGrid').dataset.signature===signature){for(const card of $('libraryGrid').querySelectorAll('[data-job-id]')){const j=list.find(x=>x.id===card.dataset.jobId);if(j)updateCardStatus(card,j);}return;}cardMenu.close();cardTurntables.stop();$('libraryGrid').dataset.signature=signature;$('pageLabel').textContent=`${page+1} / ${pages}`;$('pagePrev').disabled=page===0;$('pageNext').disabled=page>=pages-1;$('libraryTotal').textContent=`${list.length} model${list.length>1?'s':''}`;$('showTrash').replaceChildren(icon(trashMode?'grid':'trash'));$('showTrash').title=trashMode?'Back to library':'Open trash';$('showTrash').setAttribute('aria-label',$('showTrash').title);$('showTrash').disabled=!features;$('collectionTitle').textContent=trashMode?'Trash':'My models';$('collectionCount').textContent=trashMode?trashRecords.length:records.length;$('libraryGrid').replaceChildren();
-  for(const j of list.slice(page*24,page*24+24)){const card=node('article','asset-card'+(j.id===selectedId?' selected':'')),b=node('button','card-open');card.dataset.jobId=j.id;b.type='button';b.disabled=trashMode;const img=node('img');img.src=trashMode?'/web/asset-placeholder.svg':j.presentation?.thumbnail?`/api/jobs/${j.id}/presentation/thumbnail.png?v=${j.presentation.thumbnail.revision}`:`/api/jobs/${j.id}/files/${j.settings.asset_type==='terrain_unity'?'heightmap.png':'input.png'}?v=${j.result?.revision||j.state}`;img.loading='lazy';img.alt='Reference for '+nameOf(j);img.onerror=()=>{img.onerror=null;img.src='/web/asset-placeholder.svg';};const body=node('span','card-body');body.append(node('strong','',nameOf(j)),node('small','',(categoryName(j.metadata?.category)||'Uncategorised')+' · '+(labels[j.state]||j.state)),node('span','badge',(j.metadata?.favorite?'★ · ':'')+(reviews[j.metadata?.review_state]||'To review')));b.append(img,body,studioTools.mediaBadge(j));b.onclick=()=>{if(studioTools.selection.mode)studioTools.selection.toggle(j);else selectJob(j.id);};card.append(b);if(trashMode){const restore=node('button','secondary restore','Restore');restore.onclick=async()=>{restore.disabled=true;try{await api(`/api/trash/${j.id}/restore`,{method:'POST'});trashRecords=await api('/api/trash');await refresh();renderLibrary();}catch(e){restore.textContent=e.message;restore.disabled=false;}};card.append(restore);}else{card.append(node('span','reference-caption',j.settings.asset_type==='terrain_unity'?'HEIGHTMAP':['imported','rigged','print'].includes(j.settings.asset_type)?(j.settings.asset_type==='print'?'3D PRINT COPY':'3D MODEL'):'REFERENCE IMAGE'));card.append(cardMenu.button(j,{busy,features,activeId}));studioTools.selection.attach(card,j);if(cardTurntablesAvailable)cardTurntables.attach(card,img,j,nameOf(j));}updateCardStatus(card,j);$('libraryGrid').append(card);}if(!list.length)$('libraryGrid').append(node('div','library-empty',trashMode?'The trash is empty.':'No models match these filters.'));
+function renderLibrary() {
+  studioTools?.selection.sync(records, trashMode);
+  const grid = $('libraryGrid');
+  collectionPreviews.setEager(!busy && !trashMode);
+  const query = $('librarySearch').value.toLocaleLowerCase('en');
+  const filter = $('libraryFilter').value;
+  const list = (trashMode ? trashRecords : records).filter(job => {
+    const metadata = job.metadata || {};
+    const type = metadata.asset_type || job.settings.asset_type;
+    const search = [nameOf(job), metadata.category, assetTypeName(type), ...(metadata.tags || [])]
+      .join(' ').toLocaleLowerCase('en');
+    return (!workbench || workbench.workspace.matches(job)) && search.includes(query)
+      && (filter === 'all' || filter === 'favorite' && metadata.favorite || filter === job.state
+        || filter === job.settings.asset_type || filter === metadata.review_state || filter === 'type:' + type);
+  });
+  const pages = Math.max(1, Math.ceil(list.length / 24));
+  page = Math.max(0, Math.min(page, pages - 1));
+  const displayed = list.slice(page * 24, page * 24 + 24);
+  studioTools?.selection.visible(displayed, list);
+  const signature = JSON.stringify([query, filter, page, trashMode, features, selectedId, cardTurntablesAvailable,
+    list.map(job => [job.id, nameOf(job), job.state, job.metadata, job.media, job.result?.revision,
+      job.presentation?.thumbnail?.revision, job.presentation?.library_turntable?.revision])]);
+  if (grid.dataset.signature === signature) {
+    for (const [index, card] of [...grid.querySelectorAll('[data-job-id]')].entries()) {
+      updateCardStatus(card, displayed[index]);
+    }
+    return;
+  }
+  cardMenu.close();
+  cardTurntables.stop();
+  collectionPreviews.clear();
+  grid.dataset.signature = signature;
+  $('pageLabel').textContent = (page + 1) + ' / ' + pages;
+  $('pagePrev').disabled = page === 0;
+  $('pageNext').disabled = page >= pages - 1;
+  $('libraryTotal').textContent = list.length + (list.length === 1 ? ' model' : ' models');
+  $('showTrash').replaceChildren(icon(trashMode ? 'grid' : 'trash'));
+  $('showTrash').title = trashMode ? 'Back to library' : 'Open trash';
+  $('showTrash').setAttribute('aria-label', $('showTrash').title);
+  $('showTrash').disabled = !features;
+  $('collectionTitle').textContent = trashMode ? 'Trash' : 'My models';
+  $('collectionCount').textContent = trashMode ? trashRecords.length : records.length;
+  grid.replaceChildren();
+
+  for (const job of displayed) {
+    const name = nameOf(job);
+    const card = node('article', 'asset-card' + (job.id === selectedId ? ' selected' : ''));
+    const open = node('button', 'card-open');
+    const media = node('span', 'asset-preview');
+    const image = node('img');
+    const assetType = job.settings.asset_type;
+    const hasModel = !trashMode && job.state === 'done' && job.media?.available === true;
+    card.dataset.jobId = job.id;
+    open.type = 'button';
+    open.disabled = trashMode;
+    const poster = job.presentation?.thumbnail;
+    const files = '/api/jobs/' + encodeURIComponent(job.id);
+    image.src = trashMode ? '/web/asset-placeholder.svg' : poster
+      ? files + '/presentation/thumbnail.png?v=' + encodeURIComponent(poster.revision)
+      : files + '/files/' + (assetType === 'terrain_unity' ? 'heightmap.png' : 'input.png')
+        + '?v=' + encodeURIComponent(job.result?.revision || job.state);
+    image.loading = 'lazy';
+    image.alt = '';
+    image.onerror = () => { image.onerror = null; image.src = '/web/asset-placeholder.svg'; };
+    media.append(image);
+    const body = node('span', 'card-body');
+    body.append(node('strong', '', name),
+      node('small', '', (categoryName(job.metadata?.category) || 'Uncategorised') + ' · ' + (labels[job.state] || job.state)),
+      node('span', 'badge', (job.metadata?.favorite ? '★ · ' : '') + (reviews[job.metadata?.review_state] || 'To review')));
+    open.append(media, body, studioTools.mediaBadge(job));
+    open.onclick = () => {
+      if (studioTools.selection.mode) studioTools.selection.toggle(job);
+      else selectJob(job.id);
+    };
+    card.append(open);
+    if (trashMode) {
+      const restore = node('button', 'secondary restore', 'Restore');
+      restore.onclick = async () => {
+        restore.disabled = true;
+        try {
+          await api('/api/trash/' + job.id + '/restore', {method: 'POST'});
+          trashRecords = await api('/api/trash');
+          await refresh();
+          renderLibrary();
+        } catch (error) {
+          restore.textContent = error.message;
+          restore.disabled = false;
+        }
+      };
+      card.append(restore);
+    } else {
+      const type = assetType === 'terrain_unity' ? 'HEIGHTMAP' : assetType === 'print' ? '3D PRINT COPY'
+        : hasModel ? '3D MODEL' : 'REFERENCE IMAGE';
+      card.append(node('span', 'reference-caption', type), cardMenu.button(job, {busy, features, activeId}));
+      studioTools.selection.attach(card, job);
+      if (cardTurntablesAvailable) {
+        cardTurntables.attach(card, image, job, name, {media, hover: !hasModel});
+      }
+    }
+    updateCardStatus(card, job);
+    grid.append(card);
+    if (hasModel) {
+      const revision = job.media.animation_revision || job.result?.revision || job.state;
+      collectionPreviews.watch(media, {
+        url: files + '/files/model.glb?v=' + encodeURIComponent(revision), revision,
+      });
+    }
+  }
+  if (!list.length) grid.append(node('div', 'library-empty',
+    trashMode ? 'The trash is empty.' : 'No models match these filters.'));
 }
 for(const id of['librarySearch','libraryFilter'])$(id).addEventListener(id==='librarySearch'?'input':'change',()=>{page=0;renderLibrary();});$('pagePrev').onclick=()=>{--page;renderLibrary();};$('pageNext').onclick=()=>{++page;renderLibrary();};$('showTrash').onclick=async()=>{try{trashMode=!trashMode;if(trashMode)trashRecords=await api('/api/trash');page=0;renderLibrary();}catch(e){trashMode=false;errorAt('metadataNotice',e);}};
 async function patchMetadata(value){const id=selectedId;if(!id)return;const m=await api(`/api/jobs/${id}/metadata`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)}),j=records.find(x=>x.id===id);if(j)j.metadata=m;renderNavigation();renderSelected();renderLibrary();return m;}
