@@ -26,7 +26,7 @@ if ($taskPackage.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected a numeri
 $taskRoots=@('web','installer','runtime','licenses','animations','unity','UniRig','integrations')
 $taskRootFiles=@('LICENSE','README.md','INSTALLATION.md','SECURITY.md','THIRD_PARTY_NOTICES.md','package.json','package-lock.json')
 $taskDocFiles=@('docs/API.md','docs/MCP.md','docs/DEPENDENCIES.json','docs/WINDOWS_SETUP.md','docs/SERVER.md',
-    'docs/MOTION_GENERATION.md','docs/WTIVO.md','docs/HI3D.md',('docs/RELEASE_'+$taskPackage.version+'.md'))
+    'docs/MOTION_GENERATION.md','docs/WTIVO.md','docs/HI3D.md','docs/ULTRATEX.md',('docs/RELEASE_'+$taskPackage.version+'.md'))
 $taskFiles=@(git -C $taskRoot -c core.quotePath=false ls-files --cached --others --exclude-standard)
 if ($LASTEXITCODE -ne 0) { throw 'Could not read the TRELLIS Studio public source allowlist.' }
 $taskFiles=@($taskFiles | Sort-Object -Unique | Where-Object {
@@ -60,6 +60,9 @@ $taskRequired+=@('multiview_texture_runtime.py','multiview_texture_views.py','mu
 $taskRequired+=@('studio_release.py','web/release-notification.css','web/release-notification.js')
 $taskRequired+=@('collection_preview.py','collection_preview_renderer.py','web/collection-previews.js',
     'web/collection-preview-capture.js','web/collection-preview-render.js')
+$taskRequired+=@('figure_master_repair.py','ultratex_runtime.py','ultratex_worker.py','web/texture-methods.js',
+    'installer/install_ultratex.py','installer/ultratex-manifest.json','installer/requirements-ultratex-comfy.txt',
+    'installer/requirements-ultratex-gguf.txt','licenses/FLUX.2-klein-base-9B-LICENSE.md','docs/ULTRATEX.md')
 $taskRequired+=@('generation_view_projection.py','licenses/AssetFurnace-Apache-2.0.txt',
     'third_party/assetfurnace/image_to_3dlab/__init__.py',
     'third_party/assetfurnace/image_to_3dlab/photo_paint.py',

@@ -315,6 +315,34 @@ function Get-SetupMultiviewTexture([psobject]$Gpu) {
     return $result
 }
 
+function Get-SetupUltraTex([psobject]$Gpu) {
+    $result=[pscustomobject][ordered]@{
+        Supported=$false; Status=''
+        Guidance='Tested on NVIDIA Ada. Allow 32 GB of system RAM and 16 GiB of disk space in addition to TRELLIS.2.'
+    }
+    if (-not $Gpu.Supported) {
+        $result.Status=$Gpu.Status
+        return $result
+    }
+    try { $policy=(Read-SetupGpuManifest).ultratex }
+    catch { $result.Status=$_.Exception.Message; return $result }
+    if (-not $policy -or -not $policy.compute_capabilities.Count -or [int]$policy.minimum_vram_mib -le 0) {
+        $result.Status='The UltraTex hardware policy is missing or invalid. Use the complete Setup package.'
+        return $result
+    }
+    if ($Gpu.Compute -notin $policy.compute_capabilities) {
+        $result.Status='UltraTex preview requires a supported NVIDIA Ampere, Ada or Blackwell GPU.'
+        return $result
+    }
+    if ($Gpu.MemoryMiB -lt [int]$policy.minimum_vram_mib) {
+        $result.Status='UltraTex preview requires a detected NVIDIA GPU with at least 12 GB of VRAM.'
+        return $result
+    }
+    $result.Supported=$true
+    $result.Status='NVIDIA GPU and 12 GB VRAM requirement met. Setup tests CUDA before downloading UltraTex.'
+    return $result
+}
+
 function Get-SetupDisk([string]$Root) {
     $result=[pscustomobject][ordered]@{FreeGiB=''; Status='Windows disk space could not be checked.'}
     try {
@@ -350,6 +378,10 @@ function Get-SetupInstallPlan([string]$Root) {
     if ($state.licenses.multiview_texture) {
         try { $multiviewAccepted=$state.licenses.multiview_texture -ceq (Read-SetupGpuManifest).multiview_texture.license_sha256 } catch { }
     }
+    $ultraTexAccepted=$false
+    if ($state.licenses.ultratex) {
+        try { $ultraTexAccepted=$state.licenses.ultratex -ceq (Read-SetupGpuManifest).ultratex.license_sha256 } catch { }
+    }
     return [pscustomobject][ordered]@{
         Saved=$saved
         Trellis='trellis' -in $requested
@@ -359,6 +391,8 @@ function Get-SetupInstallPlan([string]$Root) {
         Hi3DLicenseAccepted=$hi3dAccepted
         MultiviewTexture='multiview-texture' -in $requested
         MultiviewTextureLicenseAccepted=$multiviewAccepted
+        UltraTex='ultratex' -in $requested
+        UltraTexLicenseAccepted=$ultraTexAccepted
         Kimodo='kimodo' -in $requested
     }
 }
@@ -376,6 +410,7 @@ function Get-SetupPreflight {
         GPU=$gpu
         Hi3D=(Get-SetupHi3d -Gpu $gpu)
         MultiviewTexture=(Get-SetupMultiviewTexture -Gpu $gpu)
+        UltraTex=(Get-SetupUltraTex -Gpu $gpu)
         Blender=$blender
         WSL=(Get-SetupWsl -RequestedDistribution $WslDistribution)
         Disk=(Get-SetupDisk -Root $InstallRoot)

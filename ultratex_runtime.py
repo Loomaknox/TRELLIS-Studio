@@ -14,7 +14,8 @@ VIEW_SIZE = 1024
 VIEW_COUNT = 6
 STEPS = 25
 LICENSE = 'FLUX Non-Commercial License v2.1'
-LICENSE_URL = 'https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B/blob/main/LICENSE.md'
+LICENSE_URL = ('https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B/'
+               'blob/8e4154e4c94c6eb08644d0761d404e1c28d325c2/LICENSE.md')
 REVISIONS = {
     'comfy': '0decb39ee5b5e17c200334589fc317dbbe98310e',
     'gguf': '6ea2651e7df66d7585f6ffee804b20e92fb38b8a',
@@ -92,8 +93,8 @@ def stop_worker(process):
 
 
 def run_worker(root, model, reference, work, seed, progress, cancelled):
-    command = [sys.executable, '-I', '-B', '-u', '-X', 'utf8', str(root / 'ultratex_worker.py'),
-               str(model), str(reference), str(work), str(seed)]
+    command = [sys.executable, '-I', '-B', '-u', '-X', 'utf8', '-X', f'pycache_prefix={work / "bytecode"}',
+               str(root / 'ultratex_worker.py'), str(model), str(reference), str(work), str(seed)]
     with subprocess.Popen(command, cwd=work, stderr=subprocess.STDOUT,
                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)) as process:
         deadline = monotonic() + 1200
