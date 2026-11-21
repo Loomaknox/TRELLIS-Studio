@@ -48,7 +48,7 @@ def published(folder):
 def preview_record(cache, folder):
     revision = revision_for(folder)
     if revision and archive_path(cache, folder, revision).is_file():
-        prefix = f'/api/jobs/{folder.name}/collection-preview/{revision}'
+        prefix = f'/api/v1/models/{folder.name}/collection-preview/{revision}'
         return {mode + '_url': f'{prefix}/{mode}.webp' for mode in MODES}
     return None
 
