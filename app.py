@@ -9,9 +9,10 @@ import asyncio, base64, hashlib, io, json, os, re, shutil, subprocess, sys, time
 from urllib.parse import urlparse
 from typing import Annotated
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
+from collection_preview import CollectionPreviews, preview_image, preview_record
 from generation_options import (normalize_options, options_for_job, schema as generation_schema,
                                 DEFAULT_PROFILE, DEFAULT_GENERATION, GENERATION_PRESETS, GAME_D_ADVANCED, PROFILE_ADVANCED,
                                 DENSE_MASTER, DENSE_MASTER_NAME, DENSE_MASTER_TRIANGLES, DENSE_MASTER_FINISHING, FIGURE_MASTER,
@@ -115,7 +116,11 @@ def stop_worker():
 @asynccontextmanager
 async def lifespan(app):
     await STUDIO.start()
-    yield
+    COLLECTION_PREVIEWS.start()
+    try:
+        yield
+    finally:
+        await COLLECTION_PREVIEWS.close()
     await STUDIO.close()
     if PROCESS is not None and PROCESS.poll() is None:
         await asyncio.to_thread(stop_worker)
@@ -174,6 +179,8 @@ def job_record(folder):
         data.update(id=folder.name, settings=settings)
         data['media'] = (model_media(folder/'model.glb') if not finalizing and prepared_output_ready(settings, data)
                          else dict(available=False, animated=False, clips=0, bones=0))
+        if data['state'] == 'done' and data['media'].get('available'):
+            data['collection_preview'] = preview_record(COLLECTION_CACHE, folder)
         data['can_refinish'] = data['state'] == 'done' and bool(finishing_source(folder, settings))
         if settings.get('asset_type') not in ('terrain_unity','imported','rigged','print'):
             try:data['generation_options']=options_for_job(settings)
@@ -1529,6 +1536,17 @@ def logs(identifier: str):
     path = folder / 'generation.log'
     return {'text':path.read_text(encoding='utf-8', errors='replace')[-18000:] if path.exists() else ''}
 
+@app.get('/api/jobs/{identifier}/collection-preview/{revision}/{mode}.webp', include_in_schema=False)
+def collection_preview(identifier: str, revision: str, mode: str):
+    folder = job_path(identifier)
+    publication_pending = WORKSPACE_CONFIG.get('publication_pending')
+    if publication_pending and publication_pending(identifier):
+        raise HTTPException(404)
+    image = preview_image(COLLECTION_CACHE, folder, revision, mode)
+    if image is None:
+        raise HTTPException(404)
+    return Response(image, media_type='image/webp')
+
 @app.get('/api/jobs/{identifier}/files/{filename}')
 async def files(identifier: str, filename: str):
     folder = job_path(identifier)
@@ -1604,6 +1622,13 @@ async def shutdown(idle_only:bool=False):
 
 from studio_api import install
 STUDIO=install(app,globals())
+COLLECTION_CACHE = STUDIO.workspace.root.resolve() / 'collection-previews'
+COLLECTION_PREVIEWS = CollectionPreviews(
+    lambda: [(None, OUTPUT, TRASH, COLLECTION_CACHE)],
+    lambda: SHUTTING_DOWN or bool(TERRAIN_ACTIVE) or any(
+        process is not None and process.poll() is None for process in (PROCESS, EXPORT_PROCESS)),
+    lambda _owner, _identifier: False,
+)
 from generated_animation_api import install as install_generated_animations
 install_generated_animations(app,globals())
 from studio_rest import install as install_rest

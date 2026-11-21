@@ -9,11 +9,13 @@ import re
 import shutil
 import stat
 import sys
+import uuid
 
 from fastapi import HTTPException
 from starlette.responses import Response
 
 from animation_edits import publish_operation, recover as recover_animation
+from collection_preview import CollectionPreviews, save_preview
 from generation_options import GENERATION_PRESETS
 from server_store import StoreError
 from studio_workspace import ID, finishing_source, read, write
@@ -198,6 +200,10 @@ class ServerRuntime:
         self.paused = bool(read(self.paused_path, {}).get('paused'))
         self.current_user = None
         self.stopping = False
+        self.collection_previews = CollectionPreviews(
+            self.collection_workspaces, lambda: self.stopping or self.busy(),
+            self.collection_pending, self.publish_collection_preview,
+        )
 
     def user_path(self, identifier):
         if not ID.fullmatch(identifier):
@@ -229,6 +235,33 @@ class ServerRuntime:
         self.store.sync_usage(identifier, amount)
         return amount
 
+    def collection_workspaces(self):
+        for user in self.store.all_users():
+            if user['status'] == 'active':
+                identifier = user['id']
+                folder = self.user_path(identifier)
+                yield identifier, folder / 'outputs', folder / 'trash', folder / 'state' / 'collection-previews'
+
+    def collection_pending(self, owner, identifier):
+        workspace = self.workspaces.get(owner)
+        return workspace is not None and (workspace.active == identifier or workspace.studio.active_job(identifier))
+
+    async def publish_collection_preview(self, owner, cache, folder, revision, content):
+        if self.collection_pending(owner, folder.name):
+            return False
+        reservation = uuid.uuid4().hex
+        try:
+            self.store.reserve_storage(owner, reservation, len(content))
+        except StoreError:
+            return False
+        try:
+            if save_preview(cache, folder, revision, content):
+                await self.usage(owner)
+                return True
+            return False
+        finally:
+            self.store.release_storage(owner, reservation)
+
     def set_paused(self, paused):
         write(self.paused_path, {'paused': paused})
         self.paused = paused
@@ -241,9 +274,11 @@ class ServerRuntime:
             async with workspace.lock:
                 await self.reconcile(workspace, rows)
         self.scheduler = asyncio.create_task(self.run())
+        self.collection_previews.start()
 
     async def close(self):
         self.stopping = True
+        await self.collection_previews.close()
         if self.scheduler:
             self.scheduler.cancel()
             try:

@@ -207,6 +207,8 @@ def install(app,g):
         summaries=[]
         for r in records[offset:offset+limit]:
             summaries.append(dict(id=r['id'],name=r['metadata'].get('display_name',r['settings']['name']),state=r['state'],progress=r.get('progress',0),metadata=r['metadata'],media=r.get('media',{}),parent_id=r['settings'].get('parent_id'),status_url='/api/v1/jobs/'+r['id'],model_url='/api/v1/models/'+r['id']+'/files/model.glb'))
+            if r.get('collection_preview'):
+                summaries[-1]['collection_preview'] = r['collection_preview']
         return dict(total=len(records),offset=offset,limit=limit,models=summaries)
 
     @router.get('/jobs/{identifier}',tags=['Models'],summary='Read job progress, recipe, rig, clips and prepared resources')

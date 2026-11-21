@@ -19,7 +19,7 @@ VERSION_PATTERN = re.compile(r'v?(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1
 SUCCESS_TTL = 24 * 60 * 60
 FAILURE_TTL = 60 * 60
 MAX_METADATA_BYTES = 512 * 1024
-UI_REVISION = f'{VERSION}-figure-master-ultratex'
+UI_REVISION = f'{VERSION}-stored-collection-previews'
 
 
 def render_studio_version(page, *, ui_revision=None):

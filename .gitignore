@@ -23,6 +23,8 @@
 !/normal_glb.py
 !/generation_profiles.py
 !/figure_master_repair.py
+!/collection_preview.py
+!/collection_preview_renderer.py
 !/glb_data.py
 !/humanoid_mapping.py
 !/import_blender.py
@@ -160,6 +162,8 @@
 !/web/card-menu.js
 !/web/card-turntable.js
 !/web/collection-previews.js
+!/web/collection-preview-capture.js
+!/web/collection-preview-render.js
 !/web/collection-transfer.js
 !/web/compare-studio.js
 !/web/details.css

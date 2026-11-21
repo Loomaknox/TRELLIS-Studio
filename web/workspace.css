@@ -234,7 +234,7 @@ body{font-size:13px;overflow:hidden}button,input,select,textarea{font-size:12px}
 }
 .asset-preview[data-collection-preview="ready"] > img { visibility: hidden; }
 .asset-preview[data-collection-preview="loading"]::after {
-  content: 'Loading 3D preview…';
+  content: 'Loading preview…';
   position: absolute;
   bottom: 7px;
   left: 50%;

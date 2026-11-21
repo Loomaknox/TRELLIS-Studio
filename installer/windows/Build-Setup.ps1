@@ -58,6 +58,8 @@ $taskRequired+=@('multiview_texture_runtime.py','multiview_texture_views.py','mu
     'installer/install_multiview_texture.py','installer/multiview-texture-manifest.json',
     'installer/requirements-multiview-texture.txt','licenses/Stable-Diffusion-2.1-OpenRAIL++-M.txt')
 $taskRequired+=@('studio_release.py','web/release-notification.css','web/release-notification.js')
+$taskRequired+=@('collection_preview.py','collection_preview_renderer.py','web/collection-previews.js',
+    'web/collection-preview-capture.js','web/collection-preview-render.js')
 $taskRequired+=@('generation_view_projection.py','licenses/AssetFurnace-Apache-2.0.txt',
     'third_party/assetfurnace/image_to_3dlab/__init__.py',
     'third_party/assetfurnace/image_to_3dlab/photo_paint.py',

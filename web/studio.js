@@ -19,10 +19,10 @@ import { createProfileControls } from './profiles.js?v=figure-master-ultratex';
 import { textureMethodAvailability, textureMethodChoices } from './texture-methods.js?v=figure-master-ultratex';
 import {createCardMenu,updateCardStatus,icon} from './card-menu.js?v=texture-variant';
 import {createCardTurntables} from './card-turntable.js?v=figure-master-ultratex';
-import {createCollectionPreviews} from './collection-previews.js?v=figure-master-ultratex';
+import {createCollectionPreviews} from './collection-previews.js?v=collection-images';
 const $=id=>document.getElementById(id);
 const cardTurntables=createCardTurntables($('libraryGrid'));
-const collectionPreviews=createCollectionPreviews($('libraryGrid'));
+const collectionPreviews=createCollectionPreviews();
 let cardTurntablesAvailable=false;
 const cardMenu=createCardMenu({version:reuseJob,remove:requestDelete,details:openDetails,print:j=>printCopy.open(j),compare:j=>studioTools.compare.open(j),diagnostics:j=>studioTools.diagnostics.open(j),export:j=>studioTools.exports.open(j),history:j=>workbench.history.open(j),folder:j=>workbench.workspace.move(j),lod:j=>workbench.prepare.open(j,'lod'),game:j=>workbench.prepare.open(j,'game'),refinish:openRefinish,finishingBoard:j=>workbench.finishingBoard.open(j)});
 const labels={done:'Completed',running:'Generating',error:'Failed',cancelled:'Cancelled',queued:'Queued'},reviews={review:'To review',retouch:'Needs changes',retained:'Retained',rejected:'Rejected'};
@@ -359,7 +359,6 @@ $('librarySelect').onchange=()=>selectJob($('librarySelect').value);$('imageTab'
 function renderLibrary() {
   studioTools?.selection.sync(records, trashMode);
   const grid = $('libraryGrid');
-  collectionPreviews.setEager(!busy && !trashMode);
   const query = $('librarySearch').value.toLocaleLowerCase('en');
   const filter = $('libraryFilter').value;
   const list = (trashMode ? trashRecords : records).filter(job => {
@@ -380,7 +379,9 @@ function renderLibrary() {
       job.presentation?.thumbnail?.revision, job.presentation?.library_turntable?.revision])]);
   if (grid.dataset.signature === signature) {
     for (const [index, card] of [...grid.querySelectorAll('[data-job-id]')].entries()) {
-      updateCardStatus(card, displayed[index]);
+      const job = displayed[index];
+      updateCardStatus(card, job);
+      collectionPreviews.watch(card.querySelector('.asset-preview'), trashMode ? null : job.collection_preview);
     }
     return;
   }
@@ -413,7 +414,7 @@ function renderLibrary() {
     open.disabled = trashMode;
     const poster = job.presentation?.thumbnail;
     const files = '/api/jobs/' + encodeURIComponent(job.id);
-    image.src = trashMode ? '/web/asset-placeholder.svg' : poster
+    image.dataset.referenceUrl = trashMode ? '/web/asset-placeholder.svg' : poster
       ? files + '/presentation/thumbnail.png?v=' + encodeURIComponent(poster.revision)
       : files + '/files/' + (assetType === 'terrain_unity' ? 'heightmap.png' : 'input.png')
         + '?v=' + encodeURIComponent(job.result?.revision || job.state);
@@ -457,12 +458,7 @@ function renderLibrary() {
     }
     updateCardStatus(card, job);
     grid.append(card);
-    if (hasModel) {
-      const revision = job.media.animation_revision || job.result?.revision || job.state;
-      collectionPreviews.watch(media, {
-        url: files + '/files/model.glb?v=' + encodeURIComponent(revision), revision,
-      });
-    }
+    collectionPreviews.watch(media, hasModel ? job.collection_preview : null);
   }
   if (!list.length) grid.append(node('div', 'library-empty',
     trashMode ? 'The trash is empty.' : 'No models match these filters.'));
