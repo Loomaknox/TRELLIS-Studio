@@ -5,6 +5,9 @@
 !/.github/
 /.github/*
 !/.github/FUNDING.yml
+!/.github/workflows/
+/.github/workflows/*
+!/.github/workflows/pr-checks.yml
 !/.github/ISSUE_TEMPLATE/
 /.github/ISSUE_TEMPLATE/*
 !/.github/ISSUE_TEMPLATE/bug-report.yml
