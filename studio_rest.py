@@ -3,7 +3,7 @@ from pathlib import Path
 from contextlib import ExitStack
 import inspect,io,json,time,uuid,hashlib,os
 from fastapi import APIRouter,UploadFile,File,HTTPException,Query
-from fastapi.responses import FileResponse,HTMLResponse,RedirectResponse
+from fastapi.responses import FileResponse,HTMLResponse,RedirectResponse,Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.openapi.docs import get_swagger_ui_html
 from starlette.requests import Request
@@ -266,6 +266,12 @@ def install(app,g):
         'prepared.png', 'prepared-left.png', 'prepared-back.png', 'prepared-right.png', 'conditioning.png',
     ]):
         return await g['files'](identifier, filename)
+
+    @router.get('/models/{identifier}/collection-preview/{revision}/{mode}.webp', tags=['Models'],
+                summary='Download a saved Collection thumbnail', response_class=Response,
+                responses={200: {'content': {'image/webp': {}}}})
+    def collection_preview(identifier: Identifier, revision: str, mode: Literal['textured', 'clay']):
+        return g['collection_preview'](identifier, revision, mode)
 
     @router.get('/models/{identifier}/presentation/{filename}', tags=['Models'],
                 summary='Download a saved thumbnail, capture or turntable')

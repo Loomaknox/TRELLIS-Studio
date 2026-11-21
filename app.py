@@ -1537,9 +1537,6 @@ def logs(identifier: str):
     return {'text':path.read_text(encoding='utf-8', errors='replace')[-18000:] if path.exists() else ''}
 
 @app.get('/api/jobs/{identifier}/collection-preview/{revision}/{mode}.webp', include_in_schema=False)
-@app.get('/api/v1/models/{identifier}/collection-preview/{revision}/{mode}.webp',
-         tags=['Models'], summary='Download a saved Collection thumbnail',
-         response_class=Response, responses={200: {'content': {'image/webp': {}}}})
 def collection_preview(identifier: str, revision: str, mode: str):
     folder = job_path(identifier)
     publication_pending = WORKSPACE_CONFIG.get('publication_pending')
