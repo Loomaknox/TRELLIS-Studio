@@ -13,6 +13,15 @@ Use a small, shareable example when a model or image is needed. Share only relev
 excerpts with sensitive details removed. Follow the [security policy](SECURITY.md)
 when reporting a vulnerability.
 
+## Automated pull request checks
+
+GitHub Actions runs the [lightweight checks](.github/workflows/pr-checks.yml) on pull
+requests to `main`. They check public file paths and common credential patterns, text
+encoding, web syntax and preview/projection behavior. They also exercise release
+version handling, package integrity, optional installer recovery and Server storage
+using temporary test data. The checks use Python's standard library and locked web
+dependencies. They run without a GPU, Blender or model downloads.
+
 ## Propose a change
 
 Follow the [source installation guide](INSTALLATION.md) to set up the project. Keep each

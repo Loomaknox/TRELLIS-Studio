@@ -1,0 +1,55 @@
+name: Pull request checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lightweight-checks:
+    name: Lightweight checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the proposed merge
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4618c61a1 # v6.3.0
+        with:
+          python-version: '3.11'
+
+      - name: Check public source and text encoding
+        run: |
+          python -S -B installer/audit_public.py
+          python -S -B tests/check_text_encoding.py
+
+      - name: Test packaging, versions, installers and Server storage
+        run: |
+          python -S -B tests/public_packaging.py
+          python -S -B tests/studio_release.py
+          python -S -B tests/hi3d_weights.py
+          python -S -B tests/kimodo_installer.py
+          python -S -B tests/server_store.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Install locked web dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Check JavaScript syntax and viewer behavior
+        run: |
+          npm run check
+          node --test tests/hologram_viewer.mjs tests/texture-projection-geometry.mjs tests/texture-projection-auto-align.mjs
