@@ -15,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import native_game_geometry
 import native_pixal3d
 from installer import install_native_game_geometry as provision
+from installer import install_native_ultratex as texture_provision
+from native_ultratex import dependencies as texture_dependencies
 from native_workflow_options import GAME_ASSET_FINISHING, settings, summary
 
 
@@ -125,6 +127,61 @@ class NativeGeometryOptionsTests(unittest.TestCase):
 
 
 class NativeGameSetupTests(unittest.TestCase):
+    @staticmethod
+    def package(target, name, version):
+        info = target / f'{name}-{version}.dist-info'
+        info.mkdir(parents=True)
+        (info / 'METADATA').write_text(f'Name: {name}\nVersion: {version}\n', encoding='utf-8')
+
+    def test_ultratex_reuses_the_qualified_split_overlay(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            packages = root / texture_dependencies.GEOMETRY
+            base, support = packages / 'deps', packages / 'support-deps'
+            self.package(base, 'scipy', '1.18.1')
+            self.package(support, 'scipy', '1.15.3')
+            self.package(base, 'pillow', '13.0.0')
+            provision.write_json(root, provision.SHAPE_CONFIG, {'dependencies': [str(base), str(support)]})
+            lock = root / texture_dependencies.LOCK
+            lock.parent.mkdir()
+            lock.write_text('scipy==1.15.3\npillow==13.0.0\n', encoding='utf-8')
+            with patch.object(texture_provision, 'install_packages') as install:
+                texture_provision._install_dependencies(root)
+            install.assert_not_called()
+            self.assertEqual(texture_dependencies.dependency_paths(root), (support, base))
+
+    def test_ultratex_setup_installs_only_missing_pins_with_merged_geometry(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            merged = root / texture_dependencies.GEOMETRY / 'studio-deps'
+            self.package(merged, 'scipy', '1.15.3')
+            self.package(root / texture_dependencies.PYTHON_SITE, 'sympy', '1.14.0')
+            provision.write_json(root, provision.SHAPE_CONFIG, {'dependencies': [str(merged)]})
+            lock = root / texture_dependencies.LOCK
+            lock.parent.mkdir()
+            missing = 'gguf==0.19.0 --hash=sha256:' + 'a' * 64
+            lock.write_text(f'scipy==1.15.3\nsympy==1.14.0\n{missing}\n', encoding='utf-8')
+
+            def install(location, python, target, requirements):
+                self.assertEqual(location, root)
+                self.assertEqual(target, texture_dependencies.EXTRA)
+                self.assertEqual(requirements.read_text(encoding='utf-8'), missing + '\n')
+                self.package(root / target, 'gguf', '0.19.0')
+
+            with patch.object(texture_provision, 'install_packages', side_effect=install) as helper:
+                texture_provision._install_dependencies(root)
+            helper.assert_called_once()
+            self.assertEqual(texture_dependencies.dependency_paths(root), (root / texture_dependencies.EXTRA, merged))
+
+    def test_ultratex_finds_the_compiler_in_the_imported_triton_package(self):
+        with TemporaryDirectory() as folder:
+            package = Path(folder).resolve() / 'shared-deps/triton'
+            compiler = package / 'runtime/tcc/tcc.exe'
+            compiler.parent.mkdir(parents=True)
+            compiler.touch()
+            with patch.dict(sys.modules, {'triton': SimpleNamespace(__file__=str(package / '__init__.py'))}):
+                self.assertEqual(texture_dependencies.triton_compiler(), compiler)
+
     def test_public_recipe_matches_the_qualified_windows_recipe(self):
         source = provision.HERE.parent / 'comfy_workflows/game-asset-character-05.json'
         windows = source.read_bytes().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')

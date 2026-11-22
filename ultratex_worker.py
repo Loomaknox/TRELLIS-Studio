@@ -71,6 +71,11 @@ def setup_environment(runtime, work):
                       TRITON_CACHE_DIR=str(runtime / 'triton-cache'))
     import comfy.options
     comfy.options.enable_args_parsing()
+    import folder_paths
+
+    for name in recipe.WEIGHTS:
+        path = recipe.weight_path(ROOT, name)
+        folder_paths.add_model_folder_path(name.partition('/')[0], str(path.parent), is_default=True)
 
 
 def load_gguf(runtime):

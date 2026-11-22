@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 from gpu_runtime import load_profiles, select_gpu
 from installer.setup import digest, extract, fetch
 from studio_workspace import write
-from ultratex_runtime import LICENSE, LICENSE_URL, REVISIONS, WEIGHTS, validated_runtime
+from ultratex_runtime import LICENSE, LICENSE_URL, REVISIONS, WEIGHTS, validated_runtime, weight_path
 
 RUNTIME = ROOT / 'models' / 'ultratex'
 SOURCE_DIRS = {'comfy': 'ComfyUI', 'gguf': 'repos/ComfyUI-GGUF', 'ultratex': 'repos/UltraTex'}
@@ -183,7 +183,7 @@ def verify(manifest):
     for directory, lock in LOCKS.items():
         verify_dependencies(safe_location(RUNTIME / directory), ROOT / 'installer' / lock)
     for path in WEIGHTS:
-        safe_location(RUNTIME / path)
+        safe_location(weight_path(ROOT, path))
     validated_runtime(ROOT, verify_weights=True)
 
 
@@ -200,7 +200,7 @@ def install(manifest):
     downloads = []
     missing = 0
     for entry in manifest['assets']:
-        path = safe_location(runtime / entry['path'])
+        path = safe_location(weight_path(ROOT, entry['path']))
         part = safe_location(path.with_name(path.name + '.part'))
         if not path.is_file():
             present = part.stat().st_size if part.is_file() else 0

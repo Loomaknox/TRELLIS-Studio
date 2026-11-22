@@ -9,6 +9,7 @@ import subprocess
 
 from native_game_geometry import finish_geometry, runtime_status as finishing_status
 from native_pixal3d import generate_pixal3d_geometry, runtime_status as geometry_status
+from studio_model_assets import model_asset_path
 
 
 ROOT = Path(__file__).resolve().parent
@@ -24,7 +25,9 @@ def texture_runtime_status():
         return {'available': False, 'reason': 'The standalone UltraTex runtime is still being prepared.'}
     try:
         models = json.loads((TEXTURE / 'model-manifest.json').read_text(encoding='utf-8'))
-        if len(models) != 6 or not all((TEXTURE_MODELS / entry['path']).stat().st_size == entry['bytes'] for entry in models):
+        if len(models) != 6 or not all(
+            model_asset_path(ROOT, 'native-ultratex', entry['path']).stat().st_size == entry['bytes'] for entry in models
+        ):
             raise ValueError
     except (OSError, KeyError, ValueError, TypeError):
         return {'available': False, 'reason': 'Install the verified local UltraTex model files.'}

@@ -21,6 +21,7 @@
 !/api_contract.py
 !/app.py
 !/studio_release.py
+!/studio_model_assets.py
 !/asset_taxonomy.py
 !/asset_work.py
 !/export_blender.py
@@ -470,6 +471,7 @@
 !/web/standard-workflow-graph.js
 !/native_ultratex/
 /native_ultratex/*
+!/native_ultratex/dependencies.py
 !/native_ultratex/native_ultratex_models.py
 !/native_ultratex/existing_mesh.py
 !/native_ultratex/native_ultratex_recipe.py

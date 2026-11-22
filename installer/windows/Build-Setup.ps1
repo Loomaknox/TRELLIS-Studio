@@ -64,7 +64,7 @@ $taskRequired+=@('native_high_detail.py','native_high_detail_quant.py','native_h
     'native_workflows/CITY96-APACHE-2.0.txt','docs/NATIVE_PROFILES.md')
 $taskRequired+=@('native_pixal3d.py','native_pixal_layers.py','native_pixal_prepare.py','native_game_asset.py',
     'native_game_conditioning.py','native_game_sampling.py','native_game_finish.py','native_game_geometry.py','native_game_profile.py')
-$taskRequired+=@('native_ultratex/options.py','native_ultratex/existing_mesh.py','native_ultratex/native_ultratex_models.py',
+$taskRequired+=@('native_ultratex/dependencies.py','native_ultratex/options.py','native_ultratex/existing_mesh.py','native_ultratex/native_ultratex_models.py',
     'native_ultratex/native_ultratex_recipe.py','native_ultratex/prepare_character05.py','native_ultratex/run_character05_texture.py',
     'web/workflow-graph.js','web/workflow-topology.js','web/standard-workflow-graph.js')
 $taskRequired+=@('rig_profiles_blender.py','creature_rig.py','creature_motion.py','creature_verification.py',
@@ -84,7 +84,7 @@ $taskRequired+=@('gpu_runtime.py','installer/windows/Setup-Preflight.ps1',
     'UniRig/check-runtime.py','UniRig/runtime.sh','UniRig/runtime-profile.py',
     'installer/windows/trellis-welcome.bmp','installer/requirements-unirig-blackwell.txt',
     'installer/prepare_unirig_bpy.py','UniRig/run-skin-inference.py')
-$taskRequired+=@('installer/install_native_workflows.py','installer/native_workflow_install_common.py',
+$taskRequired+=@('studio_model_assets.py','installer/install_native_workflows.py','installer/native_workflow_install_common.py',
     'installer/native_workflow_python.py','installer/install_native_high_detail.py',
     'installer/install_native_game_geometry.py','installer/install_native_ultratex.py',
     'installer/native-high-detail-manifest.json','installer/native-game-geometry-manifest.json',

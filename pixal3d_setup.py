@@ -13,7 +13,7 @@ import tempfile
 
 from installer.setup import digest, extract, fetch
 from pixal3d_runtime import (
-    SINGLE_IMAGE_MARKER, load_manifest, runtime_root, runtime_status, single_image_marker, source_path,
+    SINGLE_IMAGE_MARKER, load_manifest, runtime_root, runtime_status, single_image_marker, source_path, weight_path,
 )
 from studio_workspace import write
 
@@ -162,7 +162,7 @@ def main():
         if not capability['ready']:
             raise RuntimeError(capability['message'])
         for entry in entries:
-            if not verified(RUNTIME / 'models' / entry['path'], entry):
+            if not verified(weight_path(ROOT, entry['path']), entry):
                 raise RuntimeError(f"Checksum mismatch: {entry['path']}")
         if face_path.exists() and not verified(face_path, face):
             raise RuntimeError(f"Checksum mismatch: {face['path']}")
@@ -182,7 +182,7 @@ def main():
     RUNTIME.mkdir(parents=True, exist_ok=True)
     install_source(manifest, local_assets, allow_download)
     for entry in entries:
-        obtain(entry, RUNTIME / 'models' / entry['path'],
+        obtain(entry, weight_path(ROOT, entry['path']),
                local_assets / 'models' / entry['path'] if local_assets else None, allow_download)
     local_face = local_assets / 'models' / face['path'] if local_assets else None
     if allow_download or face_path.is_file() or (local_face and local_face.is_file()):
