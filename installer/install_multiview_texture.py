@@ -100,7 +100,7 @@ def install_dependencies():
     with TemporaryDirectory(prefix='deps-', dir=RUNTIME) as pending:
         staged = Path(pending) / 'dependencies'
         command = [str(uv), 'pip', 'install', '--python', sys.executable, '--target', str(staged),
-                   '--only-binary', ':all:', '--require-hashes', '--no-deps', '-r', str(LOCK)]
+                   '--link-mode', 'copy', '--only-binary', ':all:', '--require-hashes', '--no-deps', '-r', str(LOCK)]
         with TemporaryDirectory(prefix='mv-uv-', dir=ROOT / '.tools') as cache:
             subprocess.run(command, check=True, env={**os.environ, 'UV_CACHE_DIR': cache})
         staged.rename(target)

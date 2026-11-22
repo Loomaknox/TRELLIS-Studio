@@ -118,7 +118,7 @@ def install_dependencies(local_assets):
         target = Path(work) / 'deps'
         subprocess.run([
             str(uv), 'pip', 'install', '--python', sys.executable, '--target', str(target),
-            '--no-deps', '--only-binary', ':all:', '-r', str(LOCKFILE),
+            '--link-mode', 'copy', '--no-deps', '--only-binary', ':all:', '-r', str(LOCKFILE),
         ], env=env, check=True)
         write(target / marker.name, lock)
         target.rename(deps)

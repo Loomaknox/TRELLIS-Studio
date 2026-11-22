@@ -111,7 +111,7 @@ def _install_cuda_packages(root, python, spec, pipeline_source):
     uv = safe_path(root, '.tools/uv/uv.exe')
     with TemporaryDirectory(prefix='.hd-cuda-', dir=target.parent) as temporary:
         stage = Path(temporary) / 'cuda'
-        subprocess.run([uv, 'pip', 'install', '--no-config', '--offline', '--no-index', '--no-deps',
+        subprocess.run([uv, 'pip', 'install', '--no-config', '--offline', '--no-index', '--no-deps', '--link-mode', 'copy',
                         '--python', python, '--target', stage, *wheels], cwd=root, check=True)
         for patch in spec['patches']:
             source = safe_path(pipeline_source, patch['source'])

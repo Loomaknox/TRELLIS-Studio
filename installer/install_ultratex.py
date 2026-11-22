@@ -144,7 +144,8 @@ def install_dependencies(directory, lock_name):
     with TemporaryDirectory(prefix='deps-', dir=RUNTIME) as temporary:
         staged = Path(temporary) / 'packages'
         subprocess.run([str(uv), 'pip', 'install', '--python', sys.executable, '--target', str(staged),
-                        '--no-config', '--only-binary', ':all:', '--require-hashes', '--no-deps', '-r', str(lock)],
+                        '--no-config', '--link-mode', 'copy', '--only-binary', ':all:', '--require-hashes',
+                        '--no-deps', '-r', str(lock)],
                        check=True, env={**os.environ, 'UV_CACHE_DIR': str(Path(temporary) / 'cache')})
         verify_dependencies(staged, lock)
         staged.rename(target)
