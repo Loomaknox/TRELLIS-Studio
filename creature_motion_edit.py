@@ -27,7 +27,7 @@ MOTIONS = {
     'quadruped': ('Creature quadruped stride', 'A geometric four-leg stride preview without foot-contact locking.'),
     'serpentine': ('Creature serpentine wave', 'A length-weighted wave along one continuous articulated chain.'),
     'winged': ('Creature wing flap', 'A flap preview for two distinct lateral joint chains.'),
-    'swim': ('Creature swim', 'A coordinated pulse and trailing wave for an upright bell-like radial rig.'),
+    'swim': ('Creature swim', 'The bell contracts quickly, reopens slowly and sends a delayed wave down the trailing branches.'),
 }
 DEFAULTS = dict(motion='test', duration_s=4., amplitude=1., cycles=2, phase_lag=.45, travel_m=0.)
 LIMITS = dict(duration_s=[2., 12.], amplitude=[.1, 2.], cycles=[1, 4],
@@ -297,7 +297,7 @@ def _swimmer(rig):
     if not (hybrid or radial):
         raise ValueError('The rig lacks a distinguishable bell/upper support and independent trailing branches.')
     return dict(hub=hub, upper=upper, lower=lower, rim=rim, radial=radial,
-                description='Geometric bell-up heuristic: one root hub, upper bell support and trailing branches; no mesh repair or new tentacle joints.',
+                description='A radial bell pulse with slower recovery and delayed movement along the existing trailing chains.',
                 warnings=['Short branches have limited articulation; this clip cannot create joints or fix skin weights.'])
 
 
@@ -328,19 +328,63 @@ def _pulse(phase):
     return np.where(p < .26, smooth(p/.26), 1-smooth((p-.26)/.55))
 
 
+def _bell_tracks(rig, topology, amount, translations):
+    hub = topology['hub']
+    bell_height = max((rig.heads[index][1] - rig.heads[hub][1]
+                       for chain in topology['upper'] for index in chain),
+                      default=.25*rig.size[1])
+    world_scales = {hub: 1-amount}
+    offsets = {hub: np.zeros((len(amount), 3))}
+    scales = {hub: world_scales[hub][:, None] * np.linalg.norm(rig.local[hub][:3, :3], axis=0)}
+
+    def set_joint(index, scale, offset):
+        parent = rig.parent[index]
+        parent_scale = world_scales[parent]
+        rest_delta = rig.heads[index] - rig.heads[parent]
+        # Compensate for inherited contraction before placing this joint in the bell frame.
+        parent_linear = rig.world[rig.parents[index]][:3, :3]
+        adjustment = ((rest_delta + offset - offsets[parent])/parent_scale[:, None] - rest_delta)
+        translations[index] = rig.local[index][:3, 3] + adjustment @ np.linalg.inv(parent_linear).T
+        scales[index] = (scale/parent_scale)[:, None] * np.linalg.norm(rig.local[index][:3, :3], axis=0)
+        offsets[index], world_scales[index] = offset, scale
+
+    for chain in topology['upper']:
+        for index in chain:
+            elevation = np.clip((rig.heads[index][1]-rig.heads[hub][1])/bell_height, 0, 1)
+            radial = rig.heads[index] - rig.heads[hub]
+            radial[1] = 0
+            # Keep the dome rounded and lengthen it slightly as the lip closes.
+            strength = 1-.52*elevation
+            rise = elevation*(1.9*elevation-1.35)*bell_height
+            offset = amount[:, None] * (-strength*radial + rise*UP)
+            set_joint(index, 1-strength*amount, offset)
+    for index in topology['rim']:
+        radial = rig.heads[index]-rig.heads[hub]
+        radial[1] = 0
+        offset = amount[:, None] * (-1.10*radial - .33*bell_height*UP)
+        set_joint(index, 1-amount, offset)
+    for chain in topology['lower']:
+        index = chain[0]
+        radial = rig.heads[index]-rig.heads[hub]
+        radial[1] = 0
+        # Follow the attachment point without shortening the dangling chain.
+        set_joint(index, np.ones_like(amount), -.65*amount[:, None]*radial)
+    return scales
+
+
 def _solve(rig, options):
     frames = round(options['duration_s']*FPS)
     computations = np.arange(frames+1, dtype=float)
     phase = (computations % frames) / frames
     times = np.linspace(0, options['duration_s'], frames+1, dtype='<f4')
-    rotations, translations = {}, {}
+    rotations, translations, scales = {}, {}, {}
     if options['motion'] != 'swim':
         for index, (axis, degrees, offset, lift) in PLANNERS[options['motion']](rig).items():
             wave = np.sin(math.tau*(phase*options['cycles']+offset))
             if lift:
                 wave = np.maximum(0, wave)**2
             rotations[index] = _rotation(rig, index, axis, math.radians(degrees*options['amplitude'])*wave)
-        return times, rotations, translations, {}
+        return times, rotations, translations, scales, {}
 
     topology = _swimmer(rig)
     hub = topology['hub']
@@ -356,7 +400,7 @@ def _solve(rig, options):
         travel = options['travel_m'] * np.column_stack([.12*np.sin(slow), .5*(1-np.cos(math.tau*pulse_phase)), .08*(np.cos(slow)-1)])
         linear = rig.world[parent][:3, :3] if parent is not None else np.eye(3)
         translations[hub] = (rig.local[hub][:3, 3] + travel @ np.linalg.inv(linear).T).astype('<f4')
-        translations[hub][-1] = translations[hub][0]
+    scales = _bell_tracks(rig, topology, min(.36, .26*amplitude)*contraction, translations)
     for index in topology['rim']:
         radial = rig.heads[index]-rig.heads[hub]
         radial[1] = 0
@@ -374,14 +418,15 @@ def _solve(rig, options):
             length = np.linalg.norm(rig.vectors[index])
             along = (distance + length*.5)/max(longest, 1e-8)
             delay = along*options['phase_lag']*options['cycles']/options['duration_s']
-            wave = np.sin(math.tau*(pulse_phase-delay)+branch*.55)
+            delayed = pulse_phase-delay
+            wave = .68*_pulse(delayed) + .32*np.sin(math.tau*delayed+branch*.55)
             freedom = (.25+.75*along)*min(1., math.sqrt(length/max(total, 1e-8))*2)
             angle = math.radians(14*amplitude)*freedom*wave
             if topology['radial'] and step == 0:
                 angle = math.radians(12*amplitude)*contraction
             rotations[index] = _rotation(rig, index, axis, angle)
             distance += length
-    return times, rotations, translations, dict(swim_topology=topology['description'],
+    return times, rotations, translations, scales, dict(swim_topology=topology['description'],
         trailing_branches=len(topology['lower']), radial_short_branches=len(topology['rim']), warnings=topology['warnings'])
 
 
@@ -407,7 +452,10 @@ def creature_motion_capabilities(source):
     for motion, (name, description) in MOTIONS.items():
         try:
             plan = _swimmer(rig) if motion == 'swim' else PLANNERS[motion](rig)
-            animated = set(plan['rim']) | {plan['hub']} | {i for chain in plan['lower'] for i in chain} if motion == 'swim' else set(plan)
+            animated = set(plan)
+            if motion == 'swim':
+                animated = {plan['hub'], *plan['rim'],
+                            *(i for chain in plan['upper'] + plan['lower'] for i in chain)}
             if any('matrix' in data['nodes'][i] for i in animated):
                 raise ValueError('Animated joints need translation/rotation/scale, not matrix transforms.')
             if not animated & rig.influential:
@@ -429,10 +477,11 @@ def write_creature_clip(source, destination, recipe):
         raise ValueError('Write the creature animation to a new staged GLB, preserving the source.')
     source_hash = _digest(source)
     before, oldbin, rig = _inspect(source)
-    times, rotations, translations, details = _solve(rig, options)
-    if any('matrix' in before['nodes'][index] for index in rotations.keys() | translations.keys()):
+    times, rotations, translations, scales, details = _solve(rig, options)
+    animated = rotations.keys() | translations.keys() | scales.keys()
+    if any('matrix' in before['nodes'][index] for index in animated):
         raise ValueError('Animated joints need translation/rotation/scale, not matrix transforms.')
-    if not rotations.keys() & rig.influential:
+    if not animated & rig.influential:
         raise ValueError('The selected chains have no skin influence.')
     existing = {clip.get('name') for clip in before.get('animations', [])}
     name = options.get('name') or MOTIONS[options['motion']][0]
@@ -445,14 +494,15 @@ def write_creature_clip(source, destination, recipe):
     data, binary = copy.deepcopy(before), bytearray(oldbin)
     time_index = append_access(data, binary, times, 'SCALAR')
     samplers, channels = [], []
-    for path, tracks, kind in (('rotation', rotations, 'VEC4'), ('translation', translations, 'VEC3')):
+    for path, tracks, kind in (('rotation', rotations, 'VEC4'), ('translation', translations, 'VEC3'),
+                               ('scale', scales, 'VEC3')):
         for index, values in tracks.items():
             value_index = append_access(data, binary, values, kind)
             samplers.append(dict(input=time_index, output=value_index, interpolation='LINEAR'))
             channels.append(dict(sampler=len(samplers)-1, target=dict(node=index, path=path)))
     saved_recipe = {**options, 'name': name}
     data.setdefault('animations', []).append(dict(name=name, samplers=samplers, channels=channels,
-        extras={'trellis_creature_motion': dict(version=1, recipe=saved_recipe, effective_motion=options['motion'])}))
+        extras={'trellis_creature_motion': dict(version=2 if scales else 1, recipe=saved_recipe, effective_motion=options['motion'])}))
     data['buffers'][0]['byteLength'] = len(binary)
     preservation = verify_preservation(before, oldbin, data, binary)
     if _digest(source) != source_hash:
@@ -461,8 +511,8 @@ def write_creature_clip(source, destination, recipe):
     final, saved_binary = read(destination)
     verify_preservation(before, oldbin, final, saved_binary)
     return dict(clip=name, duration_s=options['duration_s'], effective_motion=options['motion'],
-        animated_bones=len(rotations), fps=FPS, frames=len(times), recipe=saved_recipe,
-        root_motion='looped_vertical_drift' if translations else 'in_place',
+        animated_bones=len(animated), fps=FPS, frames=len(times), recipe=saved_recipe,
+        root_motion='looped_vertical_drift' if options['travel_m'] else 'in_place',
         source_sha256=source_hash, output_sha256=_digest(destination),
         preservation=preservation, **details,
         limitations='Procedural preview: review deformation. Existing topology, weights and joint count are unchanged; no contact or collision correction.')

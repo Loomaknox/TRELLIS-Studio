@@ -1,5 +1,6 @@
 """CPU tests for procedural clips on unchanged existing skins and source assets."""
 import base64
+import copy
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
@@ -11,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from creature_motion_edit import (creature_motion_capabilities, validate_creature_motion_recipe,
                                   write_creature_clip)
-from generated_motion import append_access, append_clip, write_glb
+from generated_motion import append_access, append_clip, gltf_rig, write_glb
 from glb_data import accessor, read
 
 
@@ -123,6 +124,45 @@ def inspect_clip(source, target, expected):
     assert moving > 0
 
 
+def check_bell_pose(path):
+    data, binary = read(path)
+    clip = data['animations'][-1]
+    attributes = data['meshes'][0]['primitives'][0]['attributes']
+    points = accessor(data, binary, attributes['POSITION'])
+    joints = accessor(data, binary, attributes['JOINTS_0'])[:, 0]
+    _, _, rest, _, _ = gltf_rig(data)
+
+    def pose(frame):
+        animated = copy.deepcopy(data)
+        for channel in clip['channels']:
+            sampler = clip['samplers'][channel['sampler']]
+            target = channel['target']
+            animated['nodes'][target['node']][target['path']] = (
+                accessor(data, binary, sampler['output'])[frame].tolist())
+        _, _, posed, _, _ = gltf_rig(animated)
+        # Remove rigid swimming drift but retain deformation from skinning.
+        hub = posed[0]
+        rotation = hub[:3, :3]/np.linalg.norm(hub[:3, :3], axis=0)
+        vertices = np.empty_like(points)
+        for joint in np.unique(joints):
+            transform = posed[joint] @ np.linalg.inv(rest[joint])
+            selected = joints == joint
+            moved = points[selected] @ transform[:3, :3].T + transform[:3, 3]
+            vertices[selected] = (moved - hub[:3, 3]) @ rotation
+        return vertices
+
+    opened, closed = pose(0), pose(16)
+    bell_lip = joints == 0
+    lower = joints == 4
+    crown = joints == 2
+    width = np.ptp(opened[bell_lip, 0])
+    assert np.ptp(closed[bell_lip, 0]) < .8*width
+    assert np.max(closed[crown, 1]) > np.max(opened[crown, 1]) + .02
+    assert np.isclose(np.linalg.norm(closed[lower][1] - closed[lower][0]),
+                      np.linalg.norm(opened[lower][1] - opened[lower][0]), atol=1e-6)
+    assert np.allclose(opened, pose(60), atol=1e-6)
+
+
 def main():
     for bad in ({'motion': []}, {'motion': 'none'}, {'amplitude': False}, {'amplitude': float('nan')},
                 {'cycles': 2.0}, {'duration_s': 1}, {'travel_m': .1}, {'phase_lag': .2},
@@ -144,6 +184,8 @@ def main():
             assert report['effective_motion'] == motion and report['preservation']['asset_descriptors_identical']
             assert source.read_bytes() == original
             inspect_clip(source, target, motion)
+            if motion == 'swim':
+                check_bell_pose(target)
             reject(lambda: write_creature_clip(target, root/f'{motion}-duplicate.glb', recipe))
             reject(lambda: write_creature_clip(source, source, recipe))
             named = root/f'{motion}-auto.glb'
@@ -162,7 +204,7 @@ def main():
         assert not creature_motion_capabilities(root/'nonuniform.glb')['available']
         reject(lambda: write_creature_clip(root/'nonuniform.glb', root/'invalid.glb', {'motion': 'swim'}))
         reject(lambda: write_creature_clip(root/'serpentine.glb', root/'wrong-topology.glb', {'motion': 'swim'}))
-    print('PASS: five procedural modes, exact asset/clip preservation, loops, naming, frame conversion and topology guards.')
+    print('PASS: five procedural modes, exact asset/clip preservation, skinned bell contraction, loops, naming, frame conversion and topology guards.')
 
 
 if __name__ == '__main__':

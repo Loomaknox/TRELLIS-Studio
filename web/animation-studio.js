@@ -3,6 +3,18 @@ import {createMotionPreviews} from './authored-previews.js?v=3.4.0';
 import {createPersonalAnimationLibrary} from './personal-animation-library.js?v=3.4.0-motion2';
 import {createCreatureRigEditor,isCreatureRig,isCreatureRigDraft} from './creature-rig-editor.js?v=rig-upgrades';
 import {createCreatureMotions} from './creature-motions.js?v=creature-motions';
+
+function creatureSkeletonIcon(){
+ const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+ svg.classList.add('ui-icon');
+ svg.setAttribute('aria-hidden','true');
+ svg.setAttribute('viewBox','0 0 24 24');
+ svg.innerHTML=`<path d="M12 6v3m-1.5 3.3-5 4.4m8-4.4 5 4.4M12 13v5"/>
+  <circle cx="12" cy="4" r="2"/><circle cx="12" cy="11" r="2"/>
+  <circle cx="4" cy="18" r="2"/><circle cx="12" cy="20" r="2"/><circle cx="20" cy="18" r="2"/>`;
+ return svg;
+}
+
 export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,rigSetup,creatureViewer,getClips,playClip}){
  const $=id=>document.getElementById(id),data=await api('/api/animations');
  let tab='library';const catalog=data.animations,previews=createMotionPreviews();
@@ -174,7 +186,9 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   $('rigLandmarkStep').hidden=step!==1;
   $('resetRigSetup').hidden=creature;
   $('rigStepLabel').textContent=creature?'Skeleton prediction':step===0?'01 / Size & orientation':'02 / Joint placement';
-  $('confirmRigSetup').textContent=creature?'Predict skeleton':step===0?'Next · place joints':'Confirm & create rig';
+  const confirm=$('confirmRigSetup');
+  const confirmLabel=creature?'Predict skeleton':step===0?'Next · place joints':'Confirm & create rig';
+  confirm.replaceChildren(creature?creatureSkeletonIcon():icon('skeleton'),confirmLabel);
   $('cancelRigSetup').textContent=step===0?'Cancel':'Back';
  }
  function closeRig(){
