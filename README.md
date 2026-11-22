@@ -20,7 +20,7 @@ One local generation produced two finishes from the same saved source. The high-
 
 ## Get started
 
-1. Download `TRELLIS-Studio-3.13.0-Setup-x64.exe` and `SHA256SUMS.txt`. Verify the unsigned executable against the published checksum. [Version 3.13.0 release](https://github.com/yoslo59/TRELLIS-Studio/releases/tag/v3.13.0)
+1. Download `TRELLIS-Studio-3.14.0-Setup-x64.exe` and `SHA256SUMS.txt`. Verify the unsigned executable against the published checksum. [Version 3.14.0 release](https://github.com/yoslo59/TRELLIS-Studio/releases/tag/v3.14.0)
 2. Choose **TRELLIS Desktop (single user)** or **TRELLIS Server (multi-user)**. Both include the CPU Workshop for GLB import, viewing, library management and standard animation files. Install Blender separately for features such as additional import formats, FBX export and baked game copies. [Windows Setup guide](docs/WINDOWS_SETUP.md)
 3. Select the optional components you need. **Check this PC** shows the detected NVIDIA GPU, driver and VRAM. Allow about **29 GiB** of model downloads plus packages and **100 GiB** of free space for TRELLIS.2, Pixal3D and UniRig together. Hi3D, multiview texture refinement and UltraTex have separate compatibility, storage and license requirements. [GPU profiles](docs/WINDOWS_SETUP.md#gpu-profiles)
 4. Open **TRELLIS Studio** or **TRELLIS Server** from the Start menu. A new Server installation guides you through creating the first administrator. [Server setup guide](docs/SERVER.md)
@@ -29,10 +29,10 @@ One local generation produced two finishes from the same saved source. The high-
 
 Use **Repair or resume components** after an interrupted download. Setup verifies downloads with SHA-256. The uninstaller can stop its own idle local services and keeps the library. [Repair and uninstall](docs/WINDOWS_SETUP.md)
 
-**New in 3.13.0** — Create dense character meshes with **Figure Master**,
-choose an optional **UltraTex** 2K texture pass, and compare clay and textured
-views directly on saved Collection cards.
-[Release notes](docs/RELEASE_3.13.0.md) · [UltraTex guide](docs/ULTRATEX.md)
+**New in 3.14.0** — Choose **Advanced** for humanoid rigs with twist bones
+and optional articulated fingers. Use **Creature** to edit a predicted
+skeleton before skinning and add procedural clips to compatible rigs.
+[Release notes](docs/RELEASE_3.14.0.md)
 
 ### Install from source
 
@@ -50,7 +50,7 @@ views directly on saved Collection cards.
 | **Queue** | Schedule batches of up to 30 images. Correct the recipe of a failed job and create a linked retry with the same references and seed. The original failure remains available for review. |
 | **Collection** | Textured and clay card previews, search, category/type/review filters, favourites, tags, notes, nested folders, saved views, multiple selection and restorable trash. |
 | **Review** | PBR/clay/normals/wireframe views, camera presets, adjustable preview lighting, synchronised before/after comparison, topology/UV/material/dimension diagnostics. |
-| **Animate** | UniRig skeleton and skin-weight prediction, editable frontal joint markers, visible skeleton inspection, 84 authored humanoid motions and a separate persistent library of generated motions. |
+| **Animate** | UniRig skeleton and skin-weight prediction, editable frontal joint markers, visible skeleton inspection, 84 authored humanoid motions, a library of generated motions and procedural motion on compatible creature rigs. |
 | **Prepare** | Reference-based color projection, HD-to-game reduction and material baking, linked LOD copies, pivot and collision tools, and dedicated printing copies. |
 | **History** | Parent/child lineage, recipes, comments, recoverable checkpoints and restoration as a new card. |
 | **Present** | Custom thumbnails, transparent PNGs, downloadable turntables and optional lightweight turntables on individual library cards. |
@@ -193,6 +193,23 @@ Diagnostics report measured topology, UV presence/collapse, normals, textures, d
 6. Select clips, play/pause, inspect the skeleton or use the motion workshop to trim/resample, blend a loop and choose in-place or root motion. Motion edits create a checkpoint and update prepared skinned LODs.
 
 The initial markers are editable guides, not automatic landmark detection. Manual placement supports upright humanoids in an A-pose or T-pose: frontal positions constrain the predicted skeleton **before skin weights are calculated**, while UniRig retains its predicted depth. Ambiguous skeleton mappings stop with an error rather than ignoring the markers. This step does not rebuild mesh anatomy or add a facial rig. Existing skins can still be retained through the API without new landmarks; editing an already skinned skeleton is a separate workflow.
+
+Choose **Advanced** on the original unrigged humanoid to add forearm twist bones.
+Use rigid hands for simple geometry or enable **Articulated fingers** on a character
+whose fingers are separated. Auto uses the existing humanoid rigging workflow.
+
+Choose **Creature** for an unrigged non-humanoid mesh. Review the predicted skeleton
+in the 3D editor, adjust endpoints or edit chains, then calculate skin weights.
+Choose a deformation check or a procedural quadruped, serpentine or wing-flap
+preview loop. Review the result before exporting GLB or FBX. The preview loops
+depend on the skeleton anatomy.
+
+On a completed skinned model, open the **Creature** tab in Animation. Studio
+checks the existing hierarchy and shows the loops it can generate. Adjust duration,
+cycle count and intensity, then save the clip on the same model. **Creature swim**
+contracts and reopens the bell and offers controls for wave delay and vertical
+travel. Review playback from **Added**. Independent tentacle motion depends on the
+existing bones and skin weights.
 
 The library uses the **free Standard editions** of Quaternius Universal Animation Libraries 1 and 2 under **CC0-1.0**. Entries cover locomotion, crouching, jumping, a ledge climb with root motion, interactions, combat, reactions and emotes. Card previews show each motion on its source mannequin. The retargeter adapts timing, body and finger rotations, and root travel to the fitted rig. Review grips, foot contacts, props and transitions on the target character.
 

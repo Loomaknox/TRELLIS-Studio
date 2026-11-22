@@ -13,6 +13,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from starlette.responses import JSONResponse
+from api_contract import CreatureRigCompletion, CreatureMotion
 from api_contract import (
     Animation, AnimationBatch, AnimationRemoval, Assign, BakedGameCopy, Export, Folder, Game, Generation, Identifier, ImportModel,
     GeneratedAnimationCreate, GeneratedAnimationApply,
@@ -247,7 +248,31 @@ async def prepare_print_copy(model_id:Identifier,settings:PrintCopy)->dict[str,A
 @tool()
 async def rig_model(model_id:Identifier,settings:Rig)->dict[str,Any]:
     """Run UniRig on a linked copy with orientation, height, vertical offset and optional frontal joint landmarks. Does not alter the source."""
-    return await api('POST','/models/'+model_id+'/rig',settings.model_dump(exclude_none=True))
+    return await api('POST', '/models/' + model_id + '/rig', settings.model_dump(exclude_none=True, exclude_unset=True))
+
+
+@mcp.tool()
+async def get_rig_preview(model_id: Identifier) -> dict[str, Any]:
+    """Read a predicted rig draft, including editable creature bones and the revision."""
+    return await api('GET', '/models/' + model_id + '/rig-preview')
+
+
+@mcp.tool()
+async def complete_creature_rig(model_id: Identifier, settings: CreatureRigCompletion) -> dict[str, Any]:
+    """Calculate creature skin weights for an edited skeleton and optionally add a preview loop."""
+    return await api('POST', '/models/' + model_id + '/rig-complete', settings.model_dump())
+
+
+@mcp.tool()
+async def get_creature_motion_options(model_id: Identifier) -> dict[str, Any]:
+    """Read the existing rig's compatible procedural motion recipes and revision."""
+    return await api('GET', '/models/' + model_id + '/creature-motions')
+
+
+@mcp.tool()
+async def add_creature_motion(model_id: Identifier, settings: CreatureMotion) -> dict[str, Any]:
+    """Queue a procedural clip on the existing rig; poll the returned status URL."""
+    return await api('POST', '/models/' + model_id + '/creature-motions', settings.model_dump(exclude_none=True))
 
 @tool()
 async def add_animation(model_id:Identifier,motion:Animation)->dict[str,Any]:

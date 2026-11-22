@@ -222,7 +222,10 @@ class StudioServices:
                     break
     def available(self,identifier):
         folder=self.g['job_path'](identifier);record=self.g['job_record'](folder);self.g['refresh_export']()
-        if not record or record['state']!='done' or self.g['active_job'](identifier) or identifier in self.g['EXPORTING']:raise HTTPException(409,'Wait for this model to finish computing or exporting.')
+        if (not record or record['state'] != 'done' or self.g['active_job'](identifier)
+                or identifier in self.g['EXPORTING']
+                or record['settings'].get('creature_phase') and not self.g['prepared_output_ready'](record['settings'], record)):
+            raise HTTPException(409, 'Wait for this model to finish computing or exporting.')
         return folder,record
 
     def finishing_model(self, identifier, available=False):

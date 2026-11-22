@@ -69,6 +69,8 @@ def install(app,g):
             library=path(data.animation_id);motion=record(library)
             if motion['state']!='done':raise HTTPException(409,'Choose a completed generated animation.')
             source,previous=g['STUDIO'].available(identifier)
+            if previous['settings'].get('creature_phase'):
+                raise HTTPException(422, 'Generated humanoid motions do not fit creature rigs.')
             model=validate_glb(source/'model.glb')
             if not model.get('skins'):raise HTTPException(409,'Add a humanoid rig to the model first.')
             if any(clip.get('name')==motion['clip_name'] for clip in model.get('animations',[])):

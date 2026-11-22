@@ -295,13 +295,35 @@ def install(app,g):
     async def printing(identifier:Identifier,data:PrintCopy):return accepted(await legacy('POST',f'/api/jobs/{identifier}/print-copy',data.model_dump()))
 
     @router.post('/models/{identifier}/rig',tags=['Animation'],status_code=202,response_model=JobAccepted,summary='Generate a UniRig skeleton on a linked copy')
-    async def rig(identifier:Identifier,data:Rig):return accepted(await legacy('POST',f'/api/jobs/{identifier}/rig',data.model_dump(exclude_none=True)))
+    async def rig(identifier: Identifier, data: Rig):
+        return accepted(await legacy('POST', f'/api/jobs/{identifier}/rig', data.model_dump(exclude_none=True, exclude_unset=True)))
+
+    @router.get('/models/{identifier}/rig-preview', tags=['Animation'], summary='Inspect the editable creature skeleton')
+    async def rig_preview(identifier: Identifier):
+        return await legacy('GET', f'/api/jobs/{identifier}/rig-preview')
+
+    @router.post('/models/{identifier}/rig-complete', tags=['Animation'], status_code=202,
+                 response_model=JobAccepted, summary='Complete a creature rig and optionally apply a preview loop')
+    async def rig_complete(identifier: Identifier, data: CreatureRigCompletion):
+        return accepted(await legacy('POST', f'/api/jobs/{identifier}/rig-complete', data.model_dump()))
 
     def animation_accepted(result):
         if 'operation_id' not in result:
             return accepted(result)
         operation = result['operation_id']
         return {**result, 'state': 'queued', 'status_url': '/api/v1/animation-operations/' + operation}
+
+    @router.get('/models/{identifier}/creature-motions', tags=['Animation'],
+                summary='Inspect procedural motions available on the existing rig')
+    def creature_motion_options(identifier: Identifier):
+        return g['creature_motion_options'](identifier)
+
+    @router.post('/models/{identifier}/creature-motions', tags=['Animation'], status_code=202,
+                 response_model=AnimationAccepted, response_model_exclude_none=True,
+                 summary='Add a procedural animation to the existing rig')
+    async def creature_motion(identifier: Identifier, data: CreatureMotion):
+        return await legacy('POST', f'/api/jobs/{identifier}/creature-motions',
+                            data.model_dump(exclude_none=True))
 
     @router.get('/models/{identifier}/animations', tags=['Animation'], summary='List embedded clips by exact name and index')
     def model_animations(identifier: Identifier):

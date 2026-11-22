@@ -69,6 +69,10 @@ def children(folder):
 
 
 def reserve_bytes(settings, script, folder):
+    if script == 'rig_worker.py' and (settings.get('creature_phase') or
+                                      (settings.get('rig_options') or {}).get('profile') == 'advanced'):
+        source_bytes = (folder / 'source.glb').stat().st_size
+        return 128 * MIB + 4 * source_bytes
     if script == 'model_finishing_worker.py':
         source_bytes = (folder / 'source.glb').stat().st_size
         copies = 3 if settings.get('source_kind') == 'multiview_texture_refinement' else 2
@@ -137,6 +141,9 @@ class PrivateStudio:
 
     def enqueue_operation(self, folder, script, source_id=None):
         write(folder / 'server-work.json', dict(script=script, source_id=source_id))
+        if script == 'rig_worker.py' and read(folder / 'settings.json', {}).get('creature_phase') == 'final':
+            self.workspace.queue['items'] = [entry for entry in self.workspace.queue['items']
+                                              if entry['id'] != folder.name]
         self.workspace.enqueue(folder.name)
 
     def job_spec(self, folder):
@@ -290,7 +297,14 @@ class ServerRuntime:
     def busy(self):
         return any(workspace.lock.locked() or workspace.busy() for workspace in self.workspaces.values())
 
-    async def rollback(self, workspace, original_queue, before):
+    async def rollback(self, workspace, original_queue, before, rig_files=()):
+        for path, data in rig_files:
+            if data is None:
+                path.unlink(missing_ok=True)
+            elif not path.is_file() or path.read_bytes() != data:
+                temporary = path.with_name(f'.{path.name}-{uuid.uuid4().hex}')
+                temporary.write_bytes(data)
+                temporary.replace(path)
         if workspace.studio.EXPORT_TASK and workspace.exports / workspace.studio.EXPORT_TASK not in before[workspace.exports]:
             await asyncio.to_thread(workspace.studio.stop_export)
             if workspace.studio.EXPORT_LOG:
@@ -321,14 +335,28 @@ class ServerRuntime:
                 raise HTTPException(507, 'The server does not have enough free disk space.')
             original_queue = deepcopy(workspace.workspace.queue)
             before = workspace.snapshot(path)
+            resume_route = re.fullmatch(r'/api/(?:jobs|v1/models)/([a-f0-9]{32})/rig-complete', path)
+            resume_id = resume_route[1] if resume_route else None
+            rig_files = []
+            if resume_id:
+                folder = workspace.outputs / resume_id
+                if folder.is_dir() and folder.resolve() == folder:
+                    for name in ('settings.json', 'status.json', 'server-work.json', 'creature-edit.json'):
+                        file = folder / name
+                        if file.is_file():
+                            if file.resolve() != file or file.stat().st_size > 1024 * 1024:
+                                raise HTTPException(409, 'Invalid creature draft state.')
+                            rig_files.append((file, file.read_bytes()))
+                        else:
+                            rig_files.append((file, None))
             try:
                 response = await invoke()
             except Exception:
-                await self.rollback(workspace, original_queue, before)
+                await self.rollback(workspace, original_queue, before, rig_files)
                 raise
             if response.status_code >= 400:
-                if any(children(folder) - previous for folder, previous in before.items()):
-                    await self.rollback(workspace, original_queue, before)
+                if rig_files or any(children(folder) - previous for folder, previous in before.items()):
+                    await self.rollback(workspace, original_queue, before, rig_files)
                 return response
             try:
                 used = await self.usage(identifier)
@@ -342,19 +370,21 @@ class ServerRuntime:
                 jobs = []
                 for entry in workspace.workspace.queue['items']:
                     job_id = entry['id']
-                    if job_id in previous_ids or entry.get('cancelled'):
+                    if (job_id in previous_ids and job_id != resume_id) or entry.get('cancelled'):
                         continue
                     folder = workspace.job_folder(job_id)
                     script, _, settings = workspace.job_spec(folder)
                     generation = script in ('worker.py', 'pixal3d_worker.py') and settings.get('source_kind') != 'refinish' and settings.get('preset') in GENERATION_PRESETS
                     generation = generation or (script=='generated_animation_worker.py' and settings.get('generated_animation_action')=='generate')
-                    jobs.append(dict(job_id=job_id, generation=generation, reserve_bytes=reserve_bytes(settings, script, folder)))
+                    resume = job_id == resume_id and script == 'rig_worker.py' and settings.get('creature_phase') == 'final'
+                    jobs.append(dict(job_id=job_id, generation=generation,
+                                     reserve_bytes=reserve_bytes(settings, script, folder), resume=resume))
                 jobs.extend(dict(job_id=path.name, generation=False, reserve_bytes=32 * MIB)
                             for path in children(workspace.exports) - before[workspace.exports])
                 if jobs:
                     self.store.reserve_jobs(identifier, jobs)
             except (StoreError, OSError):
-                await self.rollback(workspace, original_queue, before)
+                await self.rollback(workspace, original_queue, before, rig_files)
                 raise
             if reclaim:
                 pending = [row for row in self.store.jobs(identifier) if row['state'] not in TERMINAL]
@@ -470,6 +500,9 @@ class ServerRuntime:
                 if folder.is_dir():
                     error = 'Disk quota reached. Free space before retrying.' if over else 'Server stopped during the operation.'
                     write(folder / 'status.json', dict(state='error', stage='Operation interrupted', progress=0, error=error))
+                    if not export and settings.get('creature_phase') == 'final':
+                        for name in ('model.glb', 'model.blend'):
+                            await asyncio.to_thread(remove_child, folder, folder / name)
                     if export:
                         await asyncio.to_thread(remove_child, folder, folder / 'package.zip')
                     elif trim:

@@ -20,9 +20,45 @@ def source_map(pack):
         raise ValueError(f'Unknown animation source pack: {pack}')
     return result
 
-def author(scene,target,target_mapping,requests,height):
+def drive_forearm_twists(target, mapping, twists, rest, rest_heads, *, fraction=0.5, previous=None):
+    """Bake the proximal forearm helpers' share of the wrist's axial rotation."""
+    for side, name in twists.items():
+        hand = mapping[side + '_hand']
+        forearm = mapping[side + '_forearm']
+        world_axis = (rest_heads[hand] - rest_heads[forearm]).normalized()
+        axis = rest[hand].inverted() @ world_axis
+        rotation = target.pose.bones[hand].rotation_quaternion
+        projected = Vector((rotation.x, rotation.y, rotation.z)).dot(axis)
+        if rotation.w < 0:
+            projected = -projected
+        angle = 2 * math.atan2(projected, abs(rotation.w))
+        if previous is not None:
+            angle += math.tau * round((previous.get(side, angle) - angle) / math.tau)
+            previous[side] = angle
+        target.pose.bones[name].rotation_quaternion = Quaternion(rest[name].inverted() @ world_axis, angle*fraction)
+
+
+def blend_crouch_pose(idle, crouched, weight, finger_parents=()):
+    pose = {
+        role: dict(rotation=joint['rotation'].slerp(crouched[role]['rotation'], weight),
+                   head=joint['head'].lerp(crouched[role]['head'], weight))
+        for role, joint in idle.items() if role in crouched
+    }
+    # Blend each finger relative to its parent. World-space shortest arcs can
+    # go opposite ways on adjacent joints even when both endpoint poses are valid.
+    for role, parent in finger_parents:
+        if role not in pose or parent not in pose:
+            continue
+        from_local = idle[parent]['rotation'].inverted() @ idle[role]['rotation']
+        to_local = crouched[parent]['rotation'].inverted() @ crouched[role]['rotation']
+        pose[role]['rotation'] = pose[parent]['rotation'] @ from_local.slerp(to_local, weight)
+    return pose
+
+
+def author(scene,target,target_mapping,requests,height,*,profile=None):
     packs={};original_actions=set(bpy.data.actions);original_objects=set(bpy.data.objects)
     base_mapping=target_mapping.copy()
+    twists = profile['twists'] if profile else {}
     for request in requests:
         recipe=BY_ID.get(request['id'])
         if not recipe or recipe['source_pack'] in packs:continue
@@ -39,7 +75,12 @@ def author(scene,target,target_mapping,requests,height):
         for side in ('left','right'):
             if side+'_hand' not in target_map:continue
             target_hand=target.data.bones[target_map[side+'_hand']];source_hand=source.data.bones[smap[side+'_hand']]
-            target_roots=list(target_hand.children);source_roots=list(source_hand.children)
+            source_roots=list(source_hand.children)
+            if profile:
+                if not profile['articulated_fingers']:continue
+                target_roots=[target.data.bones[target_map[f'{side}_finger_{i}_0']] for i in range(5)]
+            else:
+                target_roots=list(target_hand.children)
             if len(target_roots)!=5 or len(source_roots)!=5:continue
             tpoints=[target.matrix_world@b.head_local-target.matrix_world@target_hand.head_local for b in target_roots]
             spoints=[source.matrix_world@b.head_local-source.matrix_world@source_hand.head_local for b in source_roots]
@@ -49,8 +90,10 @@ def author(scene,target,target_mapping,requests,height):
                 tb=target_roots[finger];sb=source_roots[index]
                 for segment in range(3):
                     key=side+'_finger_'+str(finger)+'_'+str(segment);target_map[key]=tb.name;target_mapping[key]=tb.name;smap[key]=sb.name
-                    if not tb.children or not sb.children:break
-                    tb=max(tb.children,key=lambda b:b.length);sb=max(sb.children,key=lambda b:b.length)
+                    if segment == 2 or not tb.children or not sb.children:break
+                    if profile:tb=target.data.bones[target_map[f'{side}_finger_{finger}_{segment + 1}']]
+                    else:tb=max(tb.children,key=lambda b:b.length)
+                    sb=max(sb.children,key=lambda b:b.length)
         packs[recipe['source_pack']]=(source,actions,smap,target_map)
     target.animation_data_clear();target.animation_data_create()
     rest={b.name:(target.matrix_world@b.matrix_local).to_quaternion() for b in target.data.bones}
@@ -71,6 +114,14 @@ def author(scene,target,target_mapping,requests,height):
             authored.append(dict(id=request['id'],name=request['id'],duration_s=request['duration'],source='Legacy animation preserved'))
             continue
         source,actions,smap,mapping=packs[recipe['source_pack']]
+        finger_parents = []
+        if recipe.get('composite') == 'crouch' and profile and profile['articulated_fingers']:
+            source_roles = {name: role for role, name in smap.items()}
+            for role, name in smap.items():
+                if '_finger_' in role:
+                    parent = source.data.bones[name].parent
+                    if parent and parent.name in source_roles:
+                        finger_parents.append((role, source_roles[parent.name]))
         src_rest={key:(source.matrix_world@source.data.bones[name].matrix_local).to_quaternion() for key,name in smap.items() if name in source.data.bones}
         src_heads={key:source.matrix_world@source.data.bones[name].head_local for key,name in smap.items() if name in source.data.bones}
         src_action=actions[recipe['source_clip']];activate(source,src_action)
@@ -88,6 +139,7 @@ def author(scene,target,target_mapping,requests,height):
         for side in ('left','right'):
             ratios.append((rest_heads[mapping[side+'_leg']]-rest_heads[mapping[side+'_foot']]).length/(src_heads[side+'_leg']-src_heads[side+'_foot']).length)
         scale=sum(ratios)/len(ratios)
+        twist_angles = {}
         for frame in range(frames+1):
             u=frame/frames;phase=u*cycles
             source_frame=start+(end-start)*(phase%1 if u<1 and recipe['loop'] else 1 if recipe['loop'] else u)
@@ -101,7 +153,7 @@ def author(scene,target,target_mapping,requests,height):
                 act=actions['Idle_Loop'];activate(source,act);idle=capture(source,smap,act.frame_range[0])
                 act=actions['Crouch_Idle_Loop'];activate(source,act);down=capture(source,smap,act.frame_range[0])
                 weight=min(1,u/.3,(1-u)/.3);weight=weight*weight*(3-2*weight)
-                pose={key:dict(rotation=idle[key]['rotation'].slerp(down[key]['rotation'],weight),head=idle[key]['head'].lerp(down[key]['head'],weight)) for key in idle if key in down}
+                pose=blend_crouch_pose(idle,down,weight,finger_parents)
             reset_pose();desired={};target_to_semantic={name:key for key,name in mapping.items()}
             for b in ordered:
                 key=target_to_semantic.get(b.name)
@@ -139,6 +191,7 @@ def author(scene,target,target_mapping,requests,height):
                     bone.rotation_quaternion=rest[bone.name].inverted()@parent_rest@parent_pose.inverted()@world;desired[bone.name]=world
                 # Keep the foot orientation from the authored clip after the leg solve.
                 world=desired[foot.name];foot.rotation_quaternion=rest[foot.name].inverted()@rest[foot.parent.name]@desired[foot.parent.name].inverted()@world
+            drive_forearm_twists(target, mapping, twists, rest, rest_heads, previous=twist_angles)
             for name in set(mapping.values()):
                 p=target.pose.bones[name];p.keyframe_insert('rotation_quaternion',frame=frame,group=p.name)
             root.keyframe_insert('location',frame=frame,group=root.name)
