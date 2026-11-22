@@ -67,7 +67,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  function updateSelectionControls(job){
   const enabled=canAdd(job),count=selectedClips.size;
   $('createRig').disabled=!canEdit(job)||!rigSetup?.ready;
-  $('animationSelection').hidden=tab!=='library'||!batchAvailable||!batchLimit;
+  $('animationSelection').hidden=tab!=='library'||isCreatureRig(job)||!batchAvailable||!batchLimit;
   $('selectAnimations').disabled=!enabled;
   $('selectAnimations').setAttribute('aria-pressed',String(selecting));
   $('selectAnimations').querySelector('span').textContent=selecting?'Cancel selection':'Select clips';
@@ -279,18 +279,21 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
    $('animationRigState').textContent=rigged?(bones?`${bones} bones · ready to animate`:'Rigged · ready to animate')
     :done?'Add a rig to use the motion library.':'Open a completed model from the collection.';
   }
-  $('animationTabLibrary').hidden=$('animationTabPersonal').hidden=creature;
-  if(creature&&tab!=='added')setTab('Added');
   const q=$('animationSearch').value.toLocaleLowerCase('en'),added=embeddedClips(job),addedTab=tab==='added',personalTab=tab==='personal';
+  const compatibility=$('animationRigCompatibility');
+  compatibility.hidden=!creature||addedTab;
+  compatibility.textContent=personalTab
+   ? 'Text-to-motion creates humanoid animations. You can save them here and apply them to a humanoid rig.'
+   : 'These motions are for humanoid rigs. Preview them here or select a humanoid to apply them.';
   $('animationAddedCount').textContent=added.length;
-  $('animationDurationControl').hidden=tab!=='library';
+  $('animationDurationControl').hidden=tab!=='library'||creature;
   $('animationCategory').hidden=tab!=='library';
   $('animationSearch').placeholder=addedTab?'Search added clips…':personalTab?'Search my animations…':'Search standard animations…';
   $('personalAnimationComposer').hidden=!personalTab;
   $('personalAnimationLibraryHeading').hidden=!personalTab;
   $('personalAnimationCards').hidden=!personalTab;
   $('personalMotionNotice').hidden=!personalTab;
-  $('personalMotionApplyHint').hidden=!personalTab;
+  $('personalMotionApplyHint').hidden=!personalTab||creature;
   $('animationCards').hidden=personalTab;
   $('rigPanel').classList.toggle('personal-motion-mode',personalTab);
   personal.setVisible(personalTab,q);

@@ -251,6 +251,7 @@
 </section>
 <p id="animationNotice" role="status" aria-live="polite"></p>
 <div id="animationLibraryControls">
+ <p id="animationRigCompatibility" class="personal-motion-apply-hint" hidden></p>
  <details id="personalAnimationComposer" class="personal-motion-composer" hidden aria-labelledby="personalMotionHeading">
   <summary class="personal-motion-summary"><span class="personal-motion-symbol"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#motion"/></svg></span><span class="personal-motion-heading"><span class="eyebrow">TEXT TO MOTION <span class="personal-motion-beta">EXPERIMENTAL</span></span><span id="personalMotionHeading">Generate a motion</span></span><span class="personal-composer-expand" aria-hidden="true">+</span></summary>
   <p class="personal-motion-intro">Describe a movement. Save it once, then reuse it on your rigged characters.</p>
@@ -320,7 +321,7 @@
 <dialog id="animationRemoveDialog" aria-labelledby="animationRemoveTitle" aria-describedby="animationRemoveDescription"><form method="dialog"><h2 id="animationRemoveTitle">Remove animation?</h2><p id="animationRemoveDescription">Remove <strong id="animationRemoveName"></strong> from this model?</p><div class="dialog-actions"><button value="cancel" class="secondary" autofocus>Keep clip</button><button value="remove" class="danger has-icon"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#trash"/></svg>Remove clip</button></div></form></dialog>
 <dialog id="imageDialog"><button class="dialog-close" id="closeImage">Close ×</button><img id="largeImage" alt="Full-size texture or UV layout"></dialog>
 <footer><span>TRELLIS STUDIO</span><span>Reference → generation → review → Blender</span><span>UV & PBR · local compute</span></footer>
-<script type="module" src="/web/studio.js?v=rig-upgrades"></script><script type="module" src="/web/validation-en.js?v=3.4.0"></script>
+<script type="module" src="/web/studio.js?v=animation-tabs"></script><script type="module" src="/web/validation-en.js?v=3.4.0"></script>
 <div id="refinishDialog" class="refinish-popover" popover="auto" role="dialog" aria-labelledby="refinishTitle">
 <form id="refinishForm">
   <header class="refinish-head">
