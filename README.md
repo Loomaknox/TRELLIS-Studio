@@ -194,6 +194,16 @@ Diagnostics report measured topology, UV presence/collapse, normals, textures, d
 
 The initial markers are editable guides, not automatic landmark detection. Manual placement supports upright humanoids in an A-pose or T-pose: frontal positions constrain the predicted skeleton **before skin weights are calculated**, while UniRig retains its predicted depth. Ambiguous skeleton mappings stop with an error rather than ignoring the markers. This step does not rebuild mesh anatomy or add a facial rig. Existing skins can still be retained through the API without new landmarks; editing an already skinned skeleton is a separate workflow.
 
+Choose **Advanced** on the original unrigged humanoid to add forearm twist bones.
+Use rigid hands for simple geometry or enable **Articulated fingers** on a character
+whose fingers are separated. Auto uses the existing humanoid rigging workflow.
+
+Choose **Creature** for an unrigged non-humanoid mesh. Review the predicted skeleton
+in the 3D editor, adjust endpoints or edit chains, then calculate skin weights.
+Choose a deformation check or a procedural quadruped, serpentine or wing-flap
+preview loop. Review the result before exporting GLB or FBX. The preview loops
+depend on the skeleton anatomy.
+
 The library uses the **free Standard editions** of Quaternius Universal Animation Libraries 1 and 2 under **CC0-1.0**. Entries cover locomotion, crouching, jumping, a ledge climb with root motion, interactions, combat, reactions and emotes. Card previews show each motion on its source mannequin. The retargeter adapts timing, body and finger rotations, and root travel to the fitted rig. Review grips, foot contacts, props and transitions on the target character.
 
 **My animations** adds optional text-to-motion generation for humanoids. Describe an action, choose 2–10 seconds and keep the result as a reusable 3D preview card. **Add to model** appends the saved motion to the selected rigged model, keeping the same collection card and its existing clips; already attached motions show **Added**. Standard animation additions also update the selected model. REST and MCP expose the same workflow. Windows Setup can install and configure the experimental CPU engine after explicit selection and licence acceptance, or you can add it later with **Install Kimodo motion generation**. On Server, a new motion costs one credit for a standard account; reusing a saved motion costs none. See [generated motions and runtime setup](docs/MOTION_GENERATION.md).

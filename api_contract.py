@@ -229,6 +229,9 @@ class AnimationRemoval(Contract):
         return self
 
 class Rig(Contract):
+    mode: Literal['humanoid', 'creature'] | None = None
+    profile: Literal['auto', 'advanced'] | None = None
+    articulated_fingers: bool | None = Field(default=None, description='Enable independent finger joints with the Advanced rig. Requires separated fingers.')
     rotation:tuple[float,float,float]=(0,0,0)
     height_m:float=Field(default=1.7,ge=.2,le=3)
     offset_m:float=Field(default=0,ge=-1,le=1)
@@ -238,9 +241,29 @@ class Rig(Contract):
     def validate_setup(cls,value):
         from rig_landmarks import validate_rig_options
         if isinstance(value,dict):
-            raw={k:v for k,v in value.items() if k!='landmarks' or v is not None}
+            raw = {k: v for k, v in value.items()
+                   if k not in ('landmarks', 'mode', 'profile', 'articulated_fingers') or v is not None}
             validate_rig_options(raw)
         return value
+
+class CreatureBone(Contract):
+    name: str
+    parent: str | None
+    head: tuple[float, float, float]
+    tail: tuple[float, float, float]
+
+
+class CreatureRigCompletion(Contract):
+    revision: str = Field(pattern=r'^[a-f0-9]{64}$')
+    bones: list[CreatureBone] = Field(min_length=1, max_length=512)
+    motion: Literal['none', 'test', 'quadruped', 'serpentine', 'winged'] = 'test'
+
+    @model_validator(mode='before')
+    @classmethod
+    def validate_edit(cls, value):
+        from creature_rig import validate_creature_edit
+        return validate_creature_edit(value)
+
 
 class PrintCopy(Contract):
     height_mm:float=Field(default=150,ge=20,le=500)

@@ -1,10 +1,11 @@
 import {icon} from './card-menu.js?v=2.6.1';
 import {createMotionPreviews} from './authored-previews.js?v=3.4.0';
 import {createPersonalAnimationLibrary} from './personal-animation-library.js?v=3.4.0-motion2';
-export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,rigSetup,getClips,playClip}){
+import {createCreatureRigEditor,isCreatureRig,isCreatureRigDraft} from './creature-rig-editor.js?v=rig-upgrades';
+export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,rigSetup,creatureViewer,getClips,playClip}){
  const $=id=>document.getElementById(id),data=await api('/api/animations');
  let tab='library';const catalog=data.animations,previews=createMotionPreviews();
- let batchAvailable=false,removeAvailable=false;
+ let batchAvailable=false,removeAvailable=false,advancedRigAvailable=false,creatureRigAvailable=false;
  let selecting=false,selectionTarget=null,submitting=false;
  let clipNotice=null,removal=null;
  const selectedClips=new Set();
@@ -15,11 +16,15 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  $('animationDuration').oninput=()=>{$('animationDurationValue').value=Number($('animationDuration').value).toLocaleString('en-US')+' s';};
  const hasRig=job=>Boolean(job?.result?.bones||job?.result?.rigged||job?.media?.bones);
  const canEdit=job=>job?.state==='done'&&!isBusy()&&!submitting;
- const canAdd=job=>canEdit(job)&&hasRig(job);
+ const canAdd=job=>canEdit(job)&&hasRig(job)&&!isCreatureRig(job);
  const canRemove=job=>canEdit(job)&&removeAvailable;
  const personal=createPersonalAnimationLibrary({api,getJob,canAdd,
   applyMotion:(job,motion)=>editClips(job,'POST',{animation_id:motion.id,in_place:false},'Animation added.',false,`/api/jobs/${encodeURIComponent(job.id)}/my-animations`),
   onCount:count=>{$('personalAnimationCount').textContent=count;}});
+ const creatureEditor=createCreatureRigEditor({api,viewer:creatureViewer,startJob,isBusy,onVisibility(visible){
+  document.body.classList.toggle('creature-rig-editing',visible);
+  $('animationLibraryControls').hidden=visible||Boolean(rigJobId);
+ }});
 
  function authoredMotion(name){
   const match=/^TS_(.+)_([0-9.]+)s$/.exec(name||'');
@@ -146,9 +151,41 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  for(const axis of ['X','Y','Z']){const label=document.createElement('label');label.className='rig-rotation';const caption=document.createElement('span');caption.textContent='Rotation '+axis;const slider=document.createElement('input');slider.type='range';slider.min=-180;slider.max=180;slider.step=1;slider.value=0;slider.setAttribute('aria-label','Rotation '+axis);const value=document.createElement('output');value.value='0°';const reset=document.createElement('button');reset.type='button';reset.className='quiet';reset.append(icon('rotate'));reset.setAttribute('aria-label','Reset rotation '+axis);reset.onclick=()=>{slider.value=0;changeRig();};slider.oninput=changeRig;label.append(caption,slider,value,reset);rotation.push(slider);$('rigRotationControls').append(label);}
  function rigOptions(){return {rotation:rotation.map(s=>Number(s.value)),height_m:Number($('rigHeight').value),offset_m:Number($('rigOffset').value)};}
  function changeRig(){rotation.forEach(s=>s.nextElementSibling.value=s.value+'°');$('rigHeightValue').value=Number($('rigHeight').value).toLocaleString('en-US',{minimumFractionDigits:2})+' m';$('rigHeightNumber').value=$('rigHeight').value;$('rigOffsetValue').value=Number($('rigOffset').value).toLocaleString('en-US')+' m';rigSetup?.preview(rigOptions());}
- function showRigStep(step){rigStep=step;$('rigTransformStep').hidden=step!==0;$('rigLandmarkStep').hidden=step!==1;$('rigStepLabel').textContent=step===0?'01 / Size & orientation':'02 / Joint placement';$('confirmRigSetup').textContent=step===0?'Next · place joints':'Confirm & create rig';$('cancelRigSetup').textContent=step===0?'Cancel':'Back';}
- function closeRig(){document.body.classList.remove('rig-preparing');rigSetup?.close();rigJobId=null;savedLandmarks=null;$('rigSetup').hidden=true;$('animationLibraryControls').hidden=false;}
- $('createRig').onclick=()=>{if(!rigSetup?.ready)return;document.body.classList.add('rig-preparing');rigJobId=getJob()?.id;savedLandmarks=null;$('rigSetup').hidden=false;$('animationLibraryControls').hidden=true;showRigStep(0);rotation.forEach(s=>s.value=0);$('rigHeight').value=Math.min(3,Math.max(.2,getJob()?.result?.height_m||1.7));$('rigOffset').value=0;$('rigSymmetry').checked=true;changeRig();};
+ function showRigStep(step){
+  rigStep=step;
+  const creature=creatureRigAvailable&&$('rigMode').value==='creature';
+  const profiles=step===0&&!creature&&advancedRigAvailable;
+  const advanced=profiles&&$('rigProfile').value==='advanced';
+  $('rigModeField').hidden=step!==0||!creatureRigAvailable;
+  $('rigProfileFields').hidden=!profiles;
+  $('rigFingerField').hidden=$('rigAdvancedHint').hidden=!advanced;
+  $('rigCreatureStep').hidden=!creature;
+  $('rigTransformStep').hidden=step!==0||creature;
+  $('rigLandmarkStep').hidden=step!==1;
+  $('resetRigSetup').hidden=creature;
+  $('rigStepLabel').textContent=creature?'Skeleton prediction':step===0?'01 / Size & orientation':'02 / Joint placement';
+  $('confirmRigSetup').textContent=creature?'Predict skeleton':step===0?'Next · place joints':'Confirm & create rig';
+  $('cancelRigSetup').textContent=step===0?'Cancel':'Back';
+ }
+ function closeRig(){
+  document.body.classList.remove('rig-preparing');rigSetup?.close();rigJobId=null;savedLandmarks=null;
+  $('rigSetup').hidden=true;
+  creatureEditor.close();
+ }
+ $('createRig').onclick=()=>{
+  if(!rigSetup?.ready||!canEdit(getJob()))return;
+  document.body.classList.add('rig-preparing');rigJobId=getJob()?.id;savedLandmarks=null;
+  $('rigSetup').hidden=false;$('animationLibraryControls').hidden=true;
+  $('rigMode').value='humanoid';$('rigProfile').value='default';$('rigArticulatedFingers').checked=true;
+  showRigStep(0);rotation.forEach(s=>s.value=0);
+  $('rigHeight').value=Math.min(3,Math.max(.2,getJob()?.result?.height_m||1.7));
+  $('rigOffset').value=0;$('rigSymmetry').checked=true;changeRig();
+ };
+ $('rigMode').onchange=()=>{
+  showRigStep(0);
+  if($('rigMode').value==='creature')rigSetup.close();else changeRig();
+ };
+ $('rigProfile').onchange=()=>showRigStep(0);
  $('rigHeight').oninput=changeRig;$('rigOffset').oninput=changeRig;
  $('rigHeightNumber').oninput=()=>{const input=$('rigHeightNumber');if(!input.validity.valid||!input.value)return;$('rigHeight').value=input.value;changeRig();};
  $('cancelRigSetup').onclick=()=>{if(rigStep===1){savedLandmarks=rigSetup.getLandmarks();rigSetup.endMarkers();showRigStep(0);}else closeRig();};
@@ -157,19 +194,29 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  $('confirmRigSetup').onclick=async()=>{
   const options=rigOptions(),j=getJob(),button=$('confirmRigSetup');
   if(!j||j.id!==rigJobId){closeRig();return;}
-  if(rigStep===0){
+  if(!canEdit(j)||button.disabled)return;
+  const creature=creatureRigAvailable&&$('rigMode').value==='creature';
+  const advanced=advancedRigAvailable&&$('rigProfile').value==='advanced';
+  if(rigStep===0&&!creature){
    if(!$('rigHeightNumber').reportValidity())return;
    $('animationNotice').textContent='';showRigStep(1);
    rigSetup.startMarkers({points:savedLandmarks,symmetry:$('rigSymmetry').checked,onChange:(points,key)=>{
     $('rigSelectedPoint').textContent=key.replaceAll('_',' ')+' · '+points[key].map(v=>(v*options.height_m).toFixed(3)).join(', ')+' m';
    }});return;
   }
-  options.landmarks=rigSetup.getLandmarks();button.disabled=true;$('animationNotice').textContent='';
+  if(!creature){
+   options.landmarks=rigSetup.getLandmarks();
+   if(advanced){options.profile='advanced';options.articulated_fingers=$('rigArticulatedFingers').checked;}
+  }
+  button.disabled=true;$('animationNotice').textContent=creature?'Queueing the skeleton prediction…':'';
   try{
    const status=await api('/api/status');
-   if(!status.features?.includes('rig_landmarks'))throw Error('Restart TRELLIS to enable manual joint placement before creating this rig.');
+   if(creature&&!status.features?.includes('creature_rig'))throw Error('Creature rigging is unavailable on this Studio installation.');
+   if(!creature&&!status.features?.includes('rig_landmarks'))throw Error('Restart TRELLIS to enable manual joint placement before creating this rig.');
+   if(!creature&&advanced&&!status.rig_profiles?.includes('advanced'))throw Error('The Advanced profile is unavailable on this Studio installation.');
    if(getJob()?.id!==j.id||rigJobId!==j.id)return;
-   const result=await api(`/api/jobs/${j.id}/rig`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(options)});
+   const result=await api(`/api/jobs/${j.id}/rig`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(creature?{mode:'creature'}:options)});
+   $('animationNotice').textContent='';
    closeRig();await startJob(result.id,{rig:true});
   }catch(error){$('animationNotice').textContent=error.message;}
   finally{button.disabled=false;render();}
@@ -212,12 +259,28 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  }
 
  function render(){
-  const job=getJob(),rigged=hasRig(job),done=job?.state==='done';
+  const job=getJob(),rigged=hasRig(job),done=job?.state==='done',creature=isCreatureRig(job);
+  const editing=creatureEditor.sync(job,creatureRigAvailable&&!$('rigPanel').hidden);
+  if(editing){
+   previews.clear();
+   personal.setVisible(false,'');
+   return;
+  }
   if(selectionTarget!==job?.id||!batchAvailable)resetSelection();
   selectionTarget=job?.id;
-  $('animationModel').textContent=nameOf(job);$('createRig').hidden=rigged;
+  $('animationModel').textContent=nameOf(job);$('createRig').hidden=rigged||creature;
+  $('animateSourceHint').hidden=!rigged||!(advancedRigAvailable||creatureRigAvailable);
   const bones=job?.result?.bones||job?.media?.bones;
-  $('animationRigState').textContent=rigged?(bones?`${bones} bones · ready to animate`:'Rigged · ready to animate'):done?'Add a rig to use the motion library.':'Open a completed model from the collection.';
+  if(creature){
+   const warning=job?.result?.creature_motion?.warning;
+   const details=['Creature rig',bones?`${bones} bones`:null,warning].filter(Boolean);
+   $('animationRigState').textContent=rigged?details.join(' · '):'Preparing creature rig…';
+  }else{
+   $('animationRigState').textContent=rigged?(bones?`${bones} bones · ready to animate`:'Rigged · ready to animate')
+    :done?'Add a rig to use the motion library.':'Open a completed model from the collection.';
+  }
+  $('animationTabLibrary').hidden=$('animationTabPersonal').hidden=creature;
+  if(creature&&tab!=='added')setTab('Added');
   const q=$('animationSearch').value.toLocaleLowerCase('en'),added=embeddedClips(job),addedTab=tab==='added',personalTab=tab==='personal';
   $('animationAddedCount').textContent=added.length;
   $('animationDurationControl').hidden=tab!=='library';
@@ -269,11 +332,16 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   updateSelectionControls(job);
  }
  const tabs=['Library','Personal','Added'];
+ function setTab(name){
+  tab=name.toLowerCase();
+  for(const t of tabs){const active=t===name;$('animationTab'+t).classList.toggle('active',active);$('animationTab'+t).setAttribute('aria-selected',String(active));$('animationTab'+t).tabIndex=active?0:-1;}
+  resetSelection();$('animationSearch').value='';
+ }
  for(const [index,name] of tabs.entries()){
   const button=$('animationTab'+name);
-  button.onclick=()=>{tab=name.toLowerCase();for(const t of tabs){const active=t===name;$('animationTab'+t).classList.toggle('active',active);$('animationTab'+t).setAttribute('aria-selected',String(active));$('animationTab'+t).tabIndex=active?0:-1;}resetSelection();$('animationSearch').value='';render();};
+  button.onclick=()=>{setTab(name);render();};
   button.tabIndex=index===0?0:-1;
-  button.onkeydown=event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;const target=$('animationTab'+tabs[next]);target.click();target.focus();};
+  button.onkeydown=event=>{const visible=tabs.filter(t=>!$('animationTab'+t).hidden);if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)||visible.length<2)return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?visible.length-1:(visible.indexOf(name)+(event.key==='ArrowRight'?1:-1)+visible.length)%visible.length;const target=$('animationTab'+visible[next]);target.click();target.focus();};
  }
  $('animationSearch').oninput=render;$('animationCategory').onchange=render;
  let signature='';
@@ -288,15 +356,17 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   setCapabilities(status){
    batchAvailable=status.features?.includes('animation_batch')===true;
    removeAvailable=status.features?.includes('animation_clip_removal')===true;
+   advancedRigAvailable=status.features?.includes('rig_profiles')===true&&status.rig_profiles?.includes('advanced')===true;
+   creatureRigAvailable=status.features?.includes('creature_rig')===true;
   },
   modelLoaded(){
-   if(tab==='added'||!Array.isArray(getJob()?.media?.animation_items))render();
+   if(isCreatureRigDraft(getJob())||tab==='added'||!Array.isArray(getJob()?.media?.animation_items))render();
   },
   update(){
    const job=getJob();
    if(rigJobId&&rigJobId!==job?.id)closeRig();
-   const key=JSON.stringify([job?.id,job?.state,job?.result?.bones,job?.result?.rigged,job?.result?.revision,
-    job?.media?.bones,job?.media?.animation_items,job?.media?.animation_names,job?.media?.animation_revision,isBusy(),rigSetup?.ready,batchAvailable,removeAvailable]);
+   const key=JSON.stringify([job?.id,job?.state,job?.rig_phase,job?.result?.bones,job?.result?.rigged,job?.result?.revision,job?.result?.creature_motion?.warning,
+    job?.media?.bones,job?.media?.animation_items,job?.media?.animation_names,job?.media?.animation_revision,isBusy(),rigSetup?.ready,batchAvailable,removeAvailable,advancedRigAvailable,creatureRigAvailable]);
    if(signature!==key){signature=key;render();}
   },
   render,

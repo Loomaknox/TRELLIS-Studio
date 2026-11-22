@@ -150,6 +150,21 @@ deformations. Existing skinned models reject manual landmarks with HTTP 409;
 omitting `landmarks` preserves the previous rig workflow. Check the
 `rig_landmarks` feature in `/status` before submitting points to a running server.
 
+**Advanced** creates a linked rig from an unskinned humanoid. Send
+`profile: "advanced"` with the usual placement settings. It adds two forearm
+twist joints. Set `articulated_fingers: true` only on meshes with separate digits.
+The result reports the profile, joint count and twist mapping.
+
+**Creature** predicts an editable skeleton from an unskinned mesh. Send
+`{"mode":"creature"}` to `POST /models/{id}/rig` and poll the new job until
+`state: "done"` and `rig_phase: "draft"`. Read
+`GET /models/{draftId}/rig-preview` for the revision and bones. Each bone has a
+name, parent or `null`, and head and tail coordinates in the source glTF Y-up
+frame. Submit the revision, edited bones and a motion choice to
+`POST /models/{draftId}/rig-complete`. The available choices are `test`,
+`quadruped`, `serpentine`, `winged` and `none`. Completion skins the same
+draft and keeps its ID. The original model remains available as a linked source.
+
 Generation, LOD, game preparation, print preparation and rigging create linked
 versions as described in the reference. Metadata, standard animation updates and
 generated-motion application operate on the selected record. Model deletion moves

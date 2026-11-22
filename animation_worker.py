@@ -96,7 +96,9 @@ try:
         status('running', 'Adding motions to model', 35)
         if changed:
             write(stage/'settings.json', dict(settings, animation_clips=request['clips'], rig_options=None,
-                                             regenerate_ids=changed, previous_animation_set=previous_clips))
+                                             regenerate_ids=changed, previous_animation_set=previous_clips,
+                                             existing_rig_profile=previous_result.get('rig_profile'),
+                                             existing_humanoid_mapping=previous_result.get('humanoid_mapping')))
             shutil.copy2(source, stage/'rig-work'/'rigged.glb')
             run_blender('standard_animations.py', 240 + 20 * (len(changed) - 1))
             authored = json.loads((stage/'result.json').read_text(encoding='utf-8'))

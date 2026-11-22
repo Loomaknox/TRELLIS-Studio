@@ -615,6 +615,16 @@ class Store:
                 job_id = job['job_id']
                 existing = connection.execute('SELECT * FROM jobs WHERE user_id=? AND id=?', (identifier, job_id)).fetchone()
                 if existing:
+                    if job.get('resume'):
+                        if existing['state'] not in TERMINAL_STATES or existing['credit_cost'] or job.get('generation'):
+                            raise StoreError('This rig cannot be resumed while an operation is pending.', 409, 'job_pending')
+                        reserve_bytes = job['reserve_bytes']
+                        self._check_storage(connection, user, reserve_bytes)
+                        connection.execute(
+                            "UPDATE jobs SET state='reserved',reserve_bytes=?,updated=? WHERE user_id=? AND id=?",
+                            (reserve_bytes, time.time(), identifier, job_id))
+                        existing = connection.execute('SELECT * FROM jobs WHERE user_id=? AND id=?',
+                                                      (identifier, job_id)).fetchone()
                     result.append(dict(existing))
                     continue
                 cost = int(bool(job.get('generation', True)) and user['role'] != 'admin')

@@ -51,6 +51,18 @@ def validate_landmarks(value):
 def validate_rig_options(value):
     if not isinstance(value, dict):
         raise ValueError('Invalid rig options.')
+    mode = value.get('mode', 'humanoid')
+    if mode not in ('humanoid', 'creature'):
+        raise ValueError('Choose a humanoid or creature rig.')
+    if mode == 'creature':
+        if value.keys() - {'mode'}:
+            raise ValueError('Creature rigs use the original model orientation and scale.')
+        return {'mode': 'creature'}
+    profile = value.get('profile', 'auto')
+    if profile not in ('auto', 'advanced'):
+        raise ValueError('Choose the Auto or Advanced rig profile.')
+    if 'articulated_fingers' in value and (profile != 'advanced' or type(value['articulated_fingers']) is not bool):
+        raise ValueError('Articulated fingers is a true or false option for Advanced rigs.')
     rotation = value.get('rotation', [0, 0, 0])
     height = value.get('height_m', 1.7)
     offset = value.get('offset_m', 0)
@@ -62,4 +74,6 @@ def validate_rig_options(value):
     result = dict(rotation=list(rotation), height_m=float(height), offset_m=float(offset))
     if 'landmarks' in value:
         result['landmarks'] = validate_landmarks(value['landmarks'])
+    if profile == 'advanced':
+        result.update(profile=profile, articulated_fingers=value.get('articulated_fingers', False))
     return result

@@ -295,7 +295,17 @@ def install(app,g):
     async def printing(identifier:Identifier,data:PrintCopy):return accepted(await legacy('POST',f'/api/jobs/{identifier}/print-copy',data.model_dump()))
 
     @router.post('/models/{identifier}/rig',tags=['Animation'],status_code=202,response_model=JobAccepted,summary='Generate a UniRig skeleton on a linked copy')
-    async def rig(identifier:Identifier,data:Rig):return accepted(await legacy('POST',f'/api/jobs/{identifier}/rig',data.model_dump(exclude_none=True)))
+    async def rig(identifier: Identifier, data: Rig):
+        return accepted(await legacy('POST', f'/api/jobs/{identifier}/rig', data.model_dump(exclude_none=True, exclude_unset=True)))
+
+    @router.get('/models/{identifier}/rig-preview', tags=['Animation'], summary='Inspect the editable creature skeleton')
+    async def rig_preview(identifier: Identifier):
+        return await legacy('GET', f'/api/jobs/{identifier}/rig-preview')
+
+    @router.post('/models/{identifier}/rig-complete', tags=['Animation'], status_code=202,
+                 response_model=JobAccepted, summary='Complete a creature rig and optionally apply a preview loop')
+    async def rig_complete(identifier: Identifier, data: CreatureRigCompletion):
+        return accepted(await legacy('POST', f'/api/jobs/{identifier}/rig-complete', data.model_dump()))
 
     def animation_accepted(result):
         if 'operation_id' not in result:

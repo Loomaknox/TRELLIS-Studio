@@ -398,3 +398,22 @@
 !/docs/RELEASE_3.12.0.md
 !/docs/RELEASE_3.13.0.md
 !/docs/ULTRATEX.md
+
+# Advanced humanoid rigs and editable creature skeletons.
+!/rig_profiles_blender.py
+!/creature_rig.py
+!/creature_motion.py
+!/creature_verification.py
+!/UniRig/apply-creature.py
+!/web/creature-rig-editor.js
+!/web/creature-rig-viewer.js
+!/tests/animation_names.py
+!/tests/narrow_a_pose.py
+!/tests/narrow_a_pose.json
+!/tests/rig_profiles_blender.py
+!/tests/creature_workflow_api.py
+!/tests/rig_advanced_pipeline.py
+!/tests/creature_core.py
+!/tests/creature_motion_blender.py
+!/tests/creature_apply_blender.py
+!/tests/creature_rig_editor.mjs

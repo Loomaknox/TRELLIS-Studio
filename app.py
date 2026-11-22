@@ -161,6 +161,8 @@ PREPARED_OUTPUT_KINDS = ('unirig', 'animation_copy', 'texture_projection', 'bake
 
 
 def prepared_output_ready(settings, status):
+    if settings.get('creature_phase') == 'draft' or status.get('rig_phase') == 'draft':
+        return False
     return (settings.get('source_kind') not in PREPARED_OUTPUT_KINDS or status.get('state') == 'done'
             or status.get('operation') == 'animation')
 
@@ -330,7 +332,7 @@ def status():
                 texture_methods=dict(trellis=dict(available=True, reason=''),
                                      multiview=multiview_texture_capability(), ultratex=ultratex_texture_capability()),
                 edition='server' if WORKSPACE_CONFIG else 'desktop',
-                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','hd_reconstruction','hd_master_finishing','pixal3d_multiview','pixal3d_face_projection','texture_projection','multiview_texture_refinement','baked_game_copy'], texture_sizes=textures,supported_resolutions=resolutions)
+                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','rig_profiles','creature_rig','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','hd_reconstruction','hd_master_finishing','pixal3d_multiview','pixal3d_face_projection','texture_projection','multiview_texture_refinement','baked_game_copy'], rig_profiles=['advanced'], texture_sizes=textures,supported_resolutions=resolutions)
 
 @app.get('/api/components')
 def components():
@@ -408,29 +410,127 @@ async def import_version(identifier: str):
         write_json(destination/'status.json',dict(state='done',stage='New version',progress=100,result=record.get('result')))
         return {'id':destination.name}
 
-@app.post('/api/jobs/{identifier}/rig',status_code=201)
-async def rig_model(identifier: str,request: Request):
-    from rig_landmarks import validate_rig_options
+def rig_input_file(folder, name):
+    path = folder / name
+    if not path.is_file() or path.resolve() != path:
+        raise HTTPException(409, 'The rig source is unavailable.')
+    return path
+
+
+def rig_digest(path):
+    with path.open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+async def rig_json(request, limit):
+    payload = bytearray()
+    async for chunk in request.stream():
+        if len(payload) + len(chunk) > limit:
+            raise HTTPException(413, 'Rig options are too large.')
+        payload.extend(chunk)
     try:
-        raw=await request.body();options=json.loads(raw) if raw else {}
-        options=validate_rig_options(options)
-    except (ValueError,TypeError,KeyError) as error:raise HTTPException(400,str(error) or 'Invalid rig options.')
+        return json.loads(payload) if payload else {}
+    except (ValueError, RecursionError) as error:
+        raise HTTPException(400, 'Invalid rig options.') from error
+
+
+@app.post('/api/jobs/{identifier}/rig', status_code=201)
+async def rig_model(identifier: str, request: Request):
+    from rig_landmarks import validate_rig_options
+
+    try:
+        options = validate_rig_options(await rig_json(request, 16 * 1024))
+    except (ValueError, TypeError) as error:
+        raise HTTPException(400, str(error) or 'Invalid rig options.') from error
+    creature = options.get('mode') == 'creature'
+    advanced = options.get('profile') == 'advanced'
     async with LOCK:
-        require_idle();source=job_path(identifier);record=job_record(source)
-        if record['state']!='done' or not (source/'model.glb').is_file(): raise HTTPException(409,'Choose a completed model.')
-        if record['settings'].get('asset_type')=='terrain_unity': raise HTTPException(400,'Choose a character or mesh object.')
-        if options.get('landmarks') and validate_glb(source/'model.glb').get('skins'):
-            raise HTTPException(409,'This model already has a skeleton. Landmark placement requires an unrigged copy.')
-        if not components()['unirig'].get('ready') or not find_blender(): raise HTTPException(503,'UniRig or Blender is unavailable. Run Open TRELLIS.cmd and check its diagnostic log.')
-        destination=OUTPUT/uuid.uuid4().hex;destination.mkdir()
-        shutil.copy2(source/'model.glb',destination/'source.glb')
-        if (source/'input.png').exists(): shutil.copy2(source/'input.png',destination/'input.png')
-        write_json(destination/'settings.json',dict(name=record['settings']['name']+'-rig',asset_type='rigged',source_kind='unirig',animation_clips=[],rig_options=options,
-                   created=time.time(),parent_id=identifier,height_m=record['settings'].get('height_m',0),texture_size=record['settings'].get('texture_size',0)))
-        write_json(destination/'metadata.json',dict(display_name=(record['metadata'].get('display_name',record['settings']['name'])+' · rig')[:80],review_state='review',favorite=False,tags=['UniRig']))
-        write_json(destination/'status.json',dict(state='queued',stage='Preparing rig',progress=2))
-        launch_worker(destination,'rig_worker.py')
-        return {'id':destination.name}
+        if not WORKSPACE_CONFIG:
+            require_idle()
+        source = job_path(identifier)
+        record = job_record(source)
+        if not record or record['state'] != 'done' or not prepared_output_ready(record['settings'], record):
+            raise HTTPException(409, 'Choose a completed model.')
+        if record['settings'].get('asset_type') == 'terrain_unity':
+            raise HTTPException(400, 'Choose a character or mesh object.')
+        model = rig_input_file(source, 'model.glb')
+        try:
+            skinned = bool((await asyncio.to_thread(validate_glb, model)).get('skins'))
+        except ValueError as error:
+            raise HTTPException(400, 'Choose a valid GLB model.') from error
+        if skinned and (creature or advanced):
+            raise HTTPException(409, 'Open the original unrigged model to create this rig.')
+        if skinned and options.get('landmarks'):
+            raise HTTPException(409, 'This model already has a skeleton. Landmark placement requires an unrigged copy.')
+        if not components()['unirig'].get('ready') or not find_blender():
+            raise HTTPException(503, 'UniRig or Blender is unavailable. Run Open TRELLIS.cmd and check its diagnostic log.')
+        destination = OUTPUT / uuid.uuid4().hex
+        source_settings = record['settings']
+        label = record['metadata'].get('display_name') or source_settings['name']
+        suffix = ' · Creature rig' if creature else ' · Advanced rig' if advanced else ' · rig'
+        settings = dict(name=source_settings['name'] + '-rig', asset_type='rigged', source_kind='unirig',
+                        animation_clips=[], rig_options=options, created=time.time(), parent_id=identifier,
+                        height_m=source_settings.get('height_m', 0), texture_size=source_settings.get('texture_size', 0))
+        stage = 'Predicting creature skeleton' if creature else 'Preparing rig'
+        with TemporaryDirectory(prefix='.rig-', dir=OUTPUT) as temporary:
+            staged = Path(temporary)
+            await asyncio.to_thread(shutil.copy2, model, staged / 'source.glb')
+            if creature:
+                digest = await asyncio.to_thread(rig_digest, staged / 'source.glb')
+                settings.update(creature_phase='draft', rig_source_sha256=digest)
+            reference = source / 'input.png'
+            if reference.is_file() and reference.resolve() == reference:
+                await asyncio.to_thread(shutil.copy2, reference, staged / 'input.png')
+            write_json(staged / 'settings.json', settings)
+            write_json(staged / 'metadata.json', dict(display_name=label[:80-len(suffix)] + suffix,
+                                                     review_state='review', favorite=False, tags=['UniRig']))
+            write_json(staged / 'status.json', dict(state='queued', stage=stage, progress=2))
+            staged.rename(destination)
+        try:
+            launch_worker(destination, 'rig_worker.py')
+        except OSError as error:
+            write_json(destination / 'status.json', dict(state='error', stage='Worker launch failed', progress=0))
+            raise HTTPException(503, 'Unable to start rig preparation.') from error
+        return {'id': destination.name}
+
+
+@app.post('/api/jobs/{identifier}/rig-complete', status_code=202)
+async def rig_complete(identifier: str, request: Request):
+    from creature_rig import validate_creature_edit
+
+    try:
+        data = validate_creature_edit(await rig_json(request, 1024 * 1024))
+    except (ValueError, TypeError) as error:
+        raise HTTPException(400, str(error) or 'Invalid creature skeleton.') from error
+    async with LOCK:
+        if not WORKSPACE_CONFIG:
+            require_idle()
+        folder = job_path(identifier)
+        record = job_record(folder)
+        if not record or not record['settings'].get('creature_phase') or active_job(identifier):
+            raise HTTPException(409, 'Choose an editable creature rig.')
+        state = record['state']
+        if not (state in ('error', 'cancelled') or state == 'done' and record.get('rig_phase') == 'draft'):
+            raise HTTPException(409, 'Wait for an editable creature skeleton.')
+        preview = rig_input_file(folder, 'rig-preview.json')
+        snapshot = rig_input_file(folder, 'source.glb')
+        if await asyncio.to_thread(rig_digest, preview) != data['revision']:
+            raise HTTPException(409, 'The creature skeleton changed. Reopen the current draft.')
+        if await asyncio.to_thread(rig_digest, snapshot) != record['settings'].get('rig_source_sha256'):
+            raise HTTPException(409, 'The creature source changed. Start a new rig from the original model.')
+        rig_input_file(folder, 'rig-work/skeleton.fbx')
+        write_json(folder / 'creature-edit.json', data)
+        write_json(folder / 'settings.json', dict(record['settings'], creature_phase='final'))
+        write_json(folder / 'status.json', dict(state='queued', stage='Preparing creature skin weights', progress=2,
+                                                rig_phase='final'))
+        try:
+            launch_worker(folder, 'rig_worker.py')
+        except OSError as error:
+            write_json(folder / 'status.json', dict(state='error', stage='Worker launch failed', progress=0,
+                                                    rig_phase='draft'))
+            raise HTTPException(503, 'Unable to start the creature rig.') from error
+        return {'id': identifier}
+
 
 from retarget_catalogue import ANIMATIONS as ANIMATION_LIBRARY, BY_ID as ANIMATION_BY_ID
 
@@ -1044,17 +1144,30 @@ def job(identifier: str):
 
 @app.get('/api/jobs/{identifier}/rig-preview')
 def rig_preview(identifier: str):
-    path=job_path(identifier)/'rig-preview.json'
-    if not path.is_file():return dict(ready=False)
-    return dict(ready=True,**json.loads(path.read_text(encoding='utf-8')))
+    folder = job_path(identifier)
+    path = folder / 'rig-preview.json'
+    if not path.is_file() or path.resolve() != path:
+        return dict(ready=False)
+    preview = dict(ready=True, **read_workspace_json(path))
+    settings = read_workspace_json(folder / 'settings.json', {})
+    if settings.get('creature_phase'):
+        from creature_rig import MAX_CREATURE_BONES
+        preview.update(revision=rig_digest(path), max_bones=MAX_CREATURE_BONES)
+        edit = read_workspace_json(folder / 'creature-edit.json', {})
+        if edit.get('revision') == preview['revision']:
+            preview.update(edited_bones=edit['bones'], motion=edit['motion'])
+    return preview
 
 @app.get('/api/jobs/{identifier}/rig-preview-model')
 def rig_preview_model(identifier: str):
     folder=job_path(identifier)
-    path=folder/'rig-work'/'input.glb'
-    if not path.is_file():path=folder/'source.glb'
-    if not path.is_file():raise HTTPException(404)
-    return FileResponse(path,media_type='model/gltf-binary')
+    settings = read_workspace_json(folder / 'settings.json', {})
+    path = folder / 'rig-work' / 'input.glb'
+    if settings.get('creature_phase') or not path.is_file():
+        path = folder / 'source.glb'
+    if not path.is_file() or path.resolve() != path:
+        raise HTTPException(404)
+    return FileResponse(path, media_type='model/gltf-binary')
 
 async def read_generation_image(upload, label='Image', restrict_formats=False):
     content = await upload.read(25 * 1024 * 1024 + 1)
