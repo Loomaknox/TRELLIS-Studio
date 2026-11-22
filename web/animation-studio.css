@@ -44,6 +44,18 @@
 .creature-rig-editing .animation-tabs, .creature-rig-editing .animation-target { display: none; }
 .creature-rig-editing .viewport-docks, .creature-rig-editing #sourceThumb { visibility: hidden; }
 
+.creature-motion-panel { padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.creature-motion-panel [hidden] { display: none; }
+.creature-motion-panel .hint { margin: 0 0 10px; }
+.creature-motion-panel .hint:empty { display: none; }
+.creature-motion-panel fieldset { min-inline-size: 0; padding: 0; margin: 0; border: 0; }
+.creature-motion-panel .field { min-inline-size: 0; }
+.creature-motion-panel .field input { width: 100%; }
+.creature-motion-panel .creature-motion-swim { border-top: 1px solid var(--line); padding-top: 8px; }
+.creature-motion-swim legend { font-size: 11px; color: var(--muted); }
+.creature-motion-panel .creature-motion-reason { color: #d8b47b; }
+#creatureMotionAdd { width: 100%; justify-content: center; margin-top: 8px; }
+
 #animationDurationControl[hidden] { display: none; }
 #animationClipNotice { margin: 0 0 12px; color: #cbdcba; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 #animationClipNotice:empty { display: none; }

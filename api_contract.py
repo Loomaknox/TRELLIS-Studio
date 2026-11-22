@@ -265,6 +265,27 @@ class CreatureRigCompletion(Contract):
         return validate_creature_edit(value)
 
 
+class CreatureMotion(Contract):
+    revision: str = Field(pattern=r'^[0-9]{1,24}$')
+    motion: Literal['test', 'quadruped', 'serpentine', 'winged', 'swim']
+    name: str | None = None
+    duration_s: float | None = Field(default=None, ge=2, le=12)
+    amplitude: float | None = Field(default=None, ge=.1, le=2)
+    cycles: int | None = Field(default=None, ge=1, le=4)
+    phase_lag: float | None = Field(default=None, ge=0, le=1.2)
+    travel_m: float | None = Field(default=None, ge=0, le=.35)
+
+    @model_validator(mode='before')
+    @classmethod
+    def validate_recipe(cls, value):
+        from creature_motion_edit import validate_creature_motion_recipe
+
+        if isinstance(value, dict):
+            validate_creature_motion_recipe({key: item for key, item in value.items()
+                                             if key != 'revision' and item is not None})
+        return value
+
+
 class PrintCopy(Contract):
     height_mm:float=Field(default=150,ge=20,le=500)
     voxel_mm:float=Field(default=1,ge=.15,le=2)

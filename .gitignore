@@ -417,3 +417,6 @@
 !/tests/creature_motion_blender.py
 !/tests/creature_apply_blender.py
 !/tests/creature_rig_editor.mjs
+!/creature_motion_edit.py
+!/web/creature-motions.js
+!/tests/creature_motion_edit.py

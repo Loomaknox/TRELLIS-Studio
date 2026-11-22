@@ -59,7 +59,8 @@ $taskRequired+=@('multiview_texture_runtime.py','multiview_texture_views.py','mu
     'installer/requirements-multiview-texture.txt','licenses/Stable-Diffusion-2.1-OpenRAIL++-M.txt')
 $taskRequired+=@('studio_release.py','web/release-notification.css','web/release-notification.js')
 $taskRequired+=@('rig_profiles_blender.py','creature_rig.py','creature_motion.py','creature_verification.py',
-    'UniRig/apply-creature.py','web/creature-rig-editor.js','web/creature-rig-viewer.js')
+    'UniRig/apply-creature.py','web/creature-rig-editor.js','web/creature-rig-viewer.js',
+    'creature_motion_edit.py','web/creature-motions.js')
 $taskRequired+=@('collection_preview.py','collection_preview_renderer.py','web/collection-previews.js',
     'web/collection-preview-capture.js','web/collection-preview-render.js')
 $taskRequired+=@('figure_master_repair.py','ultratex_runtime.py','ultratex_worker.py','web/texture-methods.js',

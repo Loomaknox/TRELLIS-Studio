@@ -165,6 +165,14 @@ frame. Submit the revision, edited bones and a motion choice to
 `quadruped`, `serpentine`, `winged` and `none`. Completion skins the same
 draft and keeps its ID. The original model remains available as a linked source.
 
+On a completed skinned GLB, `GET /models/{id}/creature-motions` returns the
+available procedural motions, defaults and current GLB revision. Send this
+revision and a motion ID to `POST /models/{id}/creature-motions`. The request
+can set name, duration, amplitude and cycle count. Jellyfish swim also accepts
+`phase_lag` in seconds and `travel_m` in metres. Poll the returned
+`status_url`. The operation appends a clip to the same model and uses its
+existing skin and skeleton.
+
 Generation, LOD, game preparation, print preparation and rigging create linked
 versions as described in the reference. Metadata, standard animation updates and
 generated-motion application operate on the selected record. Model deletion moves

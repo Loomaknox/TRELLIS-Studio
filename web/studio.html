@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="/web/release-notification.css?v=1">
 <script type="importmap">{"imports":{"three":"/vendor/build/three.module.js","three/addons/":"/vendor/examples/jsm/"}}</script>
 <script type="module" src="/web/release-notification.js?v=1"></script>
-<link rel="stylesheet" href="/web/animation-studio.css?v=rig-upgrades"><link rel="stylesheet" href="/web/details.css?v=studio-visual-refresh"><link rel="stylesheet" href="/web/studio-tools.css?v=3.9.0"><link rel="stylesheet" href="/web/lighting.css?v=studio-visual-refinement"><link rel="stylesheet" href="/web/workbench.css?v=board-retexture"><link rel="stylesheet" href="/web/personal-animation.css?v=3.4.0"><link rel="stylesheet" href="/web/texture-projection.css?v=3.9.0">
+<link rel="stylesheet" href="/web/animation-studio.css?v=creature-motions"><link rel="stylesheet" href="/web/details.css?v=studio-visual-refresh"><link rel="stylesheet" href="/web/studio-tools.css?v=3.9.0"><link rel="stylesheet" href="/web/lighting.css?v=studio-visual-refinement"><link rel="stylesheet" href="/web/workbench.css?v=board-retexture"><link rel="stylesheet" href="/web/personal-animation.css?v=3.4.0"><link rel="stylesheet" href="/web/texture-projection.css?v=3.9.0">
 <link rel="stylesheet" href="/web/studio-panels.css?v=figure-master-ultratex">
 <link rel="stylesheet" href="/web/studio-shell.css?v=studio-visual-refresh">
 </head><body>
@@ -188,7 +188,7 @@
 </form>
 <form id="terrainForm" hidden><p class="hint">Procedural terrain, independent of the image-to-3D engine.</p><label class="field">Name<input id="terrainName" value="Terrain-Blackwater" maxlength="50" required></label><label class="field">Terrain<select id="terrainStyle"><option value="hills">Hills</option><option value="mountains">Rocky terrain</option><option value="basin">Basin</option><option value="plateau">Plateaus</option></select></label><div class="two-fields"><label class="field">Side length<select id="terrainSize"><option value="64">64 m</option><option value="128">128 m</option><option value="256" selected>256 m</option><option value="512">512 m</option><option value="1024">1 024 m</option></select></label><label class="field">Maximum elevation<input id="terrainHeight" type="number" min="1" max="250" value="32"></label></div><label class="field">Palette<select id="terrainPalette"><option value="blackwater">Blackwater</option><option value="dry">Dry ground</option><option value="ash">Ash</option></select></label><label class="field">Detail <output id="roughnessValue">55 %</output><input id="roughness" type="range" min=".1" max=".9" step=".05" value=".55"></label><label class="field">Flat area <output id="flatValue">15 %</output><input id="flatZone" type="range" min="0" max=".4" step=".05" value=".15"></label><div class="two-fields"><label class="field">Heightmap<select id="terrainResolution"><option>129</option><option selected>257</option><option>513</option></select></label><label class="field">Seed<input id="terrainSeed" type="number" min="0" max="2147483647" value="42"></label></div><p class="hint">No caves, overhangs or roads are generated. Materials remain editable.</p><button id="createTerrain" class="primary generate-button">Create terrain <span>↗</span></button></form>
 <section id="rigPanel" hidden>
-<div class="animation-tabs" role="tablist" aria-label="Animation libraries"><button id="animationTabLibrary" type="button" role="tab" aria-selected="true" class="active">Standard</button><button id="animationTabPersonal" type="button" role="tab" aria-selected="false">My animations <b id="personalAnimationCount">0</b></button><button id="animationTabAdded" type="button" role="tab" aria-selected="false">Added <b id="animationAddedCount">0</b></button></div>
+<div class="animation-tabs" role="tablist" aria-label="Animation libraries"><button id="animationTabLibrary" type="button" role="tab" aria-selected="true" class="active">Standard</button><button id="animationTabPersonal" type="button" role="tab" aria-selected="false">My animations <b id="personalAnimationCount">0</b></button><button id="animationTabCreature" type="button" role="tab" aria-selected="false" aria-controls="creatureMotionPanel" hidden>Creature</button><button id="animationTabAdded" type="button" role="tab" aria-selected="false">Added <b id="animationAddedCount">0</b></button></div>
 <div class="animation-target"><strong id="animationModel">Choose a model</strong><p id="animationRigState"></p><p id="animateSourceHint" hidden>Open the original unrigged model to try another rig.</p><button id="createRig" class="secondary" type="button"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#skeleton"/></svg>Add rig</button></div>
 <section id="rigSetup" hidden>
  <label id="rigModeField" class="field" hidden>Rig type<select id="rigMode"><option value="humanoid">Humanoid</option><option value="creature">Creature</option></select></label>
@@ -276,6 +276,32 @@
   <div id="animationSelectionActions" class="animation-selection-actions" hidden><button id="clearAnimationSelection" class="quiet has-icon" type="button" aria-label="Clear selected clips"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#close"/></svg>Clear</button><button id="addAnimationSelection" class="primary has-icon" type="button"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#plus"/></svg><span>Add selected clips</span></button></div>
  </div>
  <p id="animationClipNotice" role="status" aria-live="polite"></p>
+ <section id="creatureMotionPanel" class="creature-motion-panel" role="tabpanel" aria-labelledby="animationTabCreature" hidden>
+  <p class="hint">Add a procedural animation to the selected rig.</p>
+  <p id="creatureMotionPanelNotice" class="hint" role="status"></p>
+  <button id="creatureMotionReload" class="quiet" type="button" hidden>Reload motion options</button>
+  <form id="creatureMotionForm" hidden>
+   <fieldset id="creatureMotionFields">
+    <label class="field">Motion<select id="creatureMotionKind" aria-describedby="creatureMotionDescription creatureMotionReason"></select></label>
+    <p id="creatureMotionDescription" class="hint"></p>
+    <p id="creatureMotionReason" class="hint creature-motion-reason" hidden></p>
+    <label class="field">Clip name<input id="creatureMotionName" name="name" maxlength="80" placeholder="Automatic name"></label>
+    <div class="two-fields">
+     <label class="field">Duration (s)<input name="duration_s" type="number" min="2" max="12" step="any" value="4" required></label>
+     <label class="field">Cycles<input name="cycles" type="number" min="1" max="4" step="1" value="2" required></label>
+    </div>
+    <label class="field">Amplitude (×)<input name="amplitude" type="number" min="0.1" max="2" step="any" value="1" required></label>
+    <fieldset id="creatureMotionSwimFields" class="creature-motion-swim" hidden disabled>
+     <legend>Swim settings</legend>
+     <div class="two-fields">
+      <label class="field">Phase lag<input name="phase_lag" type="number" min="0" max="1.2" step="any" value="0.45" required></label>
+      <label class="field">Travel (m)<input name="travel_m" type="number" min="0" max="0.35" step="any" value="0" required></label>
+     </div>
+    </fieldset>
+    <button id="creatureMotionAdd" class="primary has-icon" type="submit" disabled><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#plus"/></svg><span>Add motion</span></button>
+   </fieldset>
+  </form>
+ </section>
  <div id="animationCards" class="animation-cards"></div>
  <div id="personalAnimationCards" class="animation-cards personal-animation-cards" hidden></div>
  <p id="personalMotionApplyHint" class="personal-motion-apply-hint" hidden>Animations are added to the selected model. Review contacts and deformation on each character.</p>
@@ -321,7 +347,7 @@
 <dialog id="animationRemoveDialog" aria-labelledby="animationRemoveTitle" aria-describedby="animationRemoveDescription"><form method="dialog"><h2 id="animationRemoveTitle">Remove animation?</h2><p id="animationRemoveDescription">Remove <strong id="animationRemoveName"></strong> from this model?</p><div class="dialog-actions"><button value="cancel" class="secondary" autofocus>Keep clip</button><button value="remove" class="danger has-icon"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#trash"/></svg>Remove clip</button></div></form></dialog>
 <dialog id="imageDialog"><button class="dialog-close" id="closeImage">Close ×</button><img id="largeImage" alt="Full-size texture or UV layout"></dialog>
 <footer><span>TRELLIS STUDIO</span><span>Reference → generation → review → Blender</span><span>UV & PBR · local compute</span></footer>
-<script type="module" src="/web/studio.js?v=animation-tabs"></script><script type="module" src="/web/validation-en.js?v=3.4.0"></script>
+<script type="module" src="/web/studio.js?v=creature-motions"></script><script type="module" src="/web/validation-en.js?v=3.4.0"></script>
 <div id="refinishDialog" class="refinish-popover" popover="auto" role="dialog" aria-labelledby="refinishTitle">
 <form id="refinishForm">
   <header class="refinish-head">

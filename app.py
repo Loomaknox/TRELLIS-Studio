@@ -332,7 +332,7 @@ def status():
                 texture_methods=dict(trellis=dict(available=True, reason=''),
                                      multiview=multiview_texture_capability(), ultratex=ultratex_texture_capability()),
                 edition='server' if WORKSPACE_CONFIG else 'desktop',
-                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','rig_profiles','creature_rig','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','hd_reconstruction','hd_master_finishing','pixal3d_multiview','pixal3d_face_projection','texture_projection','multiview_texture_refinement','baked_game_copy'], rig_profiles=['advanced'], texture_sizes=textures,supported_resolutions=resolutions)
+                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','rig_profiles','creature_rig','creature_motions','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','hd_reconstruction','hd_master_finishing','pixal3d_multiview','pixal3d_face_projection','texture_projection','multiview_texture_refinement','baked_game_copy'], rig_profiles=['advanced'], texture_sizes=textures,supported_resolutions=resolutions)
 
 @app.get('/api/components')
 def components():
@@ -723,19 +723,84 @@ async def prepare_animations(identifier, request, linked=False, remove=False):
                 raise HTTPException(503, 'Unable to start animation preparation.') from error
             return {'id': destination.name}
         recipe = dict(settings=record['settings'], result=result, clips=clips, **extra)
-        if WORKSPACE_CONFIG:
-            operation = await asyncio.to_thread(stage_animation_operation, source, record, recipe, revision)
-            launch_worker(operation, 'animation_worker.py')
-            return {'id': identifier, 'operation_id': operation.name}
-        write_json(source/'animation-request.json', recipe)
-        write_json(source/'status.json', dict(state='queued', stage='Updating animations', progress=5,
-                                              operation='animation', result=result))
-        try:
-            launch_worker(source, 'animation_worker.py')
-        except OSError as error:
-            write_json(source/'status.json', dict(state='done', stage='Model preserved', progress=100, result=result))
-            raise HTTPException(503, 'Unable to start animation preparation.') from error
-        return {'id':identifier}
+        return await queue_animation_update(source, record, recipe, revision)
+
+
+async def queue_animation_update(source, record, recipe, revision):
+    if WORKSPACE_CONFIG:
+        operation = await asyncio.to_thread(stage_animation_operation, source, record, recipe, revision)
+        launch_worker(operation, 'animation_worker.py')
+        return {'id': source.name, 'operation_id': operation.name}
+    previous = read_workspace_json(source / 'status.json', {})
+    write_json(source / 'animation-request.json', recipe)
+    write_json(source / 'status.json', dict(state='queued', stage='Updating animations', progress=5,
+                                             operation='animation', result=recipe['result']))
+    try:
+        launch_worker(source, 'animation_worker.py')
+    except OSError as error:
+        write_json(source / 'status.json', previous)
+        raise HTTPException(503, 'Unable to start animation preparation.') from error
+    return {'id': source.name}
+
+
+def creature_motion_target(identifier):
+    source = job_path(identifier)
+    record = job_record(source)
+    if not record or record['state'] != 'done' or not record['media']['available']:
+        raise HTTPException(409, 'Choose a completed model to inspect its rig.')
+    model = rig_input_file(source, 'model.glb')
+    return source, record, model
+
+
+@app.get('/api/jobs/{identifier}/creature-motions')
+def creature_motion_options(identifier: str):
+    from creature_motion_edit import creature_motion_capabilities
+
+    _, _, model = creature_motion_target(identifier)
+    revision = str(model.stat().st_mtime_ns)
+    capabilities = creature_motion_capabilities(model)
+    if str(model.stat().st_mtime_ns) != revision:
+        raise HTTPException(409, 'The model changed. Refresh its motion options.')
+    blender_ready = bool(find_blender())
+    defaults = {key: value for key, value in capabilities.get('defaults', {}).items() if key != 'name'}
+    return {**capabilities, 'revision': revision, 'defaults': defaults,
+            'rig_supported': bool(capabilities['available']),
+            'creation_available': blender_ready,
+            'creation_reason': '' if blender_ready else 'Configure Blender to save new animations.'}
+
+
+@app.post('/api/jobs/{identifier}/creature-motions', status_code=202)
+async def add_creature_motion(identifier: str, request: Request):
+    from creature_motion_edit import validate_creature_motion_recipe
+
+    try:
+        payload = await rig_json(request, 16 * 1024)
+        if not isinstance(payload, dict):
+            raise ValueError('Choose valid creature motion settings.')
+        expected = payload.pop('revision', None)
+        if not isinstance(expected, str) or not re.fullmatch(r'[0-9]{1,24}', expected):
+            raise ValueError('Refresh the motion options before creating a clip.')
+        options = validate_creature_motion_recipe(payload)
+    except (ValueError, TypeError) as error:
+        raise HTTPException(400, str(error) or 'Invalid creature motion settings.') from error
+    async with LOCK:
+        if not WORKSPACE_CONFIG:
+            require_idle()
+        source, record, model = creature_motion_target(identifier)
+        refresh_export()
+        if identifier in EXPORTING:
+            raise HTTPException(409, 'Wait for this model’s export to finish.')
+        if str(model.stat().st_mtime_ns) != expected:
+            raise HTTPException(409, 'The model changed. Refresh its motion options.')
+        if not record['media'].get('bones'):
+            raise HTTPException(409, 'Add or import a rig before creating a creature motion.')
+        if not find_blender():
+            raise HTTPException(503, 'Configure Blender to save new animations.')
+        recipe = dict(settings=record['settings'], result=record.get('result') or {}, creature_motion=options)
+        queued = await queue_animation_update(source, record, recipe, expected)
+        operation = queued.get('operation_id')
+        return {**queued, 'state': 'queued', 'status_url': (
+            '/api/v1/animation-operations/' + operation if operation else '/api/v1/jobs/' + identifier)}
 
 
 @app.post('/api/jobs/{identifier}/animations',status_code=202)
