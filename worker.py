@@ -36,9 +36,7 @@ started = time.time()
 
 def status(state, stage, progress, **extra):
     record = dict(state=state, stage=stage, progress=progress, elapsed=round(time.time()-started, 1), **extra)
-    tmp = JOB / 'status.tmp'
-    tmp.write_text(json.dumps(record, ensure_ascii=False), encoding='utf-8')
-    tmp.replace(JOB / 'status.json')
+    write(JOB / 'status.json', record)
     print(f'STAGE {progress}% {stage}', flush=True)
 
 def generate_source(torch):
