@@ -1,11 +1,78 @@
-param(
+﻿param(
     [Alias('Action')][ValidateSet('Probe','ValidateBlender')][string]$PreflightAction='Probe',
     [Alias('OutputPath')][string]$PreflightOutputPath,
     [Alias('InstallRoot')][string]$PreflightInstallRoot,
     [Alias('BlenderPath')][string]$PreflightBlenderPath,
     [Alias('GpuUuid')][string]$PreflightGpuUuid,
-    [Alias('WslDistribution')][string]$PreflightWslDistribution
+    [Alias('WslDistribution')][string]$PreflightWslDistribution,
+    [Alias('Language','SetupLanguage')][ValidateSet('en','fr','1033','1036')][string]$PreflightSetupLanguage='en'
 )
+
+$setupPreflightFrench=@{
+    'The check timed out.'="Le délai de vérification a expiré."
+    'Setup GPU runtime manifest is missing. Run a complete Setup package.'="Le manifeste des composants GPU est introuvable. Lancez une version complète de l’installateur."
+    'Setup GPU runtime manifest could not be read. Run a complete Setup package.'="Impossible de lire le manifeste des composants GPU. Lancez une version complète de l’installateur."
+    'Setup GPU runtime manifest has an unsupported format. Run a complete Setup package.'="Le format du manifeste des composants GPU est incompatible. Lancez une version complète de l’installateur."
+    'No NVIDIA CUDA GPU was detected. Workshop is available.'="Aucun GPU NVIDIA compatible CUDA n’a été détecté. L’Atelier est disponible."
+    'The NVIDIA driver utility (nvidia-smi) was not found. Workshop is available.'="L’utilitaire du pilote NVIDIA (nvidia-smi) est introuvable. L’Atelier est disponible."
+    'The NVIDIA detection check failed. Check the Windows NVIDIA driver.'="La détection de la carte NVIDIA a échoué. Vérifiez le pilote NVIDIA pour Windows."
+    'No test runtime is available for this GPU architecture.'="Aucun moteur testé n’est disponible pour cette architecture GPU."
+    'The Setup GPU runtime manifest has an invalid Windows profile for this GPU.'="Le manifeste des composants GPU contient un profil Windows invalide pour cette carte."
+    'Windows GPU packages are unvalidated. Workshop is available. Kimodo uses the CPU.'="Les composants GPU pour Windows attendent une validation. L’Atelier est disponible. Kimodo utilise le processeur."
+    'Update the NVIDIA Windows driver to {0} or newer for {1}.'="Mettez à jour le pilote NVIDIA pour Windows vers la version {0} ou ultérieure pour utiliser {1}."
+    'Below the 12 GB VRAM reference. Try TRELLIS.2 at 512. Pixal3D may run out of memory.'="La mémoire vidéo est inférieure aux 12 Go de référence. Essayez TRELLIS.2 en 512. Pixal3D peut manquer de mémoire."
+    '{0} is experimental. Setup will test the GPU kernels.'="Le composant {0} est expérimental. L’installation testera les opérations GPU."
+    'Setup will verify {0} (Windows).'="L’installation vérifiera le composant {0} (Windows)."
+    'The Setup GPU runtime manifest has an invalid driver floor for UniRig.'="La version minimale du pilote UniRig est invalide dans le manifeste des composants GPU."
+    'Update the NVIDIA Windows driver to {0} or newer for UniRig.'="Mettez à jour le pilote NVIDIA pour Windows vers la version {0} ou ultérieure pour utiliser UniRig."
+    'Setup will verify {0} (UniRig).'="L’installation vérifiera le composant {0} (UniRig)."
+    'UniRig on RTX 50 is experimental. Setup tests the CUDA operations before downloading its models.'="UniRig sur RTX 50 est expérimental. L’installation teste les opérations CUDA avant de télécharger les modèles."
+    'UniRig uses {0}.'="UniRig utilise {0}."
+    'The Setup GPU runtime manifest has an invalid reference for UniRig.'="Le manifeste des composants GPU contient une référence invalide pour UniRig."
+    'No tested UniRig package is available for {0} in this Setup.'="Cet installateur ne fournit aucun composant UniRig testé pour {0}."
+    'The selected NVIDIA GPU is unavailable. Run detection again.'="Le GPU NVIDIA sélectionné est indisponible. Relancez la détection."
+    'The Hi3D hardware policy is missing or invalid. Run a complete Setup package.'="Les conditions matérielles de Hi3D sont absentes ou invalides. Lancez une version complète de l’installateur."
+    'Supported NVIDIA compute capabilities for Hi3D: {0}. Workshop and compatible engines remain available.'="Capacités CUDA NVIDIA compatibles avec Hi3D · {0}. L’Atelier et les moteurs compatibles restent disponibles."
+    'This Hi3D package requires at least 8 GB of detected VRAM. Other components can still be installed.'="Hi3D requiert au moins 8 Go de mémoire vidéo détectée. Les autres composants restent disponibles."
+    'Setup will test Hi3D CUDA kernels on the detected GPU before downloading model weights.'="L’installation testera les opérations CUDA de Hi3D sur le GPU détecté avant de télécharger les poids."
+    'Less than 12 GB VRAM. Use Detail Refinement (512). The 1024 pass may run out of memory.'="Moins de 12 Go de mémoire vidéo. Utilisez l’affinage des détails en 512. La passe en 1024 peut manquer de mémoire."
+    'For 1024, 12 GB VRAM or more is recommended. Memory use varies with mesh detail and other GPU activity.'="Pour l’affinage en 1024, prévoyez au moins 12 Go de mémoire vidéo. La consommation dépend du détail du maillage et des autres activités du GPU."
+    'Blender can be configured later.'="Vous pouvez configurer Blender plus tard."
+    'Choose blender.exe.'="Sélectionnez blender.exe."
+    'Choose an existing blender.exe.'="Sélectionnez un fichier blender.exe existant."
+    'Blender could not report its version. Check the executable.'="Impossible de déterminer la version de Blender. Vérifiez l’exécutable."
+    'Blender {0} found.'="Blender {0} détecté."
+    'Reference version: 5.2.'="Version de référence · 5.2."
+    'Blender was not found. Browse to blender.exe or configure it later.'="Blender est introuvable. Sélectionnez blender.exe ou configurez-le plus tard."
+    'Install and initialize Ubuntu 22.04 under WSL2 for UniRig.'="Installez et initialisez Ubuntu 22.04 sous WSL2 pour utiliser UniRig."
+    '{0} is registered in WSL2. Setup will check it for UniRig.'="{0} est enregistré dans WSL2. L’installation vérifiera sa compatibilité avec UniRig."
+    '{0} uses WSL1. UniRig requires WSL2.'="{0} utilise WSL1. UniRig requiert WSL2."
+    'The multiview texture hardware policy is missing or invalid. Use the complete Setup package.'="Les conditions matérielles de MV-Adapter sont absentes ou invalides. Lancez une version complète de l’installateur."
+    'Supported NVIDIA compute capabilities for multiview textures: {0}'="Capacités CUDA NVIDIA compatibles avec MV-Adapter · {0}"
+    'Multiview texture refinement requires at least 8 GB of detected VRAM.'="L’affinage multivue requiert au moins 8 Go de mémoire vidéo détectée."
+    'Setup will test FP16 CUDA on the selected GPU before downloading the model files.'="L’installation testera CUDA en FP16 sur le GPU sélectionné avant de télécharger les modèles."
+    '12 GB VRAM or more is recommended. Close other GPU-heavy applications if this pass runs out of memory.'="Prévoyez au moins 12 Go de mémoire vidéo. En cas de manque de mémoire, fermez les autres applications qui sollicitent le GPU."
+    'Tested on NVIDIA Ada. Allow 32 GB of system RAM and 16 GiB of disk space in addition to TRELLIS.2.'="Testé sur NVIDIA Ada. Prévoyez 32 Go de RAM et 16 Gio d’espace disque supplémentaires par rapport à TRELLIS.2."
+    'The UltraTex hardware policy is missing or invalid. Use the complete Setup package.'="Les conditions matérielles d’UltraTex sont absentes ou invalides. Lancez une version complète de l’installateur."
+    'UltraTex preview requires a supported NVIDIA Ampere, Ada or Blackwell GPU.'="L’aperçu UltraTex requiert un GPU NVIDIA Ampere, Ada ou Blackwell compatible."
+    'UltraTex preview requires a detected NVIDIA GPU with at least 12 GB of VRAM.'="L’aperçu UltraTex requiert un GPU NVIDIA détecté disposant d’au moins 12 Go de mémoire vidéo."
+    'NVIDIA GPU and 12 GB VRAM requirement met. Setup tests CUDA before downloading UltraTex.'="Le GPU NVIDIA et ses 12 Go de mémoire vidéo minimum répondent aux critères. L’installation testera CUDA avant de télécharger UltraTex."
+    'Windows disk space could not be checked.'="Impossible de vérifier l’espace disque sous Windows."
+    '{0} GiB available on {1}'="{0} Gio disponibles sur {1}"
+    'Allow 75 GiB of free disk space for a fresh installation.'="Prévoyez 75 Gio d’espace disque libre pour une nouvelle installation."
+    'The native workflows hardware policy is missing or invalid. Use the complete Setup package.'="Les conditions matérielles des profils natifs sont absentes ou invalides. Lancez une version complète de l’installateur."
+    'The native workflows require a supported NVIDIA GPU (CUDA capability {0}) and at least {1} MiB of VRAM.'="Les profils natifs requièrent un GPU NVIDIA compatible (capacité CUDA {0}) et au moins {1} Mio de mémoire vidéo."
+    'The detected GPU meets the requirements. Setup checks the runtimes on this GPU.'="Le GPU détecté répond aux critères. L’installation vérifiera les composants sur ce GPU."
+    'Pass -OutputPath for the Setup INI result.'="Indiquez -OutputPath pour enregistrer le résultat au format INI."
+}
+
+function Get-SetupPreflightText([string]$Text, [object[]]$Values=@()) {
+    if ($PreflightSetupLanguage -in ('fr','1036') -and $setupPreflightFrench.ContainsKey($Text)) {
+        $Text=$setupPreflightFrench[$Text]
+    }
+    if ($Values.Count) { return $Text -f $Values }
+    return $Text
+}
 
 function ConvertTo-SetupProcessArgument([string]$Argument) {
     # Quote for the Windows argv parser, including backslashes before quotes.
@@ -34,7 +101,7 @@ function Invoke-SetupProcess {
         }
         $remaining=[Math]::Max(0, $TimeoutSeconds * 1000 - [int]$deadline.ElapsedMilliseconds)
         if (-not $exited -or -not [Threading.Tasks.Task]::WaitAll(@($stdout,$stderr), $remaining)) {
-            return [pscustomobject]@{ExitCode=124; Output=''; Error='The check timed out.'; TimedOut=$true}
+            return [pscustomobject]@{ExitCode=124; Output=''; Error=(Get-SetupPreflightText 'The check timed out.'); TimedOut=$true}
         }
         return [pscustomobject]@{ExitCode=$process.ExitCode; Output=$stdout.Result; Error=$stderr.Result; TimedOut=$false}
     } catch {
@@ -60,16 +127,16 @@ function Read-SetupGpuManifest {
         $manifestPath=Join-Path $PSScriptRoot '..\gpu-runtime-profiles.json'
     }
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-        throw 'Setup GPU runtime manifest is missing. Run a complete Setup package.'
+        throw (Get-SetupPreflightText 'Setup GPU runtime manifest is missing. Run a complete Setup package.')
     }
     try {
         $manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
     } catch {
-        throw 'Setup GPU runtime manifest could not be read. Run a complete Setup package.'
+        throw (Get-SetupPreflightText 'Setup GPU runtime manifest could not be read. Run a complete Setup package.')
     }
     if ($manifest.schema -ne 1 -or $manifest.gpus -isnot [pscustomobject] -or
         $manifest.windows -isnot [pscustomobject] -or $manifest.unirig -isnot [pscustomobject]) {
-        throw 'Setup GPU runtime manifest has an unsupported format. Run a complete Setup package.'
+        throw (Get-SetupPreflightText 'Setup GPU runtime manifest has an unsupported format. Run a complete Setup package.')
     }
     return $manifest
 }
@@ -78,7 +145,7 @@ function Get-SetupGpu([string]$RequestedUuid, [switch]$AllowReselect) {
     $unavailable=[pscustomobject][ordered]@{
         Name=''; MemoryMiB=0; Driver=''; Compute=''; Uuid=''; Profile=''; WindowsRuntime=''; UniRigRuntime=''
         Supported=$false; UniRigSupported=$false; UniRigStatus=''; Experimental=$false; VramNotice=''
-        Status='No NVIDIA CUDA GPU was detected. Workshop is available.'
+        Status=(Get-SetupPreflightText 'No NVIDIA CUDA GPU was detected. Workshop is available.')
     }
     $nativeSystemDir=if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
         'Sysnative'
@@ -90,12 +157,12 @@ function Get-SetupGpu([string]$RequestedUuid, [switch]$AllowReselect) {
         $smi=(Get-Command nvidia-smi.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
     }
     if (-not $smi) {
-        $unavailable.Status='The NVIDIA driver utility (nvidia-smi) was not found. Workshop is available.'
+        $unavailable.Status=(Get-SetupPreflightText 'The NVIDIA driver utility (nvidia-smi) was not found. Workshop is available.')
         return $unavailable
     }
     $probe=Invoke-SetupProcess -FilePath $smi -Arguments @('--query-gpu=uuid,name,memory.total,driver_version,compute_cap','--format=csv,noheader,nounits')
     if ($probe.ExitCode -ne 0) {
-        $unavailable.Status='The NVIDIA detection check failed. Check the Windows NVIDIA driver.'
+        $unavailable.Status=(Get-SetupPreflightText 'The NVIDIA detection check failed. Check the Windows NVIDIA driver.')
         return $unavailable
     }
     $manifest=$null
@@ -121,7 +188,7 @@ function Get-SetupGpu([string]$RequestedUuid, [switch]$AllowReselect) {
         } else {
             $plan=$manifest.gpus.PSObject.Properties[$parts[4]].Value
             if (-not $plan) {
-                $status='No test runtime is available for this GPU architecture.'
+                $status=(Get-SetupPreflightText 'No test runtime is available for this GPU architecture.')
             } else {
                 $profile=[string]$plan.id
                 $experimental=$plan.experimental -eq $true
@@ -131,18 +198,18 @@ function Get-SetupGpu([string]$RequestedUuid, [switch]$AllowReselect) {
                 $unirigPlan=$manifest.unirig.PSObject.Properties[$unirigRuntime].Value
                 $driverFloor=$null
                 if (-not $profile -or ($windowsRuntime -and ($windowsPlan -isnot [pscustomobject] -or -not [version]::TryParse($windowsPlan.driver_min, [ref]$driverFloor)))) {
-                    $status='The Setup GPU runtime manifest has an invalid Windows profile for this GPU.'
+                    $status=(Get-SetupPreflightText 'The Setup GPU runtime manifest has an invalid Windows profile for this GPU.')
                 } elseif (-not $windowsRuntime) {
-                    $status='Windows GPU packages are unvalidated. Workshop is available. Kimodo uses the CPU.'
+                    $status=(Get-SetupPreflightText 'Windows GPU packages are unvalidated. Workshop is available. Kimodo uses the CPU.')
                 } elseif (-not $driverKnown -or $driver -lt $driverFloor) {
-                    $status="Update the NVIDIA Windows driver to $driverFloor or newer for $windowsRuntime."
+                    $status=Get-SetupPreflightText 'Update the NVIDIA Windows driver to {0} or newer for {1}.' @($driverFloor,$windowsRuntime)
                 } else {
                     $supported=$true
                     if ($memory -gt 0 -and $memory -lt [int]$windowsPlan.reference_vram_mib) {
-                        $vramNotice='Below the 12 GB VRAM reference. Try TRELLIS.2 at 512. Pixal3D may run out of memory.'
+                        $vramNotice=(Get-SetupPreflightText 'Below the 12 GB VRAM reference. Try TRELLIS.2 at 512. Pixal3D may run out of memory.')
                     }
-                    if ($experimental) { $status="$windowsRuntime is experimental. Setup will test the GPU kernels." }
-                    else { $status="Setup will verify $windowsRuntime (Windows)." }
+                    if ($experimental) { $status=Get-SetupPreflightText '{0} is experimental. Setup will test the GPU kernels.' @($windowsRuntime) }
+                    else { $status=Get-SetupPreflightText 'Setup will verify {0} (Windows).' @($windowsRuntime) }
                 }
 
                 if ($unirigPlan -is [pscustomobject]) {
@@ -153,21 +220,21 @@ function Get-SetupGpu([string]$RequestedUuid, [switch]$AllowReselect) {
                         [void][version]::TryParse($unirigPlan.driver_min, [ref]$unirigDriverFloor)
                     }
                     if (-not $unirigDriverFloor) {
-                        $unirigStatus='The Setup GPU runtime manifest has an invalid driver floor for UniRig.'
+                        $unirigStatus=(Get-SetupPreflightText 'The Setup GPU runtime manifest has an invalid driver floor for UniRig.')
                     } elseif (-not $driverKnown -or $driver -lt $unirigDriverFloor) {
-                        $unirigStatus="Update the NVIDIA Windows driver to $unirigDriverFloor or newer for UniRig."
+                        $unirigStatus=Get-SetupPreflightText 'Update the NVIDIA Windows driver to {0} or newer for UniRig.' @($unirigDriverFloor)
                     } else {
                         $unirigSupported=$true
-                        $unirigStatus="Setup will verify $unirigRuntime (UniRig)."
+                        $unirigStatus=Get-SetupPreflightText 'Setup will verify {0} (UniRig).' @($unirigRuntime)
                         if ($unirigPlan.experimental -eq $true) {
-                            $unirigStatus='UniRig on RTX 50 is experimental. Setup tests the CUDA operations before downloading its models.'
+                            $unirigStatus=(Get-SetupPreflightText 'UniRig on RTX 50 is experimental. Setup tests the CUDA operations before downloading its models.')
                         }
-                        if ($supported) { $status+=" UniRig uses $unirigRuntime." }
+                        if ($supported) { ${status} += ' ' + (Get-SetupPreflightText 'UniRig uses {0}.' @($unirigRuntime)) }
                     }
                 } elseif ($unirigRuntime) {
-                    $unirigStatus='The Setup GPU runtime manifest has an invalid reference for UniRig.'
+                    $unirigStatus=(Get-SetupPreflightText 'The Setup GPU runtime manifest has an invalid reference for UniRig.')
                 } elseif ($profile) {
-                    $unirigStatus="No tested UniRig package is available for $profile in this Setup."
+                    $unirigStatus=Get-SetupPreflightText 'No tested UniRig package is available for {0} in this Setup.' @($profile)
                 }
             }
         }
@@ -183,7 +250,7 @@ function Get-SetupGpu([string]$RequestedUuid, [switch]$AllowReselect) {
         $selected=$gpus | Where-Object Uuid -EQ $RequestedUuid | Select-Object -First 1
         if ($selected) { return $selected }
         if (-not $AllowReselect) {
-            $unavailable.Status='The selected NVIDIA GPU is unavailable. Run detection again.'
+            $unavailable.Status=(Get-SetupPreflightText 'The selected NVIDIA GPU is unavailable. Run detection again.')
             return $unavailable
         }
     }
@@ -201,47 +268,47 @@ function Get-SetupHi3d([psobject]$Gpu) {
     catch { $result.Status=$_.Exception.Message; return $result }
     if (-not $policy -or -not $policy.compute_capabilities.Count -or
         [int]$policy.minimum_vram_mib -le 0 -or [int]$policy.recommended_1024_vram_mib -lt [int]$policy.minimum_vram_mib) {
-        $result.Status='The Hi3D hardware policy is missing or invalid. Run a complete Setup package.'
+        $result.Status=(Get-SetupPreflightText 'The Hi3D hardware policy is missing or invalid. Run a complete Setup package.')
         return $result
     }
     if ($Gpu.Compute -notin $policy.compute_capabilities) {
-        $result.Status='This Hi3D package supports NVIDIA compute capabilities 8.6 and 8.9. Workshop and compatible engines remain available.'
+        $result.Status=Get-SetupPreflightText 'Supported NVIDIA compute capabilities for Hi3D: {0}. Workshop and compatible engines remain available.' @($policy.compute_capabilities -join ', ')
         return $result
     }
     if ($Gpu.MemoryMiB -lt [int]$policy.minimum_vram_mib) {
-        $result.Status='This Hi3D package requires at least 8 GB of detected VRAM. Other components can still be installed.'
+        $result.Status=(Get-SetupPreflightText 'This Hi3D package requires at least 8 GB of detected VRAM. Other components can still be installed.')
         return $result
     }
     $result.Supported=$true
-    $result.Status='Setup will test Hi3D CUDA kernels on the detected GPU before downloading model weights.'
+    $result.Status=(Get-SetupPreflightText 'Setup will test Hi3D CUDA kernels on the detected GPU before downloading model weights.')
     if ($Gpu.MemoryMiB -lt [int]$policy.recommended_1024_vram_mib) {
-        $result.VramNotice='Less than 12 GB VRAM. Use Detail Refinement (512). The 1024 pass may run out of memory.'
+        $result.VramNotice=(Get-SetupPreflightText 'Less than 12 GB VRAM. Use Detail Refinement (512). The 1024 pass may run out of memory.')
     } else {
-        $result.VramNotice='For 1024, 12 GB VRAM or more is recommended. Memory use varies with mesh detail and other GPU activity.'
+        $result.VramNotice=(Get-SetupPreflightText 'For 1024, 12 GB VRAM or more is recommended. Memory use varies with mesh detail and other GPU activity.')
     }
     return $result
 }
 
 function Test-SetupBlender([string]$Path) {
-    $result=[pscustomobject][ordered]@{Path=''; Version=''; Ready=$false; Status='Blender can be configured later.'}
+    $result=[pscustomobject][ordered]@{Path=''; Version=''; Ready=$false; Status=(Get-SetupPreflightText 'Blender can be configured later.')}
     if (-not $Path) { return $result }
     try {
         $candidate=Get-Item -LiteralPath $Path -ErrorAction Stop
-        if ($candidate.PSIsContainer -or $candidate.Name -ine 'blender.exe') { throw 'Choose blender.exe.' }
+        if ($candidate.PSIsContainer -or $candidate.Name -ine 'blender.exe') { throw (Get-SetupPreflightText 'Choose blender.exe.') }
         $result.Path=$candidate.FullName
     } catch {
-        $result.Status='Choose an existing blender.exe.'
+        $result.Status=(Get-SetupPreflightText 'Choose an existing blender.exe.')
         return $result
     }
     $probe=Invoke-SetupProcess -FilePath $result.Path -Arguments @('--version')
     if ($probe.ExitCode -ne 0 -or $probe.Output -notmatch '(?im)^Blender ([0-9]+\.[0-9]+(?:\.[0-9]+)?)\b') {
-        $result.Status='Blender could not report its version. Check the executable.'
+        $result.Status=(Get-SetupPreflightText 'Blender could not report its version. Check the executable.')
         return $result
     }
     $result.Version=$Matches[1]
     $result.Ready=$true
-    $result.Status="Blender $($result.Version) found."
-    if ($result.Version -notmatch '^5\.2(?:\.|$)') { $result.Status+=" Reference version: 5.2." }
+    $result.Status=Get-SetupPreflightText 'Blender {0} found.' @($result.Version)
+    if ($result.Version -notmatch '^5\.2(?:\.|$)') { $result.Status += ' ' + (Get-SetupPreflightText 'Reference version: 5.2.') }
     return $result
 }
 
@@ -266,22 +333,22 @@ function Find-SetupBlender([string]$SavedPath) {
     $found=$paths | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf -ErrorAction SilentlyContinue) } | Select-Object -First 1
     if ($found) { return Test-SetupBlender -Path $found }
     $result=Test-SetupBlender -Path ''
-    $result.Status='Blender was not found. Browse to blender.exe or configure it later.'
+    $result.Status=(Get-SetupPreflightText 'Blender was not found. Browse to blender.exe or configure it later.')
     return $result
 }
 
 function Get-SetupWsl([string]$RequestedDistribution) {
     $registry='HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'
     $distro=if ($RequestedDistribution) { $RequestedDistribution } else { 'Ubuntu-22.04' }
-    $result=[pscustomobject][ordered]@{Distribution=$distro; Ready=$false; Status='Install and initialize Ubuntu 22.04 under WSL2 for UniRig.'}
+    $result=[pscustomobject][ordered]@{Distribution=$distro; Ready=$false; Status=(Get-SetupPreflightText 'Install and initialize Ubuntu 22.04 under WSL2 for UniRig.')}
     $registration=Get-ChildItem -LiteralPath $registry -ErrorAction SilentlyContinue | ForEach-Object {
         Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue
     } | Where-Object { $_.DistributionName -eq $distro } | Select-Object -First 1
     if ($registration.Version -eq 2 -and $distro -match '^[A-Za-z0-9_.-]{1,80}$') {
         $result.Ready=$true
-        $result.Status="$distro is registered in WSL2. Setup will check it for UniRig."
+        $result.Status=Get-SetupPreflightText '{0} is registered in WSL2. Setup will check it for UniRig.' @($distro)
     } elseif ($registration.Version -eq 1) {
-        $result.Status="$distro uses WSL1. UniRig requires WSL2."
+        $result.Status=Get-SetupPreflightText '{0} uses WSL1. UniRig requires WSL2.' @($distro)
     }
     return $result
 }
@@ -296,21 +363,21 @@ function Get-SetupMultiviewTexture([psobject]$Gpu) {
     catch { $result.Status=$_.Exception.Message; return $result }
     if (-not $policy -or -not $policy.compute_capabilities.Count -or
         [int]$policy.minimum_vram_mib -le 0 -or [int]$policy.recommended_vram_mib -lt [int]$policy.minimum_vram_mib) {
-        $result.Status='The multiview texture hardware policy is missing or invalid. Use the complete Setup package.'
+        $result.Status=(Get-SetupPreflightText 'The multiview texture hardware policy is missing or invalid. Use the complete Setup package.')
         return $result
     }
     if ($Gpu.Compute -notin $policy.compute_capabilities) {
-        $result.Status='This multiview texture installer supports NVIDIA compute capabilities 8.6 and 8.9.'
+        $result.Status=Get-SetupPreflightText 'Supported NVIDIA compute capabilities for multiview textures: {0}' @($policy.compute_capabilities -join ', ')
         return $result
     }
     if ($Gpu.MemoryMiB -lt [int]$policy.minimum_vram_mib) {
-        $result.Status='Multiview texture refinement requires at least 8 GB of detected VRAM.'
+        $result.Status=(Get-SetupPreflightText 'Multiview texture refinement requires at least 8 GB of detected VRAM.')
         return $result
     }
     $result.Supported=$true
-    $result.Status='Setup will test FP16 CUDA on the selected GPU before downloading the model files.'
+    $result.Status=(Get-SetupPreflightText 'Setup will test FP16 CUDA on the selected GPU before downloading the model files.')
     if ($Gpu.MemoryMiB -lt [int]$policy.recommended_vram_mib) {
-        $result.VramNotice='12 GB VRAM or more is recommended. Close other GPU-heavy applications if this pass runs out of memory.'
+        $result.VramNotice=(Get-SetupPreflightText '12 GB VRAM or more is recommended. Close other GPU-heavy applications if this pass runs out of memory.')
     }
     return $result
 }
@@ -318,7 +385,7 @@ function Get-SetupMultiviewTexture([psobject]$Gpu) {
 function Get-SetupUltraTex([psobject]$Gpu) {
     $result=[pscustomobject][ordered]@{
         Supported=$false; Status=''
-        Guidance='Tested on NVIDIA Ada. Allow 32 GB of system RAM and 16 GiB of disk space in addition to TRELLIS.2.'
+        Guidance=(Get-SetupPreflightText 'Tested on NVIDIA Ada. Allow 32 GB of system RAM and 16 GiB of disk space in addition to TRELLIS.2.')
     }
     if (-not $Gpu.Supported) {
         $result.Status=$Gpu.Status
@@ -327,28 +394,28 @@ function Get-SetupUltraTex([psobject]$Gpu) {
     try { $policy=(Read-SetupGpuManifest).ultratex }
     catch { $result.Status=$_.Exception.Message; return $result }
     if (-not $policy -or -not $policy.compute_capabilities.Count -or [int]$policy.minimum_vram_mib -le 0) {
-        $result.Status='The UltraTex hardware policy is missing or invalid. Use the complete Setup package.'
+        $result.Status=(Get-SetupPreflightText 'The UltraTex hardware policy is missing or invalid. Use the complete Setup package.')
         return $result
     }
     if ($Gpu.Compute -notin $policy.compute_capabilities) {
-        $result.Status='UltraTex preview requires a supported NVIDIA Ampere, Ada or Blackwell GPU.'
+        $result.Status=(Get-SetupPreflightText 'UltraTex preview requires a supported NVIDIA Ampere, Ada or Blackwell GPU.')
         return $result
     }
     if ($Gpu.MemoryMiB -lt [int]$policy.minimum_vram_mib) {
-        $result.Status='UltraTex preview requires a detected NVIDIA GPU with at least 12 GB of VRAM.'
+        $result.Status=(Get-SetupPreflightText 'UltraTex preview requires a detected NVIDIA GPU with at least 12 GB of VRAM.')
         return $result
     }
     $result.Supported=$true
-    $result.Status='NVIDIA GPU and 12 GB VRAM requirement met. Setup tests CUDA before downloading UltraTex.'
+    $result.Status=(Get-SetupPreflightText 'NVIDIA GPU and 12 GB VRAM requirement met. Setup tests CUDA before downloading UltraTex.')
     return $result
 }
 
 function Get-SetupDisk([string]$Root) {
-    $result=[pscustomobject][ordered]@{FreeGiB=''; Status='Windows disk space could not be checked.'}
+    $result=[pscustomobject][ordered]@{FreeGiB=''; Status=(Get-SetupPreflightText 'Windows disk space could not be checked.')}
     try {
         $drive=[IO.DriveInfo]::new([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Root)))
         $result.FreeGiB=[Math]::Floor($drive.AvailableFreeSpace / 1GB)
-        $result.Status="$($result.FreeGiB) GiB available on $($drive.Name)"
+        $result.Status=Get-SetupPreflightText '{0} GiB available on {1}' @($result.FreeGiB,$drive.Name)
     } catch { }
     return $result
 }
@@ -356,7 +423,7 @@ function Get-SetupDisk([string]$Root) {
 function Get-SetupNativeWorkflows([psobject]$Gpu) {
     $result=[pscustomobject][ordered]@{
         Supported=$false; Status=''; MeshLibLicenseUrl=''
-        Guidance='Allow 75 GiB of free disk space for a fresh installation.'
+        Guidance=(Get-SetupPreflightText 'Allow 75 GiB of free disk space for a fresh installation.')
     }
     if (-not $Gpu.Supported) {
         $result.Status=$Gpu.Status
@@ -366,17 +433,17 @@ function Get-SetupNativeWorkflows([psobject]$Gpu) {
     catch { $result.Status=$_.Exception.Message; return $result }
     if (-not $policy -or -not $policy.compute_capabilities.Count -or [int]$policy.minimum_vram_mib -le 0 -or
         $policy.meshlib_license_revision -cnotmatch '^[0-9a-f]{40}$') {
-        $result.Status='The native workflows hardware policy is missing or invalid. Use the complete Setup package.'
+        $result.Status=(Get-SetupPreflightText 'The native workflows hardware policy is missing or invalid. Use the complete Setup package.')
         return $result
     }
     if ($Gpu.Compute -notin $policy.compute_capabilities -or $Gpu.MemoryMiB -lt [int]$policy.minimum_vram_mib) {
         $capabilities=$policy.compute_capabilities -join ', '
-        $result.Status="The native workflows require a supported NVIDIA GPU (CUDA capability $capabilities) and at least $($policy.minimum_vram_mib) MiB of VRAM."
+        $result.Status=Get-SetupPreflightText 'The native workflows require a supported NVIDIA GPU (CUDA capability {0}) and at least {1} MiB of VRAM.' @($capabilities,$policy.minimum_vram_mib)
         return $result
     }
     $result.MeshLibLicenseUrl="https://github.com/MeshInspector/MeshLib/blob/$($policy.meshlib_license_revision)/LICENSE"
     $result.Supported=$true
-    $result.Status='The detected GPU meets the requirements. Setup checks the runtimes on this GPU.'
+    $result.Status=(Get-SetupPreflightText 'The detected GPU meets the requirements. Setup checks the runtimes on this GPU.')
     return $result
 }
 
@@ -438,8 +505,10 @@ function Get-SetupInstallPlan([string]$Root) {
 }
 
 function Get-SetupPreflight {
-    param([string]$InstallRoot, [string]$BlenderPath, [string]$GpuUuid, [string]$WslDistribution)
+    param([string]$InstallRoot, [string]$BlenderPath, [string]$GpuUuid, [string]$WslDistribution,
+          [ValidateSet('en','fr','1033','1036')][string]$Language=$PreflightSetupLanguage)
 
+    $PreflightSetupLanguage=$Language
     $config=Read-SetupJson -Root $InstallRoot -RelativePath 'config\runtime.json'
     $automaticGpu=-not $GpuUuid
     if ($automaticGpu) { $GpuUuid=[string]$config.gpu_uuid }
@@ -473,7 +542,7 @@ function Write-SetupIni([string]$Path, [psobject]$Data) {
 
 if ($MyInvocation.InvocationName -ne '.') {
     $ErrorActionPreference='Stop'
-    if (-not $PreflightOutputPath) { throw 'Pass -OutputPath for the Setup INI result.' }
+    if (-not $PreflightOutputPath) { throw (Get-SetupPreflightText 'Pass -OutputPath for the Setup INI result.') }
     if ($PreflightAction -eq 'ValidateBlender') {
         Write-SetupIni -Path $PreflightOutputPath -Data ([pscustomobject]@{Blender=(Test-SetupBlender -Path $PreflightBlenderPath)})
     } else {
