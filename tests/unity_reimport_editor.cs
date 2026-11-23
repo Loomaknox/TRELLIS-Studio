@@ -20,6 +20,8 @@ namespace TrellisStudio
         public static void Run()
         {
             PackageImporter.Configure();
+            var crouch = Path.Combine(Path.GetDirectoryName(Project), "crouch.json");
+            if (File.Exists(crouch)) CheckCharacter(JsonUtility.FromJson<Character>(File.ReadAllText(crouch)));
             var custom = AssetDatabase.LoadAssetAtPath<Material>(MaterialPath);
             Assert(custom != null, "initial configure creates a material");
             custom.color = Color.magenta;
@@ -107,6 +109,75 @@ namespace TrellisStudio
             Assert(Bytes(Model).SequenceEqual(stableModel) && Bytes(Model + ".meta").SequenceEqual(modelMeta), "failed update restores bytes and .meta");
             Assert(AssetDatabase.LoadAssetAtPath<GameObject>(Use).GetComponent<MeshFilter>().sharedMesh != null, "references survive rollback");
             Debug.Log("TRELLIS REIMPORT PASS");
+        }
+
+        [Serializable] class Clip { public string name; public float duration; }
+        [Serializable] class Surface { public string name, albedo; }
+        [Serializable] class Character {
+            public string[] bones, ankles, hips, knees;
+            public Clip[] clips;
+            public Surface[] surfaces;
+            public float height;
+        }
+
+        static void CheckCharacter(Character expected)
+        {
+            const string path = "Assets/Crouch/model.fbx";
+            var model = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            Assert(model != null, "animated FBX import");
+            var importer = (ModelImporter)AssetImporter.GetAtPath(path);
+            Assert(importer.animationType == ModelImporterAnimationType.Generic, "Generic rig");
+            var remaps = importer.GetExternalObjectMap();
+            foreach (var surface in expected.surfaces) {
+                var slot = new AssetImporter.SourceAssetIdentifier(typeof(Material), surface.name);
+                Assert(remaps.TryGetValue(slot, out var asset) && asset is Material, "material " + surface.name);
+                if (!string.IsNullOrEmpty(surface.albedo)) {
+                    var mat = (Material)asset;
+                    var texture = mat.GetTexture(mat.HasProperty("_BaseMap") ? "_BaseMap" : "_MainTex");
+                    Assert(AssetDatabase.GetAssetPath(texture) == "Assets/Crouch/" + surface.albedo, "albedo " + surface.name);
+                }
+            }
+            var instance = UnityEngine.Object.Instantiate(model);
+            try {
+                var transforms = instance.GetComponentsInChildren<Transform>(true);
+                Transform Joint(string name) => transforms.First(joint => joint.name == name);
+                Assert(expected.bones.All(name => transforms.Any(joint => joint.name == name)), "all source joints imported");
+                var renderers = instance.GetComponentsInChildren<SkinnedMeshRenderer>();
+                Assert(renderers.Length > 0 && renderers.All(r => r.sharedMaterials.All(m => m != null)), "skinned materials");
+                float low = float.PositiveInfinity, high = float.NegativeInfinity;
+                foreach (var renderer in renderers) {
+                    // Mesh vertices are in bind space. Renderer bounds include animation
+                    // excursions, and BakeMesh measures the instance's current pose.
+                    foreach (var point in renderer.sharedMesh.vertices) {
+                        float y = renderer.transform.TransformPoint(point).y;
+                        low = Math.Min(low, y);
+                        high = Math.Max(high, y);
+                    }
+                }
+                Assert(Math.Abs(high - low - expected.height) < expected.height * .02f,
+                    $"bind height {high-low:F4} m, expected {expected.height:F4} m");
+                var clips = AssetDatabase.LoadAllAssetsAtPath(path).OfType<AnimationClip>()
+                    .Where(c => !c.name.StartsWith("__preview__", StringComparison.Ordinal)).ToArray();
+                foreach (var recipe in expected.clips) {
+                    var matches = clips.Where(c => c.name == recipe.name || c.name.EndsWith("|" + recipe.name)).ToArray();
+                    Assert(matches.Length == 1, "one imported take for " + recipe.name + " in " + string.Join(", ", clips.Select(c => c.name)));
+                    var clip = matches[0];
+                    Assert(Math.Abs(clip.length - recipe.duration) < .06f, "source clip duration");
+                    if (!recipe.name.ToLowerInvariant().Contains("crouch")) continue;
+                    clip.SampleAnimation(instance, 0);
+                    var anchors = expected.ankles.Select(name => Joint(name).position).ToArray();
+                    foreach (var seconds in new[] { .1f, 43f/60, 1.5f, 137f/60, clip.length }) {
+                        clip.SampleAnimation(instance, seconds);
+                        for (int side = 0; side < anchors.Length; side++) {
+                            Assert(Vector3.Distance(anchors[side], Joint(expected.ankles[side]).position) < .01f,
+                                "planted ankle at " + seconds);
+                            Assert(Joint(expected.knees[side]).position.y < Joint(expected.hips[side]).position.y + .03f,
+                                "knee below hip at " + seconds);
+                        }
+                    }
+                }
+                Debug.Log("TRELLIS CHARACTER PASS");
+            } finally { UnityEngine.Object.DestroyImmediate(instance); }
         }
 
         static byte[] Bytes(string path) => File.ReadAllBytes(Path.Combine(Project, path));

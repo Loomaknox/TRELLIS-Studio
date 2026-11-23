@@ -118,6 +118,8 @@ async def check(app):
         model_file = next(name for name in packaged.namelist() if name.endswith('/studio-export.json') and '/LODs/' not in name)
         manifest = json.loads(packaged.read(model_file))
         assert manifest['source_glb_sha256'] == manifest['preflight']['source_glb_sha256'] == fresh
+        assert manifest['verification']['glb_sha256'] == fresh
+        assert manifest['verification']['binary_fbx'] is False
         assert manifest['preflight']['status'] == 'attention'
         assert manifest['preflight']['human_review'] == 'retained'
         assert packaged.read(model_file.replace('studio-export.json', 'model.glb')) == (folder / 'model.glb').read_bytes()
