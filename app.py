@@ -24,7 +24,8 @@ from asset_taxonomy import ASSET_TYPES, SYSTEM_TYPES, schema as taxonomy_schema
 from generation_profiles import (COMFY_INPUT_FILES, COMFY_PROFILES, STANDALONE_PROFILES, WORKFLOW_PROFILES,
                                  DETAIL_STUDY, DENSE_MASTER_DESCRIPTION, PROPS_PROFILE, STARTUP_PROFILE, ProfileStore, builtin_profiles)
 from native_workflow_options import geometry_backend as workflow_geometry, settings as workflow_settings, summary as workflow_summary
-from gpu_runtime import guided_install
+from gpu_runtime import guided_install, load_profiles
+from studio_resources import gpu_resources, resources
 from studio_import import FORMATS, MAX_BYTES, find_blender, validate_glb, copy_version, animation_recipe
 from rig_landmarks import RIG_PROFILES, validate_rig_options
 from creature_rig import MAX_CREATURE_BONES, MAX_CREATURE_EDIT_BYTES, is_creature_rig, validate_creature_edit
@@ -282,15 +283,33 @@ def require_create_master_finishing(method):
 def multiview_texture_capability():
     from multiview_texture_runtime import availability
 
-    return availability(ROOT)
+    return texture_hardware_status(availability(ROOT), 'multiview_texture')
 
 
 def ultratex_texture_capability():
     try:
         from ultratex_runtime import availability
-        return availability(ROOT)
+        return texture_hardware_status(availability(ROOT), 'ultratex')
     except ImportError:
-        return dict(available=False, reason='Install the optional UltraTex texture component.')
+        return dict(available=False, reason='Install the optional UltraTex texture component.', reason_code='not_installed')
+
+
+def texture_hardware_status(status, component):
+    gpu = gpu_resources(ROOT)
+    if status['available'] or not gpu:
+        return status
+    try:
+        policy = load_profiles(ROOT)[component]
+    except (OSError, ValueError, RuntimeError, KeyError):
+        return status
+    minimum = policy['minimum_vram_mib']
+    if gpu['compute'] not in policy['compute_capabilities']:
+        return {**status, 'available': False, 'reason_code': 'gpu_unsupported',
+                'reason': 'This GPU is outside the supported hardware profile for this texture method.'}
+    if gpu['vram_total_mib'] < minimum:
+        return {**status, 'available': False, 'reason_code': 'vram_insufficient', 'minimum_vram_mib': minimum,
+                'reason': f'This texture method requires at least {minimum} MiB of dedicated VRAM.'}
+    return status
 
 
 def require_texture_method(method):
@@ -329,7 +348,6 @@ def enabled_rig_profiles():
 
 @app.get('/api/status')
 def status():
-    import psutil
     ready = (ROOT / 'models' / 'trellis2' / 'pipeline.json').exists() and (ROOT / 'engine' / 'MODELS' / 'dinov3' / 'model.safetensors').exists()
     preview_error=guided_install_failure('trellis')
     ready=ready and not preview_error
@@ -340,16 +358,18 @@ def status():
         'pixal3d_single': pixal3d.get('single_image', dict(ready=False, message='Install Pixal3D Single Image.')),
         'pixal3d': {key: pixal3d[key] for key in ('ready', 'message')},
     }
-    return dict(ready=ready, gpu=GPU_DESCRIPTION, ram_free_gib=round(psutil.virtual_memory().available/1024**3,1),
+    usage = resources(ROOT, OUTPUT)
+    multiview, ultratex = multiview_texture_capability(), ultratex_texture_capability()
+    return dict(ready=ready, gpu=GPU_DESCRIPTION, ram_free_gib=usage['ram_free_gib'], resources=usage,
                 active=ACTIVE if PROCESS is not None and PROCESS.poll() is None else TERRAIN_ACTIVE,
                 export_active=EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None,
                 resolution=DEFAULT_GENERATION['resolution'], default_profile=DEFAULT_PROFILE, local=True, studio_version=VERSION,source_revision=SOURCE_REVISION,ui_revision=UI_REVISION,multi_view=pixal3d['ready'],pixal3d=pixal3d,
                 generation_methods=generation_methods, create_master_finishing=create_master_finishing_capabilities(),
                 detail_texturing=detail_texturing_capability(),
-                multiview_texture_refinement=multiview_texture_capability(),
-                ultratex_texture_refinement=ultratex_texture_capability(),
+                multiview_texture_refinement=multiview,
+                ultratex_texture_refinement=ultratex,
                 texture_methods=dict(trellis=dict(available=True, reason=''),
-                                     multiview=multiview_texture_capability(), ultratex=ultratex_texture_capability()),
+                                     multiview=multiview, ultratex=ultratex),
                 edition='server' if WORKSPACE_CONFIG else 'desktop',
                 features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','rig_profiles','creature_rig','creature_motions','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','hd_reconstruction','hd_master_finishing','pixal3d_multiview','pixal3d_face_projection','texture_projection','multiview_texture_refinement','baked_game_copy', *(['creature_tentacles','creature_swim'] if not WORKSPACE_CONFIG else [])], rig_profiles=enabled_rig_profiles(), texture_sizes=textures,supported_resolutions=resolutions)
 

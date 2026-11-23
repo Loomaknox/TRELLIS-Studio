@@ -76,6 +76,7 @@ def availability(root):
         validated_runtime(root)
     except ValueError as error:
         report['reason'] = str(error)
+        report['reason_code'] = 'incomplete' if (Path(root) / 'models' / 'ultratex').is_dir() else 'not_installed'
     else:
         report['available'] = True
     return report

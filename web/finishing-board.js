@@ -28,12 +28,12 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
     const textureHint = el('p', 'hint');
     textureHint.id = 'finishingBoardTextureHint';
     textureHint.setAttribute('role', 'status');
-    const textureMethod = select([['multiview', 'Multiview refinement'],
-        ['ultratex', 'UltraTex · 2K (local preview)']], 'multiview');
+    const textureMethod = select([['multiview', t('Multiview refinement')],
+        ['ultratex', t('UltraTex · 2K (local preview)')]], 'multiview');
     textureMethod.setAttribute('aria-describedby', textureHint.id);
-    const textureMethodField = field('Texture method', textureMethod);
+    const textureMethodField = field(t('Texture method'), textureMethod);
     const textureActions = el('div', 'finishing-refinement-actions');
-    const textureQueue = button('Queue texture refinement', 'image', 'secondary');
+    const textureQueue = button(t('Queue texture refinement'), 'image', 'secondary');
     textureQueue.setAttribute('aria-describedby', textureHint.id);
     textureActions.append(textureQueue);
     const textureRows = el('div', 'finishing-rows');

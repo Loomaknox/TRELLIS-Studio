@@ -16,12 +16,14 @@ from retexture_runtime import file_sha, retexture, run_material_worker
 
 def availability(root):
     runtime = Path(root) / 'models' / 'multiview-texture'
+    if not runtime.is_dir():
+        return dict(available=False, reason_code='not_installed', reason='Install the optional multiview texture component.')
     try:
         validate_runtime(runtime)
         if any(find_spec(name) is None for name in ('numba', 'numpy', 'cv2', 'scipy', 'PIL')):
-            raise ValueError('Install the local CPU texture projection dependencies.')
+            return dict(available=False, reason_code='dependencies_missing', reason='Install the local CPU texture projection dependencies.')
     except (OSError, ValueError) as error:
-        return dict(available=False, reason=str(error))
+        return dict(available=False, reason_code='incomplete', reason=str(error))
     return dict(available=True, reason='')
 
 

@@ -14,7 +14,7 @@
     "license_sha256": "E7914DDBB068110D9F9E1E1283DD4BC23EC2A5223909B7FD2A2CA9A152D853FE"
   },
   "multiview_texture": {
-    "compute_capabilities": ["8.6", "8.9"],
+    "compute_capabilities": ["8.6", "8.9", "12.0"],
     "minimum_vram_mib": 8000,
     "recommended_vram_mib": 12000,
     "license_sha256": "BAB3473695E4CD36D846E192753CB77BF4AE9AA076D2C628674C717963CAC3EC"

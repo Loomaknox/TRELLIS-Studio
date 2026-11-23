@@ -1,4 +1,4 @@
-import {language,t} from './i18n.js';
+import {formatLocale,language,t} from './i18n.js';
 import {icon} from './card-menu.js?v=3.4.0';
 export const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 export function button(text,glyph,cls='secondary',action){const b=el('button',cls);b.type='button';b.append(icon(glyph),document.createTextNode(text));if(action)b.onclick=action;return b;}
@@ -11,3 +11,17 @@ export function select(choices,value){const s=el('select');for(const[v,label]of 
 export async function action(ui,control,work){control.disabled=true;ui.notice.textContent='';try{await work();}catch(e){ui.notice.textContent=t(e.message||String(e));}finally{control.disabled=false;}}
 export function folderChoices(data,all=false){const result=all?[['*',t('All folders')],['',t('Unfiled')]]:[['',t('Unfiled')]];const visit=(parent,depth)=>{for(const f of data.folders.filter(f=>f.parent_id===parent)){result.push([f.id,'\u00a0\u00a0'.repeat(depth)+f.name]);visit(f.id,depth+1);}};visit('',0);return result;}
 export function download(blob,name){const url=URL.createObjectURL(blob),a=el('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),15000);}
+
+export function runtimeSummary(runtime, stage) {
+  const usage = runtime.resources ?? {ram_free_gib: runtime.ram_free_gib};
+  const fields = [
+    ['ram_free_gib', '{value} GiB RAM free'],
+    ['vram_free_gib', '{value} GiB VRAM free'],
+    ['disk_free_gib', '{value} GiB disk free'],
+  ];
+  const metrics = fields.filter(([key]) => Number.isFinite(usage[key]))
+    .map(([key, label]) => t(label, {value: usage[key].toLocaleString(formatLocale)}));
+  const activity = stage || (runtime.active ? 'Local job in progress'
+    : runtime.export_active ? 'Export in progress' : 'Idle');
+  return [t(activity), ...metrics].join(' · ');
+}

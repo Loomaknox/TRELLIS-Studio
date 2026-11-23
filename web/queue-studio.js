@@ -1,7 +1,7 @@
 import {formatLocale, t} from './i18n.js';
-import {button, dialog, el, field, input, select, action} from './workbench-ui.js?v=3.4.0';
+import {button, dialog, el, field, input, select, action, runtimeSummary} from './workbench-ui.js?v=stability';
 import {createWorkflowFields, optionHelp} from './advanced-controls.js?v=standard-profiles';
-import {textureMethodAvailability,textureMethodChoices,textureMethodHelp,textureMethodOf,textureMethodRestriction} from './texture-methods.js?v=figure-master-ultratex';
+import {textureMethodAvailability,textureMethodChoices,textureMethodExplanation,textureMethodHelp,textureMethodOf,textureMethodRestriction} from './texture-methods.js?v=stability';
 
 const PRIORITIES = [['2', 'Highest'], ['1', 'High'], ['0', 'Normal'], ['-1', 'Low'], ['-2', 'Lowest']];
 const STATE_ORDER = {running: 0, queued: 1, error: 2, cancelled: 2, done: 3};
@@ -36,7 +36,8 @@ export function createQueueStudio({api, refresh}) {
   tabs.append(listTab, composeTab);
   const queue = el('section', 'queue-list');
   const compose = el('section', 'queue-compose');
-  ui.body.append(tabs, queue, compose);
+  const runtimeInfo = el('p', 'hint');
+  ui.body.append(tabs, runtimeInfo, queue, compose);
 
   const picker = input('file', '', {accept: 'image/png,image/jpeg,image/webp', multiple: ''});
   picker.hidden = true;
@@ -69,7 +70,7 @@ export function createQueueStudio({api, refresh}) {
   function profileOptions(control, currentId) {
     control.replaceChildren(...profiles.filter(profile => !profile.retired || profile.id === currentId).map(profile => {
       const unavailable = unavailableWorkflow(profile.id);
-      const option = el('option', '', profile.name + (unavailable ? ' · Unavailable' : ''));
+      const option = el('option', '', t(profile.name) + (unavailable ? ' · '+t('Unavailable') : ''));
       option.value = profile.id;
       option.disabled = unavailable;
       if (unavailable) option.title = profile.workflow.reason;
@@ -112,16 +113,16 @@ export function createQueueStudio({api, refresh}) {
     const capabilities=textureMethodAvailability(runtime);
     const method=textureMethodOf(settings);
     const restriction=textureMethodRestriction(method,capabilities,true);
-    const control=select(textureMethodChoices,restriction?'trellis':method);
+    const control=select(textureMethodChoices.map(([id,label])=>[id,t(label)]),restriction?'trellis':method);
     control.id = id;
     for(const option of control.options){
       option.title=textureMethodRestriction(option.value,capabilities,true);
       option.disabled=!!option.title;
     }
-    const label=field('Texture method',control);
+    const label=field(t('Texture method'),control);
     const status=el('p','hint');
     status.setAttribute('role','status');
-    status.textContent=restriction?`${restriction} Using Native PBR for this attempt.`:'';
+    status.textContent=textureMethodExplanation(method,capabilities,true);
     status.hidden=!status.textContent;
     container.append(label,status);
     optionHelp(label,'Texture method',textureMethodHelp);
@@ -605,6 +606,9 @@ export function createQueueStudio({api, refresh}) {
 
   ui.element.addEventListener('close', () => clearInterval(timer));
   return {
+    setRuntime(runtime, stage) {
+      runtimeInfo.textContent = runtimeSummary(runtime, stage);
+    },
     async open(prepare = false) {
       const catalogue = await api('/api/profiles');
       profiles = catalogue.profiles;

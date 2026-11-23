@@ -531,3 +531,8 @@
 !/docs/RELEASE_3.14.1-preview.3.md
 !/docs/RELEASE_3.15.0.md
 !/docs/RELEASE_3.15.1.md
+!/studio_resources.py
+!/animation_diagnostics.py
+!/tests/collection_preview_stability.py
+!/tests/animation_diagnostics.py
+!/tests/quality_diagnostics.py

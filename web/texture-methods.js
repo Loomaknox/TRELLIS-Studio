@@ -1,3 +1,5 @@
+import {t} from './i18n.js';
+
 export const textureMethodChoices = [
   ['trellis', 'Native PBR'],
   ['multiview', 'Multiview refinement'],
@@ -19,8 +21,30 @@ export function textureMethodAvailability(status) {
 
 export function textureMethodRestriction(method, capabilities, singleImage) {
   if (method === 'trellis') return '';
-  if (!singleImage) return 'Choose a single-image generation engine to use this texture method.';
+  if (!singleImage) return t('Choose a single-image generation engine to use this texture method.');
   const runtime = capabilities[method];
-  const name = method === 'ultratex' ? 'UltraTex' : 'Multiview refinement';
-  return runtime?.available === true ? '' : runtime?.reason || `${name} is unavailable locally.`;
+  if (runtime?.available === true) return '';
+  switch (runtime?.reason_code) {
+    case 'not_installed':
+      return t('Install this optional component using Repair or resume components.');
+    case 'incomplete':
+    case 'dependencies_missing':
+      return t('This component is incomplete. Run Repair or resume components.');
+    case 'gpu_unsupported':
+      return t('This GPU is outside the supported hardware profile for this texture method.');
+    case 'vram_insufficient':
+      return t('This texture method requires at least {minimum} MiB of dedicated VRAM.', {minimum: runtime.minimum_vram_mib});
+    default:
+      return t(runtime?.reason || 'Unavailable');
+  }
+}
+
+export function textureMethodExplanation(preferred, capabilities, singleImage) {
+  const fallback = textureMethodRestriction(preferred, capabilities, singleImage);
+  if (fallback) return t('{reason} Using Native PBR.', {reason: fallback});
+  if (!singleImage) return '';
+  return textureMethodChoices.filter(([id]) => id !== 'trellis')
+    .map(([id, label]) => [t(label), textureMethodRestriction(id, capabilities, true)])
+    .filter(([, reason]) => reason)
+    .map(([method, reason]) => t('{method} · {reason}', {method, reason})).join(' ');
 }

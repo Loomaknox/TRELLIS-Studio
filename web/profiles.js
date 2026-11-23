@@ -3,7 +3,7 @@ import {formatLocale,t} from './i18n.js';
 import {detailRefinements} from './hd-master-finishing.js?v=detail-refinement-native';
 import {createWorkflowFields, optionHelp} from './advanced-controls.js?v=standard-profiles';
 import {createStandardWorkflowGraph} from './standard-workflow-graph.js?v=1';
-import {textureMethodChoices,textureMethodHelp,textureMethodOf,textureMethodRestriction} from './texture-methods.js?v=figure-master-ultratex';
+import {textureMethodChoices,textureMethodExplanation,textureMethodHelp,textureMethodOf,textureMethodRestriction} from './texture-methods.js?v=stability';
 
 const $=id=>document.getElementById(id);
 const steps={game_d:20,high_detail:20,humanoid_experimental:20,dense_master:20,fast:8,balanced:12,detail:20};
@@ -59,7 +59,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
   optionHelp(retexture.closest('label'), 'Retexture after Hi3D', retextureHelp);
   const textureMethod=$('textureMethod');
   const textureMethodStatus=$('textureMethodStatus');
-  textureMethod.replaceChildren(...textureMethodChoices.map(([id,name])=>new Option(name,id)));
+  textureMethod.replaceChildren(...textureMethodChoices.map(([id,name])=>new Option(t(name),id)));
   optionHelp(textureMethod.closest('label'),'Texture method',textureMethodHelp);
   const textures=advanced.group('texture');
   if(textures)textures.querySelector('.option-grid').prepend(retextureField);
@@ -224,7 +224,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     retextureField.hidden=selectedFinish!=='hi3d_1024';
     retexture.disabled=!retextureEligible();
     retextureStatus.textContent=retexture.disabled
-      ? 'Choose 1024³ for the 3D resolution to use this option.'
+      ? t('Choose 1024³ for the 3D resolution to use this option.')
       : detailTexturing.available!==true ? detailTexturing.reason||'The local texturing pipeline is unavailable.' : '';
     retextureStatus.hidden=!retextureStatus.textContent;
     const textureModeRestriction=method=>textureMethodRestriction(method,textureSupport,!isMultiview());
@@ -235,7 +235,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     const textureFallback=textureModeRestriction(preferredTextureMethod);
     textureMethod.value=textureFallback?'trellis':preferredTextureMethod;
     textureMethod.disabled=false;
-    textureMethodStatus.textContent=textureFallback?`${textureFallback} Using Native PBR for this generation.`:'';
+    textureMethodStatus.textContent=textureMethodExplanation(preferredTextureMethod,textureSupport,!isMultiview());
     textureMethodStatus.hidden=!textureMethodStatus.textContent;
     syncRefinementBudget(Boolean(detail));
     const textureSize=$('textureSize');
@@ -279,12 +279,12 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       }else if(detailRefinements[option.value]){
         option.disabled=!!detailSourceReason||info?.available!==true;
         option.title=option.disabled
-          ? detailSourceReason||info?.reason||t('Requires the Hi3D runtime.')
+          ? detailSourceReason||t(info?.reason || '')||t('Requires the Hi3D runtime.')
           : detailRefinements[option.value].detail;
       }else{
         option.disabled=actual.resolution<1024||!(info?.available??(dense&&option.value==='studio_768'&&hdSupported));
         option.textContent=finishingName(option.value)+(option.value==='wtivo_1024'&&option.disabled?' · '+t('Unavailable'):'');
-        option.title=option.disabled ? info?.reason || t('Requires 1024 or higher generation resolution.') : '';
+        option.title=option.disabled ? t(info?.reason || '') || t('Requires 1024 or higher generation resolution.') : '';
       }
     }
     const selectedSupport=masterSupport[selectedFinish];
@@ -300,7 +300,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       hint=detail ? finishing.selectedOptions[0].title
         : actual.resolution<1024
         ? t('Choose 1024 or higher generation resolution in Advanced.')
-        : selectedSupport?.reason || t('This reconstruction is unavailable.');
+        : t(selectedSupport?.reason || '') || t('This reconstruction is unavailable.');
     } else if (reconstruction&&requestedTriangles>ceiling) {
       hint=t('Set the triangle ceiling to {ceiling} or less in Advanced.',{ceiling:number.format(ceiling)});
     } else if(detail&&!$('removeBg').checked){

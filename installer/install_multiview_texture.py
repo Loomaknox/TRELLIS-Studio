@@ -47,7 +47,8 @@ def verify_gpu():
         raise RuntimeError('Multiview texture refinement requires a working NVIDIA CUDA GPU.')
     compute = '.'.join(map(str, torch.cuda.get_device_capability()))
     if compute not in policy['compute_capabilities']:
-        raise RuntimeError('This Setup supports multiview texture refinement on NVIDIA compute 8.6 and 8.9.')
+        supported = ', '.join(policy['compute_capabilities'])
+        raise RuntimeError(f'This Setup supports multiview texture refinement on NVIDIA compute {supported}.')
     if torch.cuda.get_device_properties(0).total_memory // 1024**2 < policy['minimum_vram_mib']:
         raise RuntimeError('Multiview texture refinement requires at least 8 GB of dedicated VRAM.')
     with torch.inference_mode():

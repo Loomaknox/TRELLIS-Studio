@@ -122,7 +122,7 @@ export function createHdMasterFinishing({api, startJob}) {
                 const capability = config.methods?.[value];
                 control.disabled = capability?.available !== true;
                 control.checked = !control.disabled && value === config.default_method;
-                detail.textContent = control.disabled ? (capability?.reason || t('Unavailable on this model.')) : description;
+                detail.textContent = control.disabled ? t(capability?.reason || 'Unavailable on this model.') : description;
             }
             sourceResolution.textContent = Number.isFinite(config.source_resolution) ? `${config.source_resolution}³` : t('Unknown');
             ceiling.textContent = Number.isFinite(config.triangle_ceiling) ? number.format(config.triangle_ceiling) : t('Unknown');
