@@ -8,7 +8,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 from scipy.ndimage import distance_transform_edt, map_coordinates
-from scipy.interpolate import LinearNDInterpolator
+from scipy.interpolate import RBFInterpolator
+from scipy.spatial import Delaunay
 
 
 # MediaPipe anatomical landmark -> zero-based vertex on TOPOS's released
@@ -219,6 +220,129 @@ def _deformation_quality(before, after, faces, changed):
     return dict(tested_faces=len(active), flipped_normals=flips, edge_stretch_p99=p99, edge_stretch_max=maximum)
 
 
+def _replace_skin(body, faces, native, predicted, origin, step, target, span):
+    """Excise the porous anterior face and sew a sampled facial surface to its rim."""
+    bottom = target[17] + .34 * (target[152] - target[17])
+    top = target[9] + .52 * (target[10] - target[9])
+    center = (bottom + top) * .5
+    scales = np.array([.62 * span, (top[1] - bottom[1]) * .5])
+    yy, xx = np.indices(native.shape)
+    plane = np.stack((xx, yy), axis=-1) * step + origin
+    radial = np.linalg.norm((plane - center) / scales, axis=-1)
+    native = cv2.GaussianBlur(cv2.medianBlur(native.astype(np.float32), 5), (0, 0), 1.3)
+    predicted = cv2.GaussianBlur(cv2.medianBlur(predicted.astype(np.float32), 3), (0, 0), .75)
+    # Across the donor eye opening a depth ray can reach the back of the head.
+    # Fill that area with the continuous lid surface; the exact aperture is cut later.
+    protect = np.zeros(native.shape, np.uint8)
+    for lid in ((33, 160, 159, 158, 133, 153, 145, 144), (263, 387, 386, 385, 362, 380, 374, 373)):
+        contour = np.rint((target[list(lid)] - origin) / step).astype(np.int32)
+        cv2.fillPoly(protect, [contour], 1)
+    holes = cv2.dilate(protect, np.ones((3, 3), np.uint8))
+    # Use the two-pixel collar only; its convex hull covers both openings.
+    collar = cv2.dilate(holes, np.ones((5,5), np.uint8)) & (holes == 0)
+    samples = np.column_stack(np.nonzero(collar))
+    from scipy.interpolate import LinearNDInterpolator
+    missing = np.column_stack(np.nonzero(holes))
+    predicted[tuple(missing.T)] = LinearNDInterpolator(samples, predicted[tuple(samples.T)])(missing)
+    middle = radial < .85
+    offset = np.median((native - predicted)[middle & (holes == 0)])
+    anatomy = predicted + offset
+    distance = np.clip((1 - radial) / .33, 0, 1)
+    weight = distance**2 * (3 - 2 * distance)
+    surface = (1 - weight) * native + weight * anatomy
+
+    ellipse = (body[:, :2] - center) / scales
+    radii = np.linalg.norm(ellipse, axis=1)
+    local = np.flatnonzero(radii < 1.05)
+    signed = np.maximum(radii - 1, .001)
+    source_front = _sample(native, (body[local, :2] - origin) / step)
+    signed[local] = np.maximum(radii[local] - 1, (source_front - body[local, 2]) / span - .44)
+    selected = (signed[faces] < 0).sum(axis=1)
+    crossing = faces[(selected > 0) & (selected < 3)]
+    if len(crossing) < 24:
+        raise ValueError('Too few triangles overlap the predicted face.')
+    # Keep the exterior half of each crossing triangle and reuse edge vertices
+    # across adjacent triangles. Deep surfaces behind the face are untouched.
+    vertices, exterior, edge_ids, cut_segments = [], [], {}, []
+    def joint(a, b):
+        edge = (min(a, b), max(a, b))
+        if edge not in edge_ids:
+            t = signed[a] / (signed[a] - signed[b])
+            edge_ids[edge] = len(body) + len(vertices)
+            vertices.append(body[a] + t * (body[b] - body[a]))
+        return edge_ids[edge]
+    for tri in crossing:
+        poly = []
+        segment = []
+        for i in range(3):
+            a, b = int(tri[i-1]), int(tri[i])
+            if (signed[a] < 0) != (signed[b] < 0):
+                point = joint(a,b)
+                poly.append(point)
+                segment.append(point)
+            if signed[b] >= 0:
+                poly.append(b)
+        exterior.extend((poly[0], poly[i], poly[i+1]) for i in range(1, len(poly)-1))
+        cut_segments.append(tuple(sorted(segment)))
+    intersection = np.asarray(vertices)
+    ring_xy = (intersection[:, :2] - center) / scales
+    depth = _sample(native, (intersection[:, :2] - origin) / step)
+    # A porous scan may meet the cutting ellipse in multiple layers. Only the
+    # visible rim should be stitched to the front; other cuts sit inside the head.
+    candidates = np.flatnonzero((np.linalg.norm(ring_xy,axis=1) > .995)
+                                & (np.abs(intersection[:,2] - depth) < .055*span))
+    angles = np.arctan2(ring_xy[candidates, 1], ring_xy[candidates, 0])
+    order = np.argsort(angles)
+    candidates, angles = candidates[order], angles[order]
+    if len(angles) < 40:
+        raise ValueError('Too few triangles overlap the predicted face.')
+    keep = np.r_[True, np.diff(angles) > 1e-9]
+    candidates, angles = candidates[keep], angles[keep]
+    ring_ids = list(len(body) + candidates)
+    ring_angles = list(angles)
+    pitch = max(step * 1.55, span / 92)
+    max_angle = 1.4 * pitch / max(scales)
+    seam_segments = set(cut_segments)
+    for i, (a, b) in enumerate(zip(angles, np.r_[angles[1:], angles[0] + 2*np.pi])):
+        edge = tuple(sorted((len(body)+int(candidates[i]), len(body)+int(candidates[(i+1)%len(angles)]))))
+        if edge in seam_segments:
+            continue
+        for angle in np.linspace(a, b, int(np.ceil((b-a) / max_angle))+1)[1:-1]:
+            xy = center + [np.cos(angle), np.sin(angle)] * scales
+            z = _sample(native, ((xy - origin) / step)[None])[0]
+            ring_ids.append(len(body) + len(vertices))
+            ring_angles.append(angle)
+            vertices.append([*xy, z])
+    ring = np.column_stack((np.cos(ring_angles), np.sin(ring_angles)))
+    # A staggered grid avoids long slivers and provides evenly sampled lips and lids.
+    gx = np.arange(-scales[0], scales[0] + pitch, pitch)
+    gy = np.arange(-scales[1], scales[1] + pitch, pitch * .866)
+    iy, ix = np.meshgrid(gy, gx, indexing='ij')
+    ix[::2] += .5 * pitch
+    interior = np.stack((ix.ravel(),iy.ravel()), axis=1) / scales
+    interior = interior[np.linalg.norm(interior, axis=1) < 1 - pitch / min(scales)]
+    xy = center + interior * scales
+    z = _sample(surface, (xy-origin) / step)
+    inner_ids = np.arange(len(xy)) + len(body) + len(vertices)
+    patch = np.concatenate((np.asarray(ring_ids), inner_ids))[Delaunay(np.vstack((ring, interior))).simplices]
+    vertices = np.vstack((np.asarray(vertices), np.column_stack((xy, z)))).astype(body.dtype)
+    output = np.vstack((body, vertices))
+    order = np.argsort(ring_angles)
+    angular = np.asarray(ring_angles)[order]
+    ids = np.asarray(ring_ids)[order]
+    sewn = np.array([tuple(sorted((a,b))) in seam_segments for a,b in zip(ids,np.roll(ids,-1))])
+    arcs = np.diff(np.r_[angular, angular[0] + 2*np.pi])
+    sewn_fraction = float(arcs[sewn].sum() / (2*np.pi))
+    edge_lengths = np.linalg.norm(output[patch] - output[np.roll(patch,1,axis=1)], axis=2)
+    if (sewn_fraction < .93 or np.max(arcs[~sewn], initial=0.) > .06
+            or edge_lengths.max() > .2 * span or np.quantile(edge_lengths,.99) > .13 * span):
+        raise ValueError('The facial surface cannot be joined safely to the original head.')
+    result_faces = np.vstack((faces[selected == 0], exterior, patch)).astype(faces.dtype)
+    return output, result_faces, surface, dict(removed_skin_triangles=int(np.count_nonzero(selected)),
+        rebuilt_skin_triangles=len(patch), sewn_rim_vertices=len(candidates), sewn_rim_fraction=sewn_fraction,
+        rebuilt_max_edge=float(edge_lengths.max()))
+
+
 def fit_relief(vertices, faces, donor, donor_faces, reference_pixels, subject, iris_rgb):
     """Move only the visible facial surface. Return native vertices and eye pivots."""
     alpha_box = subject.getchannel('A').point(lambda value: 255 if value >= 205 else 0).getbbox()
@@ -246,7 +370,13 @@ def fit_relief(vertices, faces, donor, donor_faces, reference_pixels, subject, i
     if np.max(np.linalg.norm(residual, axis=1)) > .36 * span:
         raise ValueError('TOPOS facial features could not be registered reliably.')
     # The fixed correspondence also aligns the shape and opening of each eyelid.
-    projected += LinearNDInterpolator(original_xy, residual, fill_value=0.)(donor[:, :2])
+    ref_center = original_xy.mean(axis=0)
+    ref_scale = np.ptp(original_xy, axis=0).max()
+    anchor_xy = (original_xy - ref_center) / ref_scale
+    outer = np.array([[-1,-1],[-1,1],[1,-1],[1,1],[0,-1],[0,1],[-1,0],[1,0]])
+    warp = RBFInterpolator(np.vstack((anchor_xy,outer)), np.vstack((residual,np.zeros((len(outer),2)))),
+                           kernel='thin_plate_spline', smoothing=1e-6)
+    projected += warp((donor[:, :2] - ref_center) / ref_scale)
     head = np.column_stack((projected, donor[:, 2] * scale))
     size = 224
     center = (target[list(SKIN)].min(0) + target[list(SKIN)].max(0)) / 2
@@ -291,6 +421,9 @@ def fit_relief(vertices, faces, donor, donor_faces, reference_pixels, subject, i
     before[:, 2] *= -1
     quality = _deformation_quality(before, body, nearby_faces, displaced)
     changed = int(np.count_nonzero(displaced))
+    body, faces, repaired_depth, repair = _replace_skin(body, faces, source + delta, donor_depth,
+                                                         origin, step, target, span)
+    quality.update(repair)
     eyes = []
     for side, (outer, inner, upper, lower, pupil) in enumerate(((33, 133, 159, 145, 468), (263, 362, 386, 374, 473))):
         corners = target[[outer, inner]]
@@ -306,8 +439,14 @@ def fit_relief(vertices, faces, donor, donor_faces, reference_pixels, subject, i
             raise ValueError('Both eyelids must be open and clearly visible.')
         middle += up * ((target[[upper, lower]].mean(0) - middle) @ up)
         radius = .54 * width
-        margin_points = (target[[outer, inner, upper, lower]] - origin) / step
-        center_depth = float(np.quantile(_sample(source + delta, margin_points), .30) - .96 * radius)
+        line = np.linspace(-1.,1.,61)
+        gx, gy = np.meshgrid(line,line)
+        rr = gx*gx + gy*gy
+        outside_lid = (gx*radius/(.50*width))**2 + (gy*radius/(.51*opening))**2 > 1
+        sample = (rr < 1) & outside_lid
+        annulus = middle + radius*(gx[sample,None]*axis + gy[sample,None]*up)
+        ceiling = _sample(repaired_depth,(annulus-origin)/step) - radius*np.sqrt(1-rr[sample])
+        center_depth = float(np.quantile(ceiling,.001) - .025*radius)
         body, faces = _eye_well(body, faces, middle, axis, up, .48 * width, .49 * opening, radius, center_depth)
         rgb = np.asarray(iris_rgb[side], dtype=float)
         if rgb.shape != (3,) or not np.isfinite(rgb).all() or np.any((rgb < 0) | (rgb > 255)):

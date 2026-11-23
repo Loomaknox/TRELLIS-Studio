@@ -37,7 +37,54 @@ def _globe(eye):
                            visual=trimesh.visual.TextureVisuals(uv=uv, material=mat))
 
 
-def append_eyes(path, eyes, normalization):
+def eye_openings(doc, blob):
+    """Measure disconnected views of either globe through the final, simplified skin."""
+    import cv2
+    from glb_data import accessor, node_transforms
+    from multiview_texture_fusion import _raster
+
+    _, matrix = node_transforms(doc)
+    eyes = {n['name']: matrix(i)[:3, 3] for i, n in enumerate(doc['nodes'])
+            if n.get('name') in ('Eye.R', 'Eye.L') and 'mesh' in n}
+    if len(eyes) != 2:
+        raise ValueError('The exported face is missing an eye.')
+    span = np.linalg.norm(eyes['Eye.L'] - eyes['Eye.R'])
+    if not np.isfinite(span) or span <= 0:
+        raise ValueError('The exported eye spacing is invalid.')
+    center = (eyes['Eye.R'] + eyes['Eye.L']) / 2
+    width, height = 480, 192
+    scale = 220 / span
+    body = np.full((height, width), -np.inf, np.float32)
+    globes = {eye: np.full_like(body, -np.inf) for eye in eyes}
+    for i, node in enumerate(doc['nodes']):
+        if 'mesh' not in node:
+            continue
+        transform = matrix(i)
+        surface = globes.get(node.get('name'), body)
+        for prim in doc['meshes'][node['mesh']]['primitives']:
+            points = accessor(doc, blob, prim['attributes']['POSITION']) @ transform[:3, :3].T + transform[:3, 3]
+            points[:, :2] = (points[:, :2] - center[:2])*[scale, -scale] + [width/2, height/2]
+            tris = accessor(doc, blob, prim['indices']).reshape(-1, 3)
+            bounds = ((points[:, 0] < 0).astype(np.uint8) + 2*(points[:, 0] >= width)
+                      + 4*(points[:, 1] < 0) + 8*(points[:, 1] >= height))
+            tris = tris[(bounds[tris[:, 0]] & bounds[tris[:, 1]] & bounds[tris[:, 2]]) == 0]
+            depths, _ = _raster(points.astype(np.float32), tris, np.empty((len(points), 0), np.float32),
+                                (width, height), False)
+            np.maximum(surface, depths, out=surface)
+    report = {}
+    for name, depth in globes.items():
+        visible = (depth > body).astype(np.uint8)
+        # Bridge subpixel cracks and fine strands in this fixed, eye-scaled view.
+        joined = cv2.morphologyEx(visible, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+        _, labels = cv2.connectedComponents(joined)
+        areas = np.bincount(labels[visible != 0])
+        ordered = sorted(areas[1:].tolist(), reverse=True)
+        report[name] = dict(visible_pixels=int(visible.sum()), largest_opening_pixels=ordered[0] if ordered else 0,
+                            second_opening_pixels=ordered[1] if len(ordered) > 1 else 0)
+    return report
+
+
+def append_eyes(path, eyes, normalization, *, check_openings=False):
     """Append both eyes after body-only finishing; retain UVs, tangents and maps."""
     from glb_data import read
     from generated_motion import write_glb
@@ -105,6 +152,13 @@ def append_eyes(path, eyes, normalization):
     roots.extend(n + offsets['nodes'] for n in eye_doc['scenes'][eye_doc.get('scene', 0)]['nodes'])
     pending = path.with_name('facial-eyes.pending.glb')
     try:
+        if check_openings:
+            openings = eye_openings(doc, blob)
+            for stats in openings.values():
+                largest = stats['largest_opening_pixels']
+                if largest < 60 or stats['second_opening_pixels'] > max(12, .025 * largest):
+                    raise ValueError('The exported eye is obscured or visible through a second opening in the eyelid.')
+            added['visible_openings'] = openings
         write_glb(pending, doc, blob)
         pending.replace(path)
     finally:

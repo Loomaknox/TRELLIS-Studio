@@ -133,13 +133,13 @@ def generate(root, job, settings, image, reviewed, options, status):
                 dict(seed=seed, sampler=sampler_options(options)['texture']),
                 condition_transform=lambda pipeline, cond, resolution: portrait_conditioning(
                     pipeline, cond, subject, pixels, detection, files['portrait'], resolution))
-        from facial_head_color import guide_base_color
-        color_voxels = guide_base_color(coords, attrs, layout, 1024, vertices, faces, target, pixels, subject)
+        from facial_head_color import prepare_face_material
+        guide = prepare_face_material(vertices, faces, target, pixels, subject)
     report = dict(state='applied', method='TOPOS-DiT', landmarks=478, eyes=2, material_inferences=1,
                   modified_vertices=changed, shape_resolution=decoded_res, material_resolution=1024,
-                  reference_color_voxels=color_voxels, deformation_quality=quality,
+                  deformation_quality=quality,
                   iris_color_source=detection.get('iris_color_source', []))
     return dict(vertices=torch.from_numpy(vertices), faces=torch.from_numpy(faces),
                 coords=torch.as_tensor(coords[:, 1:]).contiguous(), attr_volume=torch.as_tensor(attrs).half(),
                 voxel_size=1/1024, attr_layout=layout, resolution=1024,
-                facial_eye_nodes=eyes, facial_head_enhancement=report), kind
+                facial_eye_nodes=eyes, facial_head_enhancement=report, face_material_guide=guide), kind
