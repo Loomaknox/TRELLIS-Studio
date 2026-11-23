@@ -38,7 +38,7 @@ const rigHandDescriptions={
 };
 const availableRigProfiles=status=>['simple','standard','advanced','expert','expressive'].filter(profile=>Array.isArray(status.rig_profiles)&&status.rig_profiles.includes(profile));
 
-export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,rigSetup,creatureViewer,getClips,playClip,loadRigSource}){
+export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,rigSetup,creatureViewer,getClips,playClip,loadRigSource,openDiagnostics}){
  const $=id=>document.getElementById(id),data=await api('/api/animations');
  let tab='library';const catalog=data.animations,previews=createMotionPreviews();
  let batchAvailable=false,removeAvailable=false,creatureRigAvailable=false,creatureClipTarget=null,rigProfiles=[];
@@ -366,8 +366,8 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   if($('rigMode').value==='humanoid')changeRig();
  };
 
- function beginRig(job){
-  const previous=rigSourcePreview?{...job.settings?.rig_options,...rigSourceCheck?.options}:null;
+ function beginRig(job,retryOptions=null){
+  const previous=rigSourcePreview?{...job.settings?.rig_options,...rigSourceCheck?.options}:retryOptions;
   const profiles=rigSourcePreview?rigProfiles:['auto',...rigProfiles];
   const selected=profiles.includes(previous?.profile)?previous.profile:profiles[0];
   const select=$('rigProfile');
@@ -378,7 +378,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
    return option;
   }));
   select.value=selected;
-  $('rigArticulatedFingers').checked=previous?.articulated_fingers!==false||!rigHandDescriptions[previous.profile];
+  $('rigArticulatedFingers').checked=previous?.articulated_fingers!==false;
   $('rigProfileControls').hidden=!rigProfiles.length;
   $('rigSourcePreviewHint').hidden=!rigSourcePreview;
   describeRigProfile();
@@ -397,6 +397,14 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   $('rigSymmetry').checked=true;
   if($('rigMode').value==='humanoid')changeRig();
  }
+
+ function rigidProfile(preferred){
+  const enabled=profile=>rigProfiles.includes(profile);
+  const supportsRigid=profile=>profile==='simple'||Boolean(rigHandDescriptions[profile]);
+  if(enabled(preferred)&&supportsRigid(preferred))return preferred;
+  return ['simple','advanced','expert','expressive'].find(enabled);
+ }
+ $('openRigDiagnostics').onclick=()=>openDiagnostics?.(rigSourcePreview?rigSourceId(getJob()):rigJobId);
 
  $('createRig').onclick=async()=>{
   const job=getJob();
@@ -617,6 +625,12 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  let signature='';
  return {
   closeRig,
+  canRetryRigidHands(options){return Boolean(rigSetup?.ready&&rigidProfile(options?.profile));},
+  retryRigidHands(options){
+   const job=getJob(),profile=rigidProfile(options?.profile);
+   if(!profile||!canEdit(job)||hasRig(job)||!rigSetup?.ready)return;
+   beginRig(job,{...options,profile,articulated_fingers:false});
+  },
   label(name){
    const generated=getJob()?.settings?.generated_animation_clips?.find(clip=>clip.clip===name)||personal.findClip(name);
    if(generated)return generated.name+(Number.isFinite(generated.duration)?` · ${generated.duration.toLocaleString(formatLocale)} s`:'');

@@ -885,6 +885,7 @@ def _projection_copy(model_path, views, output_path, progress, cancelled):
         warnings.append('The projected areas do not overlap. Both areas were projected separately.')
     report = {'state': 'applied', 'modified_texels': int(changed.sum()),
               'projected_texels': int(projected.sum()), 'padding_texels': int(padding.sum()),
+              'covered_texels': int(covered.sum()),
               'triangles': len(indices), 'atlas': [width, height],
               'source_sha256': source_hash,
               'geometry_binary_unchanged': True, 'alpha_unchanged': True,

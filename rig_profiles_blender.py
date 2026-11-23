@@ -15,6 +15,21 @@ _SIDES = ('left', 'right')
 _BODY_HELPER_PROFILES = ('expert', 'expressive')
 _TWIST_PROFILES = ('advanced', *_BODY_HELPER_PROFILES)
 _PROFILES = ('simple', 'standard', *_TWIST_PROFILES)
+
+
+class RigidHandsRecommended(ValueError):
+    def __init__(self, message, *, side=None, joints=()):
+        super().__init__(message)
+        self.details = {'use_rigid_hands': True}
+        if side:
+            self.details['side'] = side
+        if joints:
+            self.details['joints'] = [
+                {'side': side, 'finger': finger + 1, 'phalanx': segment + 1, 'bone': bone}
+                for side, finger, segment, bone in joints
+            ]
+
+
 _BODY_PARENTS = {
     'root': None,
     'spine_1': 'root',
@@ -62,15 +77,17 @@ def _finger_mapping(bones, body):
     for side in _SIDES:
         roots = sorted(bones[body[f'{side}_hand']].children, key=lambda bone: bone.name)
         if len(roots) != 5:
-            raise ValueError('Articulated fingers require five separate finger chains per hand. Choose rigid hands for this model.')
+            raise RigidHandsRecommended('Articulated fingers require five separate finger chains per hand. Choose rigid hands for this model.', side=side)
         for finger, bone in enumerate(roots):
             for segment in range(3):
                 if bone.length < 1e-6:
-                    raise ValueError('A finger joint is too short to articulate. Choose rigid hands or check the rig.')
+                    raise RigidHandsRecommended('A finger joint is too short to articulate. Choose rigid hands or check the rig.',
+                                                joints=[(side, finger, segment, bone.name)])
                 fingers[f'{side}_finger_{finger}_{segment}'] = bone.name
                 if segment < 2:
                     if len(bone.children) != 1:
-                        raise ValueError('Articulated fingers require three joints per finger. Choose rigid hands for this model.')
+                        raise RigidHandsRecommended('Articulated fingers require three joints per finger. Choose rigid hands for this model.',
+                                                    joints=[(side, finger, segment, bone.name)])
                     bone = bone.children[0]
     return fingers
 
@@ -85,7 +102,7 @@ def _finger_regions(bones, fingers):
             end = bones[chain[-1]].tail_local.copy()
             axis = end - start
             if axis.length_squared < 1e-12:
-                raise ValueError('The finger geometry does not match the skeleton. Choose rigid hands.')
+                raise RigidHandsRecommended('The finger geometry does not match the skeleton. Choose rigid hands.', side=side)
             result[(side, index)] = (chain, start, axis / axis.length_squared)
     return result
 
@@ -168,7 +185,7 @@ def _distal_mesh(arm, mesh, matrix, body, regions, geometry_hits):
                 visited.update(adjacent)
             confirmed = {finger for finger, count in evidence.items() if count >= 3}
             if len(confirmed) > 1:
-                raise ValueError('The hand mesh appears joined between fingers. Choose rigid hands for this model.')
+                raise RigidHandsRecommended('The hand mesh appears joined between fingers. Choose rigid hands for this model.', side=side)
             geometry_hits.update(confirmed)
 
 
@@ -254,8 +271,6 @@ def _plan_mesh(arm, mesh, body, destinations, twist_specs, finger_regions, finge
                     f'The weighted bone {name} belongs to an unsupported branch. Use Auto to preserve it.'
                 )
             weights[keep] = weights.get(keep, 0.0) + entry.weight
-            if name in finger_names and entry.weight >= 0.12:
-                finger_hits.add(name)
         for spec in twist_specs.values():
             if spec[1] in weights:
                 _transfer_twist(weights, matrix @ vertex.co, spec)
@@ -268,7 +283,10 @@ def _plan_mesh(arm, mesh, body, destinations, twist_specs, finger_regions, finge
         total = sum(weight for _, weight in largest)
         if not math.isfinite(total) or total <= 0:
             raise ValueError('Every skinned vertex needs at least one usable bone weight. Check the source rig.')
-        plan.append(tuple((name, weight / total) for name, weight in largest))
+        vertex_plan = tuple((name, weight / total) for name, weight in largest)
+        if finger_names:
+            finger_hits.update(name for name, weight in vertex_plan if name in finger_names and weight >= .12)
+        plan.append(vertex_plan)
     return mesh, bone_groups, plan
 
 
@@ -402,10 +420,18 @@ def apply_profile(arm, meshes, mapping, profile, articulated_fingers):
     wrist_twist_specs = {} if expressive else twist_specs
     plans = [_plan_mesh(arm, mesh, body, destinations, wrist_twist_specs, regions, hits, geometry_hits, body_donors)
              for mesh in meshes]
-    if regions.keys() - geometry_hits:
-        raise ValueError('Five separate finger regions could not be confirmed in the mesh. Choose rigid hands for this model.')
-    if set(fingers.values()) - hits:
-        raise ValueError('Each finger joint needs usable mesh weights. Choose rigid hands for this model.')
+    missing_regions = sorted(regions.keys() - geometry_hits)
+    if missing_regions:
+        raise RigidHandsRecommended('Five separate finger regions could not be confirmed in the mesh. Choose rigid hands for this model.',
+                                    side=missing_regions[0][0])
+    missing_weights = []
+    for role, bone in fingers.items():
+        if bone not in hits:
+            side, _, finger, segment = role.split('_')
+            missing_weights.append((side, int(finger), int(segment), bone))
+    if missing_weights:
+        raise RigidHandsRecommended('Each finger joint needs usable mesh weights. Choose rigid hands for this model.',
+                                    joints=missing_weights)
     if supported_helpers:
         names = {helper.name for helper in supported_helpers.values()}
         weighted = {name for _, _, plan in plans for weights in plan for name, value in weights

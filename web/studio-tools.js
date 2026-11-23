@@ -7,7 +7,7 @@ import {icon} from './card-menu.js?v=3.4.0';
 import {t} from './i18n.js';
 import {isCreatureRigDraft} from './creature-rig-editor.js';
 export function createStudioTools({api,getRecords,getJob,refresh,printCopy,labelAnimation,openPreparation}){
- const compare=createComparison({getRecords,labelAnimation}),diagnostics=createDiagnostics({api});
+ const compare=createComparison({api,getRecords,labelAnimation}),diagnostics=createDiagnostics({api});
  const exports=createExportStudio({api,printCopy,openAction(action,job){
   if(action==='diagnostics')diagnostics.open(job);
   else if(action==='print')printCopy.open(job);

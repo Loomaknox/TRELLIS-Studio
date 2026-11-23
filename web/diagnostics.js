@@ -2,6 +2,12 @@ import {formatLocale, language, localizeStatic, t} from './i18n.js';
 import {icon} from './card-menu.js?v=3.4.0';
 const nameOf=j=>j?.metadata?.display_name||j?.settings.name||t('Model');
 function findingMessage(item) {
+ if (item.clip !== undefined) return t(item.message, {
+  clip: item.clip, bone: item.bone,
+  time: item.time_s?.toLocaleString(formatLocale,{maximumFractionDigits:3}),
+  degrees: item.degrees?.toLocaleString(formatLocale),
+  distance: item.distance_cm?.toLocaleString(formatLocale),
+ });
  if (language !== 'fr') return item.message;
  const image = /^Image (\d+) cannot be decoded\.$/.exec(item.message);
  if (image) return t('Image {count} cannot be decoded.', { count: image[1] });
@@ -32,6 +38,7 @@ export function createDiagnostics({api}){
   const legend=el('p','diagnostic-edge-legend');
   if(data.positions.boundary.length)legend.append(el('span','boundary',t('Amber · boundary')));
   if(data.positions.nonmanifold.length)legend.append(el('span','nonmanifold',t('Pink · nonmanifold')));
+  if(data.positions.intersection?.length)legend.append(el('span','',t('Cyan · suspected intersections')));
   if(data.sampled)legend.append(el('span','', t('Sampled edge locations')));
   const notice=el('p','tool-error');notice.setAttribute('role','status');
   area.append(legend,toggle,view,notice);
@@ -54,6 +61,8 @@ export function createDiagnostics({api}){
  async function run(force){if(!job)return;const own=++version;closePreview();$('rerunDiagnostics').disabled=true;$('diagnosticContent').replaceChildren(el('p','tool-loading',t('Checking topology, UVs, materials and dimensions…')));$('diagnosticSummary').textContent=t('Analysis in progress');$('downloadDiagnostic').hidden=true;
   try{const d=await api(`/api/jobs/${job.id}/diagnostics?force=${force?'true':'false'}`);if(own!==version)return;const s=d.summary;$('diagnosticContent').replaceChildren();$('diagnosticSummary').className='diagnostic-summary '+d.status;$('diagnosticSummary').replaceChildren(icon(d.status==='attention'?'alert':'shield'),el('strong','',d.status==='attention'?t('Needs attention'):t('Measured checks complete')),el('span','',t('{findings} finding(s) · {meshes} mesh(es) · {clips} clips',{findings:d.issues.filter(i=>i.severity!=='info').length,meshes:s.meshes,clips:s.clips})));
    const geometry=section(t('Geometry & scale'));metrics(geometry,[[t('Triangles'),s.triangles.toLocaleString(formatLocale)],[t('Vertices'),s.vertices.toLocaleString(formatLocale)],[t('Width × height × depth'),s.dimensions_m.map(x=>(x*100).toLocaleString(formatLocale,{maximumFractionDigits:2})+' cm').join(' × ')],[t('Boundary edges'),s.boundary_edges.toLocaleString(formatLocale)],[t('Nonmanifold edges'),s.nonmanifold_edges.toLocaleString(formatLocale)],[t('Degenerate faces'),s.degenerate_faces.toLocaleString(formatLocale)],[t('Connected shells'),s.connected_shells],[t('Surface'),s.closed_surface?t('Closed'):t('Open / needs inspection')]]);
+   if(Number.isInteger(s.suspected_crossing_pairs))metrics(geometry,[[t('Suspected crossing face pairs'),s.suspected_crossing_pairs.toLocaleString(formatLocale)]]);
+   if(d.intersection_scope)geometry.append(el('p','hint',t(d.intersection_scope)));
    edgeSection(d,own);
    const uv=section(t('UVs, materials & motion'));metrics(uv,[[t('UV coordinates'),s.has_uv?t('Present'):t('Missing or incomplete')],[t('Collapsed UV faces'),s.degenerate_uv_faces.toLocaleString(formatLocale)],[t('Materials'),s.materials],[t('Embedded textures'),s.textures],[t('Skeleton joints'),s.bones],[t('Animation clips'),s.clips]]);if(d.textures.length){const list=el('details','diagnostic-extra');list.append(el('summary','',t('Texture inventory ({count})',{count:d.textures.length})));for(const t of d.textures)list.append(el('p','texture-detail',`${t.name} · ${t.width} × ${t.height} · ${t.mode}`));uv.append(list);}
    const findings=section(t('Findings'));findings.classList.add('diagnostic-findings');if(!d.issues.length)findings.append(el('p','',t('No issues were detected by these checks.')));const extra=d.issues.length>8?el('details','diagnostic-extra'):null;if(extra)extra.append(el('summary','',t('Show {count} more findings',{count:d.issues.length-8})));for(const [index,item] of d.issues.entries()){const row=el('div','diagnostic-finding '+item.severity);row.append(icon(item.severity==='info'?'info':'alert'),el('p','',findingMessage(item)));(index>=8&&extra?extra:findings).append(row);}if(extra)findings.append(extra);

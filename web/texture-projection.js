@@ -835,6 +835,19 @@ export function createTextureProjection({ api, startJob }) {
             if (generationReferenceRun !== run || !ui.element.open) return;
             if (match.reason === 'time-limit') throw new Error('The model took too long to match. Try again or use Align references.');
             if (match.reason === 'low-overlap') throw new Error('No view matches this image closely. Use Align references to place it.');
+            if (match.ambiguous) {
+                const version = opening;
+                selectMethod('manual');
+                if (selectedReference?.reference !== descriptor.id) {
+                    reference.value = descriptor.id;
+                    await chooseReference(descriptor, { reference: descriptor.id });
+                }
+                if (opening === version && ui.element.open && projectionMethod === 'manual') {
+                    ui.notice.textContent = t('Several angles fit this reference. Use Orbit to choose a view.');
+                    manualMethod.focus({preventScroll: true});
+                }
+                return;
+            }
             const fitted = preview.render(match.pose);
             const source = alphaBounds(image, 384);
             const target = alphaBounds(fitted.image, 384);
@@ -844,9 +857,7 @@ export function createTextureProjection({ api, startJob }) {
                 method: 'generation_reference', linked_selection: true, camera: fitted.recipe,
                 source_rect: source, target_rect: target, mask_shape: 'rectangle', opacity: 1, feather: 0.04,
             };
-            generationStatus.textContent = match.ambiguous
-                ? t('Several angles fit the image. Check the fitted view before creating the copy.')
-                : t('Check the fitted view before creating the texture copy.');
+            generationStatus.textContent = t('Check the fitted view before creating the texture copy.');
         } catch (error) {
             if (generationReferenceRun === run) generationStatus.textContent = t(error.message);
         } finally {
@@ -2106,8 +2117,8 @@ export function createTextureProjection({ api, startJob }) {
                 savedRoles.setAttribute('aria-label', single || estimated ? t('Saved image') : t('Saved views'));
                 generationUnavailable.textContent = job.operation === 'texture_projection' || job.settings?.source_kind === 'texture_projection'
                     ? t('Open the original generated model in the Library to use its saved references.')
-                    : (job.settings?.engine === 'pixal3d' ? board.generation_views?.reason : board.generation_reference?.reason)
-                        || board.generation_views?.reason || t('Saved generation references are unavailable for this model.');
+                    : t((job.settings?.engine === 'pixal3d' ? board.generation_views?.reason : board.generation_reference?.reason)
+                        || board.generation_views?.reason || 'Saved generation references are unavailable for this model.');
                 reference.replaceChildren(el('option', '', t('Choose a reference')));
                 reference.firstChild.value = '';
                 for (const item of board.references || []) {

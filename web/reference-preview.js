@@ -2,6 +2,10 @@ import {formatLocale, localizeStatic, t} from './i18n.js';
 
 const roleNames = {front: 'Front', left: 'Left', back: 'Back', right: 'Right'};
 const imageNames = {original: 'Original', cutout: 'Cutout', framed: 'Model input'};
+const warningMessages = {
+  reference_crop_cut: 'The crop crosses the foreground. Check for cut-off details before generating.',
+  reference_mask_small: 'Very little foreground remains. Check the cutout or widen the crop.',
+};
 const fullCrop = [0, 0, 1, 1];
 const svgNamespace = 'http://www.w3.org/2000/svg';
 const maxStrokes = 48;
@@ -141,10 +145,13 @@ export function createReferencePreview({api, multiview, removeBackground}) {
 
   function describeStatus() {
     const dirty = reviewed !== JSON.stringify(draft);
+    const warnings = !dirty && (view()?.warnings || []).map(code => warningMessages[code]).filter(Boolean);
     status.classList.toggle('error', Boolean(failure));
-    status.textContent = request ? t('Preparing the reference images…') : failure || t(dirty ?
+    status.classList.toggle('warning', !request && !failure && Boolean(warnings?.length));
+    status.textContent = request ? t('Preparing the reference images…') : failure ||
+      (warnings?.length ? warnings.map(message => t(message)).join(' ') : t(dirty ?
       'Corrections pending. Update the preview to check the new model input.' :
-      'Model input shows the prepared image sent to the generation engine.');
+      'Model input shows the prepared image sent to the generation engine.'));
     updateButton.disabled = Boolean(request) || (!dirty && !failure);
     applyButton.disabled = !views.length || Boolean(request) || dirty || Boolean(failure);
     content.setAttribute('aria-busy', Boolean(request));
@@ -230,7 +237,7 @@ export function createReferencePreview({api, multiview, removeBackground}) {
       tab.className = 'secondary';
       tab.dataset.role = item.role;
       tab.textContent = t(roleNames[item.role]);
-      tab.onclick = () => { role = item.role; drawView(); };
+      tab.onclick = () => { role = item.role; describeStatus(); drawView(); };
       viewButtons.append(tab);
       if (item.role === focusedRole) tab.focus();
     }

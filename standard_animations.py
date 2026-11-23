@@ -165,11 +165,14 @@ if profile is not None:
         raise ValueError('The stored rig profile does not match the model skeleton.')
     warning = ''
 elif options.get('profile', 'auto') != 'auto':
-    from rig_profiles_blender import apply_profile
+    from rig_profiles_blender import RigidHandsRecommended, apply_profile
     try:
         mapping, profile = apply_profile(arm, meshes, mapping, options['profile'], options.get('articulated_fingers', False))
     except ValueError as error:
-        (work/'rig-profile-error.json').write_text(json.dumps({'message': str(error)}), encoding='utf-8')
+        rejection = {'message': str(error)}
+        if isinstance(error, RigidHandsRecommended):
+            rejection['details'] = error.details
+        (work/'rig-profile-error.json').write_text(json.dumps(rejection), encoding='utf-8')
         raise
     warning = ''
 

@@ -122,6 +122,7 @@
 .reference-preview-crop { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
 .reference-preview-status { min-height: 1.4em; margin: 12px 0 0; color: #b9c8b1; font-size: 12px; }
 .reference-preview-status.error { color: #ffb3b5; }
+.reference-preview-status.warning { color: #f8c865; }
 .reference-preview [hidden] { display: none; }
 
 @media (max-width: 700px) {

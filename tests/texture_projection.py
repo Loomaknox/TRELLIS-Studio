@@ -148,6 +148,8 @@ class TextureProjectionTests(unittest.TestCase):
         self.assertEqual(report['triangles'], 6)
         self.assertTrue(report['geometry_binary_unchanged'])
         self.assertGreater(report['occluded_samples'], 0)
+        self.assertGreater(report['projected_texels'], 0)
+        self.assertLessEqual(report['projected_texels'], report['covered_texels'])
 
     def test_occluded_and_back_surface_texels_are_untouched(self):
         self.run_projection()

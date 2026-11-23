@@ -3,10 +3,13 @@ from pathlib import Path
 import hashlib,json,time,uuid
 import numpy as np
 import trimesh
+from scipy.spatial import cKDTree
 from glb_data import read,image,animation_info,posed_bounds,accessor
 
-VERSION=4
+VERSION=5
 OVERLAY_LIMIT=1000
+INTERSECTION_FACE_LIMIT=64_000
+INTERSECTION_SAMPLE_LIMIT=4_000
 
 
 def source_sha256(path):
@@ -23,6 +26,54 @@ def matching_report(path, digest, *, current=True):
     except (OSError, ValueError):
         pass
     return None
+
+
+def _edge_crossings(source, target, tolerance):
+    """Rows where an edge passes through the interior of a non-coplanar face."""
+    origin = target[:, :1]
+    direction = target[:, 1:] - origin
+    normal = np.cross(direction[:, 0], direction[:, 1])
+    length = np.linalg.norm(normal, axis=1)
+    normal /= np.maximum(length, np.finfo(float).tiny)[:, None]
+    distances = np.einsum('ned,nd->ne', source - origin, normal)
+    next_distances = np.roll(distances, -1, axis=1)
+    passes = ((distances > tolerance) & (next_distances < -tolerance)
+              | (distances < -tolerance) & (next_distances > tolerance))
+    delta = distances - next_distances
+    fraction = np.divide(distances, delta, where=passes, out=np.zeros_like(distances))
+    points = source + fraction[:, :, None] * (np.roll(source, -1, axis=1) - source)
+    inside = np.ones(passes.shape, dtype=bool)
+    for i in range(3):
+        start = target[:, i:i+1]
+        edge = target[:, (i+1)%3, None] - start
+        signed = np.einsum('ned,nd->ne', np.cross(edge, points - start), normal)
+        inside &= signed > tolerance * np.linalg.norm(edge, axis=2)
+    return (length > tolerance**2) & np.any(passes & inside, axis=1)
+
+
+def suspected_intersections(vertices, faces, extent):
+    """Find distinct crossing faces in a bounded sample of nearby face pairs."""
+    if len(faces) < 2:
+        return np.empty((0, 2), dtype=int)
+    ids = np.linspace(0, len(faces)-1, min(len(faces), INTERSECTION_FACE_LIMIT), dtype=int)
+    triangles = vertices[faces[ids]]
+    centres = triangles.mean(axis=1)
+    seeds = np.linspace(0, len(ids)-1, min(len(ids), INTERSECTION_SAMPLE_LIMIT), dtype=int)
+    count = min(24, len(ids))
+    neighbours = cKDTree(centres).query(centres[seeds], k=count)[1].ravel()
+    pairs = np.sort(np.column_stack((np.repeat(seeds, count), neighbours)), axis=1)
+    pairs = np.unique(pairs[pairs[:, 0] != pairs[:, 1]], axis=0)
+    a, b = pairs.T
+    left = triangles[a]
+    right = triangles[b]
+    shares_vertex = np.any(faces[ids[a], :, None] == faces[ids[b], None, :], axis=(1, 2))
+    overlap = np.all((left.max(axis=1) >= right.min(axis=1)) & (right.max(axis=1) >= left.min(axis=1)), axis=1)
+    candidates = pairs[overlap & ~shares_vertex]
+    a, b = candidates.T
+    left, right = triangles[a], triangles[b]
+    tolerance = extent * 1e-8
+    crosses = _edge_crossings(left, right, tolerance) | _edge_crossings(right, left, tolerance)
+    return ids[candidates[crosses]]
 
 
 def diagnose(folder,force=False,*,verified_digest=None,staged_cache=None):
@@ -61,20 +112,28 @@ def diagnose(folder,force=False,*,verified_digest=None,staged_cache=None):
             p=uv[faces];u=p[:,1]-p[:,0];v=p[:,2]-p[:,0];uv_zero=int(np.count_nonzero(np.abs(u[:,0]*v[:,1]-u[:,1]*v[:,0])<1e-12))
         mesh.merge_vertices(merge_tex=True,merge_norm=True,digits_vertex=8);mesh.remove_unreferenced_vertices()
         counts=np.bincount(mesh.edges_unique_inverse,minlength=len(mesh.edges_unique));boundary=int(np.count_nonzero(counts==1));nonmanifold=int(np.count_nonzero(counts>2))
+        crossings = suspected_intersections(np.asarray(mesh.vertices), np.asarray(mesh.faces), extent) if can_mark and finite else ()
+        if len(crossings):
+            issue('suspected_intersections', f'{name}: {len(crossings):,} suspected crossing face pairs in the sampled topology.', len(crossings))
+            crossing_faces = np.unique(crossings[:OVERLAY_LIMIT//6].ravel())
+            triangles = np.asarray(mesh.vertices)[mesh.faces[crossing_faces]]
+            edge_samples[name] = {'intersection': np.stack((triangles, np.roll(triangles, -1, axis=1)), axis=2).reshape(-1,2,3)}
+            sampled_edges |= len(crossings) > OVERLAY_LIMIT//6
         if can_mark and finite and (boundary or nonmanifold):
-            edge_samples[name] = {}
+            samples = edge_samples.setdefault(name, {})
             for kind, mask in [('boundary', counts == 1), ('nonmanifold', counts > 2)]:
                 selected = np.flatnonzero(mask)
                 if len(selected) > OVERLAY_LIMIT:
                     selected = selected[np.linspace(0, len(selected) - 1, OVERLAY_LIMIT, dtype=int)]
                     sampled_edges = True
-                edge_samples[name][kind] = np.asarray(mesh.vertices)[mesh.edges_unique[selected]]
+                samples[kind] = np.asarray(mesh.vertices)[mesh.edges_unique[selected]]
         labels=trimesh.graph.connected_component_labels(mesh.edges_unique,node_count=len(mesh.vertices));shells=len(np.unique(labels))
         winding=bool(mesh.is_winding_consistent);closed=bool(len(mesh.faces) and not boundary and not nonmanifold and finite)
         volume=float(mesh.volume) if closed and finite else None
         normals=np.asarray(geometry.vertex_normals);bad_normals=int(np.count_nonzero(~np.isfinite(normals).all(axis=1)|(np.linalg.norm(normals,axis=1)<.5)))
         entry=dict(name=name,vertices=len(vertices),triangles=len(faces),welded_vertices=len(mesh.vertices),boundary_edges=boundary,
             nonmanifold_edges=nonmanifold,connected_shells=shells,degenerate_faces=degenerate,loose_vertices=loose,closed_surface=closed,
+            suspected_crossing_pairs=len(crossings),
             winding_consistent=winding,volume_m3=volume,has_uv=has_uv,uv_outside_tile=outside,degenerate_uv_faces=uv_zero,bad_normals=bad_normals)
         meshes.append(entry)
         for code,label,count in [('boundary_edges','boundary edges',boundary),('nonmanifold_edges','nonmanifold edges',nonmanifold),('degenerate_faces','degenerate faces',degenerate),('loose_vertices','unused vertices',loose),('bad_normals','invalid normals',bad_normals)]:
@@ -97,6 +156,19 @@ def diagnose(folder,force=False,*,verified_digest=None,staged_cache=None):
             metallic_roughness='metallicRoughnessTexture' in pbr,normal='normalTexture' in entry,occlusion='occlusionTexture' in entry,emissive='emissiveTexture' in entry,
             alpha_mode=entry.get('alphaMode','OPAQUE'),double_sided=entry.get('doubleSided',False)))
     clips=animation_info(data,binary)
+    motion_scan = None
+    if clips:
+        from animation_diagnostics import inspect_animation
+        try:
+            result = json.loads((folder/'result.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            result = {}
+        try:
+            mapping = result.get('humanoid_mapping', {}) if isinstance(result, dict) else {}
+            motion_scan = inspect_animation(source, strict=False, mapping=mapping)
+            issues.extend(motion_scan['issues'])
+        except (OSError, ValueError):
+            issue('animation_scan_unavailable', 'Animation pose checks could not be completed.', severity='info')
     # Scene graph transforms include mesh node placement; glTF's vertical axis is Y.
     low,high=posed_bounds(data,binary);size=high-low
     stored_bad=0
@@ -111,11 +183,12 @@ def diagnose(folder,force=False,*,verified_digest=None,staged_cache=None):
         dimensions_m=size.tolist(),bounds_min_m=low.tolist(),bounds_max_m=high.tolist(),
         height_m=float(size[1]),has_uv=bool(meshes) and all(m['has_uv'] for m in meshes),
         closed_surface=bool(meshes) and all(m['closed_surface'] for m in meshes),boundary_edges=sum(m['boundary_edges'] for m in meshes),nonmanifold_edges=sum(m['nonmanifold_edges'] for m in meshes),
+        suspected_crossing_pairs=sum(m['suspected_crossing_pairs'] for m in meshes) if can_mark else None,
         degenerate_faces=sum(m['degenerate_faces'] for m in meshes),connected_shells=sum(m['connected_shells'] for m in meshes),
         degenerate_uv_faces=sum(m['degenerate_uv_faces'] for m in meshes),invalid_stored_normals=stored_bad,dimension_pose='Stored GLB pose, with skinning evaluated')
     overlay = None
     if edge_samples:
-        overlay = dict(positions={'boundary': [], 'nonmanifold': []}, sampled=sampled_edges)
+        overlay = dict(positions={'boundary': [], 'nonmanifold': [], 'intersection': []}, sampled=sampled_edges)
         for node in scene.graph.nodes_geometry:
             transform, name = scene.graph[node]
             for kind, segments in edge_samples.get(name, {}).items():
@@ -129,9 +202,11 @@ def diagnose(folder,force=False,*,verified_digest=None,staged_cache=None):
                 if np.isfinite(points).all():
                     positions.extend(points.ravel().tolist())
     report=dict(version=VERSION,created=time.time(),source_size=stat.st_size,source_mtime_ns=stat.st_mtime_ns,source_sha256=digest,
-        summary=summary,meshes=meshes,textures=textures,materials=materials,animations=clips,issues=issues,edge_overlay=overlay,
+        summary=summary,meshes=meshes,textures=textures,materials=materials,animations=clips,animation_scan=motion_scan,issues=issues,edge_overlay=overlay,
         status='attention' if any(i['severity'] in ('warning','error') for i in issues) else 'checked',
         scope='Topology uses positions welded to 8 decimal places in metres. Materials are measured as stored; missing optional maps are not automatically defects.',
-        not_checked=['Self-intersections','UV overlaps','Minimum wall thickness','Morph target deformations','Rig fit and deformation quality','Visual quality','Gameplay readiness','Physical printability'])
+        intersection_scope=('Nearest-face samples within each mesh are checked for crossing faces.' if can_mark
+                            else 'Crossing-face samples are available for static meshes without morph targets or GPU instancing.'),
+        not_checked=['Exhaustive self-intersections','UV overlaps','Minimum wall thickness','Morph target deformations','Rig fit and deformation quality','Visual quality','Gameplay readiness','Physical printability'])
     target.mkdir(exist_ok=True);temp=target/('report-'+uuid.uuid4().hex+'.tmp');temp.write_text(json.dumps(report,indent=2,allow_nan=False),encoding='utf-8');temp.replace(cache)
     return report

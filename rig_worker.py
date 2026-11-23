@@ -55,7 +55,11 @@ def failure_status(phase, error):
             rejection = json.loads((work / 'rig-profile-error.json').read_text(encoding='utf-8'))
             message = rejection.get('message')
             if isinstance(message, str) and message:
-                return 'Rig profile could not be applied', dict(error=message, error_code='rig_profile_incompatible')
+                details = rejection.get('details')
+                issue = dict(error=message, error_code='rig_profile_incompatible')
+                if isinstance(details, dict):
+                    issue['error_details'] = details
+                return 'Rig profile could not be applied', issue
         except (OSError, ValueError, AttributeError):
             pass
     if isinstance(error, subprocess.TimeoutExpired):
@@ -173,6 +177,13 @@ try:
         if ({clip['id'] for clip in authored} != {clip['id'] for clip in settings.get('animation_clips', [])}
                 or any(clip.get('clip') not in exported_names for clip in authored)):
             raise ValueError('The rig profile export is missing a retargeted animation.')
+    new_clips = {clip['clip'] for clip in result.get('animation_set', []) if clip.get('source_clip')}
+    if creature_phase == 'final':
+        new_clips.update(clip.get('name') for clip in validate_glb(JOB/'model.glb').get('animations', []))
+    if new_clips:
+        from animation_diagnostics import require_valid_animation
+
+        require_valid_animation(JOB/'model.glb', clips=new_clips, mapping=result.get('humanoid_mapping'))
     landmarks_report=work/'landmarks-report.json'
     if landmarks_report.is_file():result['rig_landmarks']=json.loads(landmarks_report.read_text(encoding='utf-8'))
     (JOB/'result.json').write_text(json.dumps(result,indent=2,ensure_ascii=False),encoding='utf-8')

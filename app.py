@@ -1583,16 +1583,20 @@ def encode_reference_preview(image, max_size=None):
     return 'data:image/png;base64,' + base64.b64encode(buffer.getvalue()).decode('ascii')
 
 
-def reference_preview_views(sources, cutouts, frames, engine, preview_size=None):
+def reference_preview_views(sources, cutouts, frames, engine, preview_size=None, *, edits=None):
+    from reference_preparation import reference_warnings
+
     views = []
     for role, source in sources.items():
         frame = frames[role]
         if engine in ('pixal3d', 'pixal3d_single'):
             frame = Image.fromarray((premultiplied_rgb(frame) * 255).astype('uint8'))
+        crop = (edits or {}).get(role, {}).get('crop')
         views.append(dict(role=role, width=source.width, height=source.height,
                           original=encode_reference_preview(source, max_size=preview_size or 768),
                           cutout=encode_reference_preview(cutouts[role], max_size=preview_size or 768),
-                          framed=encode_reference_preview(frame, max_size=preview_size)))
+                          framed=encode_reference_preview(frame, max_size=preview_size),
+                          warnings=reference_warnings(cutouts[role], crop, engine)))
     return views
 
 
@@ -1603,8 +1607,9 @@ async def prepare_reference_preview(image, left_image=None, back_image=None, rig
     if engine != 'pixal3d' and any((left_image, back_image, right_image)):
         raise HTTPException(400, 'Additional views require Pixal3D Multi-view.')
     sources = await reference_sources((image, left_image, back_image, right_image), engine)
-    _, cutouts, frames = await prepare_reference_uploads(sources, reference_edits, engine, remove_bg)
-    views = await asyncio.to_thread(reference_preview_views, sources, cutouts, frames, engine, preview_size)
+    edits, cutouts, frames = await prepare_reference_uploads(sources, reference_edits, engine, remove_bg)
+    views = await asyncio.to_thread(reference_preview_views, sources, cutouts, frames, engine, preview_size,
+                                    edits=edits)
     return dict(engine=engine, views=views)
 
 

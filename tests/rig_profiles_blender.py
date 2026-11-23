@@ -10,7 +10,7 @@ from mathutils import Quaternion, Vector
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rig_expert_blender import EXPERT_HELPER_SOURCES, EXPRESSIVE_HELPER_SOURCES, expert_helpers
-from rig_profiles_blender import apply_profile, validate_profile_mapping
+from rig_profiles_blender import RigidHandsRecommended, apply_profile, validate_profile_mapping
 from retarget_motions import blend_crouch_pose, body_helper_drivers, drive_body_helpers, drive_forearm_twists
 
 
@@ -363,8 +363,29 @@ def check_twist_continuity():
             assert abs(helper.rotation_quaternion.dot(expected)) > 1-1e-6
 
 
+def check_missing_phalanx():
+    arm, mesh, mapping, _ = fixture()
+    bone = 'right_finger_1_2_joint'
+    group = mesh.vertex_groups[bone]
+    vertices = [vertex.index for vertex in mesh.data.vertices if any(v.group == group.index for v in vertex.groups)]
+    assert vertices
+    mesh.vertex_groups['right_finger_1_1_joint'].add(vertices, 1., 'REPLACE')
+    group.remove(vertices)
+    try:
+        apply_profile(arm, [mesh], mapping, 'standard', True)
+    except RigidHandsRecommended as error:
+        assert error.details == {'use_rigid_hands': True, 'joints': [
+            {'side': 'right', 'finger': 2, 'phalanx': 3, 'bone': bone},
+        ]}
+    else:
+        raise AssertionError('A finger without a weighted tip was accepted')
+    _, report = apply_profile(arm, [mesh], mapping, 'simple', False)
+    assert report['joint_count'] == 22
+
+
 def main():
     check_finger_transition()
+    check_missing_phalanx()
     check_twist_continuity()
     check_profile('simple', False, 22, bridge=True)
     standard, bare, basic, hand = check_profile('standard', True, 52)

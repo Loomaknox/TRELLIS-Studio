@@ -211,8 +211,17 @@ function previewRevision(revision) {
 function rigJobError(job) {
   const error = typeof job.error === 'string' ? job.error.trim() : '';
   const exitStatus = /^Command [\s\S]* returned non-zero exit status (-?\d+)\.?$/.exec(error)?.[1];
-  if (exitStatus) return `UniRig exited with status ${exitStatus}. See the job log for details.`;
-  return error ? t(error) : job.state === 'cancelled' ? t('No rig was produced.') : t('See the job log for details.');
+  if (exitStatus) return t('UniRig exited with status {status}. See the job log for details.',{status:exitStatus});
+  const message = error ? t(error) : job.state === 'cancelled' ? t('No rig was produced.') : t('See the job log for details.');
+  const details = job.error_details;
+  const hand = side => t(side === 'left' ? 'Left hand' : 'Right hand');
+  if (Array.isArray(details?.joints) && details.joints.length) {
+    const joints = details.joints.slice(0,4).map(({side,finger,phalanx,bone}) =>
+      t('{hand} · finger chain {finger} · phalanx {phalanx} ({bone})',{hand:hand(side),finger,phalanx,bone}));
+    if(details.joints.length>4)joints.push(t('{count} other joints',{count:details.joints.length-4}));
+    return [message,...joints].join(' · ');
+  }
+  return details?.side ? `${hand(details.side)} · ${message}` : message;
 }
 
 async function loadModel(job) {
@@ -315,6 +324,15 @@ function renderRigJobNotice(job) {
   const button = $('openRigSource');
   button.hidden = !source;
   button.onclick = source ? () => selectJob(source.id) : null;
+  const rigid = $('retryRigidHands');
+  const options = job.settings.rig_options;
+  rigid.hidden = !source || !job.error_details?.use_rigid_hands || !animationStudio?.canRetryRigidHands(options);
+  rigid.disabled = busy;
+  rigid.onclick = rigid.hidden ? null : () => {
+    selectJob(source.id);
+    if(!animationMode)openAnimationStudio();
+    animationStudio.retryRigidHands(options);
+  };
 }
 
 function renderSelected(){const j=jobOf(),draft=isCreatureRigDraft(j),workflow=!!j?.settings.workflow_id,workflowEngine=j?.result?.engine||(j?.settings.engine==='comfyui'?'ComfyUI':'TRELLIS.2 GGUF');generationWait.update(j,{hasModel:!!model&&loadedId===j?.id,referenceUrl:j?`/api/jobs/${j.id}/files/${workflow?'input.png':'prepared.png'}`:''});studioTools?.update(draft?null:j,records,trashMode);workbench?.update(draft?null:j);detailControls.update(j);animationStudio?.update();$('animateModel').disabled=!j||(j.state!=='done'&&j.operation!=='animation'&&!draft);downloads(j);fillMetadata(j);renderRigJobNotice(j);settingsDownload.hidden=!j;if(j)settingsDownload.href=`/api/jobs/${j.id}/files/settings.json`;$('favorite').disabled=!j||!features;$('favorite').textContent=j?.metadata?.favorite?'★':'☆';$('favorite').setAttribute('aria-pressed',!!j?.metadata?.favorite);$('saveMetadata').disabled=!j||!features;$('viewTextures').disabled=!j||j.state!=='done'||!features||draft;
@@ -364,6 +382,16 @@ function renderSelected(){const j=jobOf(),draft=isCreatureRigDraft(j),workflow=!
   else if(o&&!terrain)entries.push([t('Steps · structure / shape / texture'),`${o.structure_steps} / ${o.shape_steps} / ${o.texture_steps}`],[t('Guidance · structure / shape / texture'),`${o.structure_guidance} / ${o.shape_guidance} / ${o.texture_guidance}`],triangleBudget,[t('Finishing'),o.mesh_mode==='direct'?t('Direct simplification'):t('Remesh and simplify')],[t('Pre-simplify to 2M'),o.pre_simplify?t('Yes'):t('No')],[t('Seed texture'),o.texture_seed<0?t('Main random sequence'):o.texture_seed],[t('Angle UV'),o.uv_angle+'°']);
   if (r?.adaptive_finishing) {
     entries.push([t('Surface tolerance'), r.adaptive_finishing.target_met ? t('Met') : t('Exceeded at the triangle ceiling')]);
+  }
+  if(j.operation==='texture_projection'||j.settings.source_kind==='texture_projection'){
+    const projection=r?.texture_projection;
+    if(projection?.state==='applied'){
+      const fraction=projection.covered_texels>0?projection.projected_texels/projection.covered_texels:projection.atlas_confidence_fraction;
+      if(Number.isFinite(fraction))entries.push([t(projection.covered_texels>0?'Projection coverage on mapped surface':'Projection coverage on texture atlas'),
+        fraction.toLocaleString(formatLocale,{style:'percent',maximumFractionDigits:1})]);
+      if(projection.overlapping_uv_samples>0)entries.push([t('Excluded overlapping UV samples'),projection.overlapping_uv_samples.toLocaleString(formatLocale)]);
+      if(projection.occluded_samples>0)entries.push([t('Excluded hidden samples'),projection.occluded_samples.toLocaleString(formatLocale)]);
+    }
   }
   $('assetDetails').replaceChildren(...entries.flatMap(([k,v])=>[node('dt','',k),node('dd','',String(v))]));if(textureOpen&&inspectId!==j.id)inspectTextures();
 }
@@ -864,7 +892,8 @@ async function loadRigSource(id){
     },
   };
 }
-animationStudio=await createAnimationStudio({api,getJob:jobOf,isBusy:()=>busy,startJob:startStudioJob,refresh,rigSetup:rigSetupViewer,creatureViewer:creatureRigViewer,getClips:loadedAnimationClips,playClip:playAnimationClip,loadRigSource});createModelImport({api,startJob:startStudioJob});
+animationStudio=await createAnimationStudio({api,getJob:jobOf,isBusy:()=>busy,startJob:startStudioJob,refresh,rigSetup:rigSetupViewer,creatureViewer:creatureRigViewer,getClips:loadedAnimationClips,playClip:playAnimationClip,loadRigSource,
+  openDiagnostics:id=>studioTools.diagnostics.open(records.find(record=>record.id===id))});createModelImport({api,startJob:startStudioJob});
 workbench=await createStudioWorkbench({api,getRecords:()=>records,getJob:jobOf,refresh,startJob:startStudioJob,renderLibrary,tools:studioTools,canUseCardTurntables:()=>cardTurntablesAvailable,labelAnimation:name=>animationStudio?.label(name)||name,getViewer:()=>({scene,renderer,camera,controls,model,loadedId,lighting:viewerLighting})});
 document.querySelector('.journal').addEventListener('toggle',refreshLog);await refresh();const entry=new URLSearchParams(location.search),entryModel=entry.get('model');if(entryModel&&records.some(j=>j.id===entryModel))selectJob(entryModel);if(entry.get('workspace')==='animation')openAnimationStudio();if(entry.get('workspace')==='details'&&jobOf())openDetails(jobOf());const comparison=records.find(j=>j.id===entry.get('compare')&&j.state==='done');if(comparison&&jobOf()?.state==='done')studioTools.compare.open(jobOf(),comparison);setInterval(refresh,3000);
 

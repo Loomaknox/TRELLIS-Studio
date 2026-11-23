@@ -147,6 +147,10 @@ app.SERVER.run()
             data = {'reference_edits': json.dumps(corrections)}
             single_file = {'image': front}
             mono = request('POST', '/api/reference-preview', files=single_file, data=data).json()['views'][0]
+            cropped = request('POST', '/api/reference-preview', files=single_file, data={
+                'reference_edits': '{"front":{"crop":[0.55,0,0.95,1]}}',
+            }).json()['views'][0]
+            assert cropped['warnings'] == ['reference_crop_cut']
             original = preview_image(mono, 'original')
             cutout = preview_image(mono, 'cutout')
             assert tuple(original[64, 63]) == (10, 20, 30, 0)
