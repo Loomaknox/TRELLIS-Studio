@@ -191,6 +191,8 @@ Diagnostics report measured topology, UV presence/collapse, normals, textures, d
 
 ![Rook in the lime Hologram preview with scan lines and the lit stage](docs/screenshots/workspace.jpg)
 
+On the stabilization branch, **Diagnostics** can show sampled surface intersections and flag abrupt joint rotations with their clip and time. The generation queue and header show available RAM, VRAM and disk space. The Windows installer supports the optional MV-Adapter texture pass on NVIDIA compute 12.0 as well as 8.6 and 8.9. [Installation and hardware requirements](docs/WINDOWS_SETUP.md)
+
 ### Rigging and animation
 
 ![Animation Studio showing Rook in the Walk clip with a skeleton overlay and the Standard motion library](docs/screenshots/new/02.jpg)

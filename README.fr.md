@@ -41,10 +41,20 @@ La configuration de référence du projet d’origine est Windows 11 avec une NV
 | **Pixal3D** | Générer depuis une image ou depuis une vue de face et jusqu’à trois vues complémentaires. | Lance **Install Pixal3D.cmd** pour la génération multivue. L’option `--single-image` ajoute les composants nécessaires à la génération avec une seule image. [Installation de Pixal3D](INSTALLATION.md#optional-pixal3d-generation) |
 | **Hi3D** | Affiner les détails d’une source compatible créée avec TRELLIS.2. | GPU NVIDIA compatible et environ **10,66 Go** de poids supplémentaires après acceptation de la licence. [Compatibilité et installation](docs/HI3D.md) |
 | **WTiVo 1024** | Reconstruire la surface d’un modèle HD à partir d’une source compatible. | Moteur WTiVo facultatif et Blender. Studio propose aussi sa reconstruction intégrée sur grille 768. [Guide WTiVo](docs/WTIVO.md) |
+| **Affinage multivue (MV-Adapter)** | Harmoniser six vues sur le maillage et ses UV. | L’installateur accepte les GPU NVIDIA de capacité 8.6, 8.9 et 12.0 à partir de 8 000 Mio de VRAM. Prévoir environ 3,3 Go de téléchargement. |
 | **UltraTex 2K Preview** | Calculer de nouvelles vues de texture et les projeter sur l’atlas 2K d’un modèle compatible. | Minimum 12 Gio de VRAM, environ 14 Go de poids et acceptation des conditions FLUX.2. [Guide UltraTex](docs/ULTRATEX.md) |
 | **Kimodo** | Générer des mouvements humanoïdes en décrivant une action. | Calcul sur CPU avec AVX2, FMA et F16C, WSL2 initialisé, **12 Gio libres dans WSL** et environ **9,3 Go** de poids supplémentaires. [Guide Kimodo](docs/MOTION_GENERATION.md) |
 
 Pour une installation empaquetée, le projet d’origine documente les modes Desktop et Server, les réparations et la désinstallation. [Programme d’installation Windows](docs/WINDOWS_SETUP.md) · [Configurer TRELLIS Server](docs/SERVER.md)
+
+## Contrôler la qualité d’un personnage
+
+1. Dans **Créer**, ouvrez l’aperçu du détourage. Si un contour touche le bord ou si le masque retient peu de pixels, corrigez le cadrage avant la génération. Si l’orientation d’une référence enregistrée est ambiguë, utilisez l’alignement manuel de **Projection de textures**.
+2. Dans **Comparer**, examinez les écarts de triangles et de bords ouverts entre les variantes. Avant le squelette, ouvrez **Diagnostics** pour localiser les ouvertures et les indices de croisements de surface. Vérifiez visuellement les doigts et les vêtements.
+3. Après le rig, examinez les avertissements avec leur clip, leur os et leur instant. Si les poids d’une phalange sont inutilisables, ouvrez le modèle source pour corriger la main ou recréez une variante avec des mains rigides.
+4. Pour un export, Studio contrôle l’intégrité du GLB livré et les textures extraites. Le paquet Unity contient le FBX et le rapport dans `studio-export.json`. Rejouez les clips sur le personnage importé pour contrôler les appuis.
+
+L’en-tête et la file affichent l’activité et les capacités libres du PC. Les mesures de VRAM sont actualisées au plus toutes les quinze secondes. Un rendu de vignette utilise une session de navigateur temporaire que Studio ferme à la fin du calcul.
 
 ## Utiliser Studio
 

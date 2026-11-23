@@ -33,7 +33,7 @@ treat a SHA-256 checksum as an Authenticode signature.
 
    **Multiview texture refinement** is optional in both editions and requires
    the TRELLIS.2 generation runtime. Setup checks for an eligible NVIDIA
-   compute 8.6 or 8.9 GPU with at least 8 GB VRAM, and recommends 12 GB.
+   compute 8.6, 8.9 or 12.0 GPU with at least 8,000 MiB VRAM, and recommends 12 GB.
    Allow roughly 3.3 GB of additional model downloads and 4 GB of free space.
    Setup presents the model terms before downloading the pinned files.
    **Repair or resume components** can resume an interrupted installation.
