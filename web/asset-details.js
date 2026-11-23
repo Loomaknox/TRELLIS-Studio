@@ -35,6 +35,12 @@ export async function createAssetDetails(){
     if(r.surface_repair){
       finishingNotes.push(t('Surface rebuilt from the saved master to close holes.'));
     }
+    const retexture=r.finishing?.retexture_after_refinement;
+    if(retexture?.state==='failed'){
+      finishingNotes.push('The texture pass after Hi3D failed. This model uses the baked source materials. See the generation log for details.');
+    }else if(retexture?.state==='done'){
+      finishingNotes.push('TRELLIS.2 generated new materials on the refined Hi3D mesh.');
+    }
     if(adaptive?.trials?.length){
       const sample=adaptive.trials.at(-1);
       const outcome=t(adaptive.target_met?'tolerance met':'tolerance missed within the triangle ceiling');

@@ -19,7 +19,8 @@ class PublicPackage(unittest.TestCase):
     def test_private_data_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            for name in ('config/server.json', 'server-data/server.sqlite3', 'logs/error.log', 'cert.key'):
+            for name in ('config/server.json', 'server-data/server.sqlite3', 'logs/error.log', 'cert.key',
+                         'runtime/figure-master/quad_dc.py', 'models/ultratex/runtime.json'):
                 self.assertTrue(audit(root, [name]))
             file = root / 'sample.py'
             file.write_text('https://personal-host.example', encoding='utf-8')

@@ -94,6 +94,16 @@ Additional runtime packages, such as image/HTTP/serialization utilities and tran
 
 **Install Pixal3D.cmd** downloads pinned [ComfyUI](https://github.com/Comfy-Org/ComfyUI) source, preserving its GPL-3.0 license, and model packages from [Comfy-Org/Pixal3D](https://huggingface.co/Comfy-Org/Pixal3D) and [Comfy-Org/TRELLIS.2](https://huggingface.co/Comfy-Org/TRELLIS.2). [Pixal3D](https://github.com/TencentARC/Pixal3D) credits Tencent ARC and its collaborators and provides its own license and notices. The vision weights use DINOv3, with the separate terms linked above. The optional source, model packages and environment are downloaded locally. Pins and hashes are in `installer/pixal3d-manifest.json`.
 
+## UltraTex preview
+
+The optional Studio adapter runs an isolated worker with [UltraTex Modular](https://github.com/Mstafa-awad/UltraTex-ComfyUI-nodes) and [ComfyUI](https://github.com/Comfy-Org/ComfyUI), both under GPL-3.0, and [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) under Apache-2.0. Upstream code keeps its original terms and notices. The worker exchanges files with Studio and runs locally. The model terms are independent of the code licenses.
+
+The standalone High Detail worker adapts tensor loading from [City96's GGUF operators at revision 6ea2651](https://github.com/city96/ComfyUI-GGUF/tree/6ea2651e7df66d7585f6ffee804b20e92fb38b8a) under [Apache-2.0](native_workflows/CITY96-APACHE-2.0.txt). The portable component preserves the upstream license files for both the GGUF operators and the TRELLIS.2 source. Model weights keep their respective terms.
+
+The recipe uses a quantized FLUX.2 Klein base 9B checkpoint, the FLUX.2 VAE, Qwen3-8B and the [UltraTex adapters and decoder](https://modelscope.cn/models/Yibo-Zhang/UltraTex). The [FLUX Non-Commercial License](https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B/blob/main/LICENSE.md) restricts use to the non-commercial, non-production purposes it defines. The Setup executable contains the Studio integration. Checkpoints and upstream runtimes are installed separately.
+
+Figure Master's optional alternate reconstruction uses [visualbruno's QuadDC integration for CuMesh](https://github.com/visualbruno/CuMesh/tree/d10e54c30ddd03d11472c1431693f985501c7966) under MIT, and separately licensed [MeshLib](https://github.com/MeshInspector/MeshLib/blob/v3.2.0.29/LICENSE). The public package uses the native CuMesh path unless an authorized, compatible alternate runtime is provided locally.
+
 The optional `--single-image` setup adds the single-image Pixal3D checkpoint and
 the MIT-licensed [MoGe-2 ViT-L weights](https://huggingface.co/Ruicheng/moge-2-vitl)
 for camera estimation. Studio uses the MoGe implementation in the pinned ComfyUI source.
@@ -113,6 +123,12 @@ Generated-motion previews reuse the separately credited Quaternius CC0 mannequin
 ## Optional Hi3D refinement
 
 **Powered by Hi3D 1.0.** Hi3D is licensed under the [Hi3D Open License Agreement Version 1.0](licenses/Hi3D-1.0-LICENSE.md). Copyright © 2026 OCEANO HK HOLDING LIMITED. Hi3D trademarks belong to OCEANO HK HOLDING LIMITED or its applicable affiliate(s).
+
+### Multiview texture refinement
+
+Windows Setup optionally downloads pinned [MV-Adapter source](https://github.com/huanngzh/MV-Adapter/tree/4277e0018232bac82bb2c103caf0893cedb711be) and the [image-and-geometry adapter](https://huggingface.co/huanngzh/mv-adapter/tree/6de4033df6b53366f3c009d22f5ec434bb55e59f) under Apache-2.0. The local download preserves the upstream source license.
+
+The optional component also downloads the [archived Stable Diffusion 2.1 Base FP16 weights](https://huggingface.co/sd2-community/stable-diffusion-2-1-base/tree/4e63672c03103b6c636b8fb4119ba982469b2955). They are governed by the [CreativeML Open RAIL++-M License](licenses/Stable-Diffusion-2.1-OpenRAIL++-M.txt), including its use restrictions. Review the terms before installation and share the applicable restrictions with downstream users when making the component available on a server. The Setup executable contains the integration and model terms. It downloads the weights locally after acceptance.
 
 Windows Setup requests license acceptance before obtaining the pinned Hi3D runtime and weights. See [Hi3D detail refinement](docs/HI3D.md) for upstream sources and requirements.
 

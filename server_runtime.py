@@ -9,12 +9,15 @@ import re
 import shutil
 import stat
 import sys
+import uuid
 
 from fastapi import HTTPException
 from starlette.responses import Response
 
 from animation_edits import publish_operation, recover as recover_animation
+from collection_preview import CollectionPreviews, save_preview
 from generation_options import GENERATION_PRESETS
+from generation_profiles import COMFY_INPUT_FILES, STANDALONE_PROFILES
 from server_store import StoreError
 from studio_workspace import ID, finishing_source, read, write
 
@@ -24,6 +27,7 @@ MIB = 1024**2
 LOG = logging.getLogger('trellis.server')
 SAFE_SCRIPTS = {'worker.py', 'pixal3d_worker.py', 'import_worker.py', 'rig_worker.py', 'print_worker.py', 'asset_work.py', 'animation_worker.py', 'generated_animation_worker.py', 'model_finishing_worker.py'}
 REFERENCE_FILES = {'settings.json', 'metadata.json', 'status.json', 'generation.log', 'server-work.json',
+                   *COMFY_INPUT_FILES,
                    'input.png', 'left.png', 'right.png', 'back.png', 'conditioning.png', 'prepared.png',
                    'prepared-left.png', 'prepared-right.png', 'prepared-back.png'}
 TERMINAL = {'done', 'error', 'cancelled'}
@@ -67,9 +71,19 @@ def children(folder):
 
 
 def reserve_bytes(settings, script, folder):
+    if settings.get('workflow_id') in STANDALONE_PROFILES:
+        return (256 if settings['workflow_id'] == 'high_detail_native' else 64) * MIB
+    if script == 'rig_worker.py' and (settings.get('creature_phase') or
+                                      (settings.get('rig_options') or {}).get('profile') == 'advanced'):
+        source_bytes = (folder / 'source.glb').stat().st_size
+        return 128 * MIB + 4 * source_bytes
+    if script == 'rig_worker.py' and settings.get('rig_profile_version'):
+        # Profiled rig jobs also stage an oriented mesh, skin and authored clips.
+        return 32 * MIB + 4 * (folder / 'source.glb').stat().st_size
     if script == 'model_finishing_worker.py':
         source_bytes = (folder / 'source.glb').stat().st_size
-        return 128 * MIB + 2 * source_bytes
+        copies = 3 if settings.get('source_kind') == 'multiview_texture_refinement' else 2
+        return 128 * MIB + copies * source_bytes
     if script=='generated_animation_worker.py' and settings.get('generated_animation_action')=='apply':
         return 32*MIB+3*(folder/'source.glb').stat().st_size+tree_bytes(folder/'LODs')
     if script == 'worker.py' and settings.get('source_kind') == 'refinish':
@@ -134,6 +148,9 @@ class PrivateStudio:
 
     def enqueue_operation(self, folder, script, source_id=None):
         write(folder / 'server-work.json', dict(script=script, source_id=source_id))
+        if script == 'rig_worker.py' and read(folder / 'settings.json', {}).get('creature_phase') == 'final':
+            self.workspace.queue['items'] = [entry for entry in self.workspace.queue['items']
+                                              if entry['id'] != folder.name]
         self.workspace.enqueue(folder.name)
 
     def job_spec(self, folder):
@@ -150,6 +167,8 @@ class PrivateStudio:
             return 'worker.py', finishing_source(folder, settings), settings
         if work.get('script') in SAFE_SCRIPTS:
             return work['script'], work.get('source_id'), settings
+        if settings.get('source_kind') == 'multiview_texture_refinement':
+            return 'model_finishing_worker.py', settings.get('parent_id'), settings
         script = 'pixal3d_worker.py' if settings.get('engine') == 'pixal3d' else 'worker.py'
         return script, None, settings
 
@@ -195,6 +214,10 @@ class ServerRuntime:
         self.paused = bool(read(self.paused_path, {}).get('paused'))
         self.current_user = None
         self.stopping = False
+        self.collection_previews = CollectionPreviews(
+            self.collection_workspaces, lambda: self.stopping or self.busy(),
+            self.collection_pending, self.publish_collection_preview,
+        )
 
     def user_path(self, identifier):
         if not ID.fullmatch(identifier):
@@ -226,6 +249,33 @@ class ServerRuntime:
         self.store.sync_usage(identifier, amount)
         return amount
 
+    def collection_workspaces(self):
+        for user in self.store.all_users():
+            if user['status'] == 'active':
+                identifier = user['id']
+                folder = self.user_path(identifier)
+                yield identifier, folder / 'outputs', folder / 'trash', folder / 'state' / 'collection-previews'
+
+    def collection_pending(self, owner, identifier):
+        workspace = self.workspaces.get(owner)
+        return workspace is not None and (workspace.active == identifier or workspace.studio.active_job(identifier))
+
+    async def publish_collection_preview(self, owner, cache, folder, revision, content):
+        if self.collection_pending(owner, folder.name):
+            return False
+        reservation = uuid.uuid4().hex
+        try:
+            self.store.reserve_storage(owner, reservation, len(content))
+        except StoreError:
+            return False
+        try:
+            if save_preview(cache, folder, revision, content):
+                await self.usage(owner)
+                return True
+            return False
+        finally:
+            self.store.release_storage(owner, reservation)
+
     def set_paused(self, paused):
         write(self.paused_path, {'paused': paused})
         self.paused = paused
@@ -238,9 +288,11 @@ class ServerRuntime:
             async with workspace.lock:
                 await self.reconcile(workspace, rows)
         self.scheduler = asyncio.create_task(self.run())
+        self.collection_previews.start()
 
     async def close(self):
         self.stopping = True
+        await self.collection_previews.close()
         if self.scheduler:
             self.scheduler.cancel()
             try:
@@ -252,7 +304,14 @@ class ServerRuntime:
     def busy(self):
         return any(workspace.lock.locked() or workspace.busy() for workspace in self.workspaces.values())
 
-    async def rollback(self, workspace, original_queue, before):
+    async def rollback(self, workspace, original_queue, before, rig_files=()):
+        for path, data in rig_files:
+            if data is None:
+                path.unlink(missing_ok=True)
+            elif not path.is_file() or path.read_bytes() != data:
+                temporary = path.with_name(f'.{path.name}-{uuid.uuid4().hex}')
+                temporary.write_bytes(data)
+                temporary.replace(path)
         if workspace.studio.EXPORT_TASK and workspace.exports / workspace.studio.EXPORT_TASK not in before[workspace.exports]:
             await asyncio.to_thread(workspace.studio.stop_export)
             if workspace.studio.EXPORT_LOG:
@@ -283,14 +342,28 @@ class ServerRuntime:
                 raise HTTPException(507, 'The server does not have enough free disk space.')
             original_queue = deepcopy(workspace.workspace.queue)
             before = workspace.snapshot(path)
+            resume_route = re.fullmatch(r'/api/(?:jobs|v1/models)/([a-f0-9]{32})/rig-complete', path)
+            resume_id = resume_route[1] if resume_route else None
+            rig_files = []
+            if resume_id:
+                folder = workspace.outputs / resume_id
+                if folder.is_dir() and folder.resolve() == folder:
+                    for name in ('settings.json', 'status.json', 'server-work.json', 'creature-edit.json'):
+                        file = folder / name
+                        if file.is_file():
+                            if file.resolve() != file or file.stat().st_size > 1024 * 1024:
+                                raise HTTPException(409, 'Invalid creature draft state.')
+                            rig_files.append((file, file.read_bytes()))
+                        else:
+                            rig_files.append((file, None))
             try:
                 response = await invoke()
             except Exception:
-                await self.rollback(workspace, original_queue, before)
+                await self.rollback(workspace, original_queue, before, rig_files)
                 raise
             if response.status_code >= 400:
-                if any(children(folder) - previous for folder, previous in before.items()):
-                    await self.rollback(workspace, original_queue, before)
+                if rig_files or any(children(folder) - previous for folder, previous in before.items()):
+                    await self.rollback(workspace, original_queue, before, rig_files)
                 return response
             try:
                 used = await self.usage(identifier)
@@ -304,19 +377,22 @@ class ServerRuntime:
                 jobs = []
                 for entry in workspace.workspace.queue['items']:
                     job_id = entry['id']
-                    if job_id in previous_ids or entry.get('cancelled'):
+                    if (job_id in previous_ids and job_id != resume_id) or entry.get('cancelled'):
                         continue
                     folder = workspace.job_folder(job_id)
                     script, _, settings = workspace.job_spec(folder)
-                    generation = script in ('worker.py', 'pixal3d_worker.py') and settings.get('source_kind') != 'refinish' and settings.get('preset') in GENERATION_PRESETS
+                    generation = (script in ('worker.py', 'pixal3d_worker.py') and settings.get('source_kind') != 'refinish'
+                                  and (settings.get('preset') in GENERATION_PRESETS or settings.get('workflow_id') in STANDALONE_PROFILES))
                     generation = generation or (script=='generated_animation_worker.py' and settings.get('generated_animation_action')=='generate')
-                    jobs.append(dict(job_id=job_id, generation=generation, reserve_bytes=reserve_bytes(settings, script, folder)))
+                    resume = job_id == resume_id and script == 'rig_worker.py' and settings.get('creature_phase') == 'final'
+                    jobs.append(dict(job_id=job_id, generation=generation,
+                                     reserve_bytes=reserve_bytes(settings, script, folder), resume=resume))
                 jobs.extend(dict(job_id=path.name, generation=False, reserve_bytes=32 * MIB)
                             for path in children(workspace.exports) - before[workspace.exports])
                 if jobs:
                     self.store.reserve_jobs(identifier, jobs)
             except (StoreError, OSError):
-                await self.rollback(workspace, original_queue, before)
+                await self.rollback(workspace, original_queue, before, rig_files)
                 raise
             if reclaim:
                 pending = [row for row in self.store.jobs(identifier) if row['state'] not in TERMINAL]
@@ -432,6 +508,9 @@ class ServerRuntime:
                 if folder.is_dir():
                     error = 'Disk quota reached. Free space before retrying.' if over else 'Server stopped during the operation.'
                     write(folder / 'status.json', dict(state='error', stage='Operation interrupted', progress=0, error=error))
+                    if not export and settings.get('creature_phase') == 'final':
+                        for name in ('model.glb', 'model.blend'):
+                            await asyncio.to_thread(remove_child, folder, folder / name)
                     if export:
                         await asyncio.to_thread(remove_child, folder, folder / 'package.zip')
                     elif trim:

@@ -6,6 +6,7 @@ joint centres in the front view; UniRig supplies each joint's depth.
 """
 import math
 
+RIG_PROFILES = ('simple', 'standard', 'advanced', 'expert', 'expressive')
 LANDMARK_KEYS = ('chin', 'groin', 'left_shoulder', 'right_shoulder',
                  'left_elbow', 'right_elbow', 'left_wrist', 'right_wrist',
                  'left_knee', 'right_knee', 'left_ankle', 'right_ankle')
@@ -51,6 +52,13 @@ def validate_landmarks(value):
 def validate_rig_options(value):
     if not isinstance(value, dict):
         raise ValueError('Invalid rig options.')
+    mode = value.get('mode', 'humanoid')
+    if mode == 'creature':
+        if set(value) != {'mode'}:
+            raise ValueError('Creature mode uses the source orientation and scale without humanoid options.')
+        return {'mode': 'creature'}
+    if mode != 'humanoid':
+        raise ValueError('Choose humanoid or creature rig mode.')
     rotation = value.get('rotation', [0, 0, 0])
     height = value.get('height_m', 1.7)
     offset = value.get('offset_m', 0)
@@ -62,4 +70,19 @@ def validate_rig_options(value):
     result = dict(rotation=list(rotation), height_m=float(height), offset_m=float(offset))
     if 'landmarks' in value:
         result['landmarks'] = validate_landmarks(value['landmarks'])
+    profile = value.get('profile', 'auto')
+    if profile not in ('auto', *RIG_PROFILES):
+        raise ValueError('Choose Auto, Simple, Standard, Advanced, Expert, or Expressive for the rig profile.')
+    adjustable_hands = profile in ('advanced', 'expert', 'expressive')
+    default_fingers = profile in ('standard', 'expert', 'expressive')
+    fingers = value.get('articulated_fingers', default_fingers)
+    if type(fingers) is not bool:
+        raise ValueError('Articulated fingers must be true or false.')
+    if profile == 'auto':
+        if 'articulated_fingers' in value:
+            raise ValueError('Articulated fingers are configurable on the Advanced, Expert, and Expressive profiles.')
+        return result
+    if not adjustable_hands and fingers != default_fingers:
+        raise ValueError('Articulated fingers are configurable on the Advanced, Expert, and Expressive profiles.')
+    result.update(profile=profile, articulated_fingers=fingers)
     return result

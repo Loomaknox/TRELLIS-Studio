@@ -1,11 +1,11 @@
 """Target recipes and PBR maps. Export staging never writes into an asset directory."""
 from pathlib import Path
-import copy,json,shutil,struct,subprocess,sys
+import copy,json,math,shutil,struct,subprocess,sys
 import numpy as np
 from PIL import Image
 from glb_data import read,image,animation_info
 from model_diagnostics import matching_report, source_sha256
-from studio_import import find_blender
+from studio_import import find_blender, validate_glb
 
 ROOT=Path(__file__).resolve().parent
 TARGETS={
@@ -47,6 +47,43 @@ def conversion_glb(data,binary,path):
     for i,material in enumerate(clone.get('materials',[])):material['name']=f'TS_Mat_{i:03d}'
     text=json.dumps(clone,separators=(',',':')).encode();text+=b' '*((-len(text))%4);binary+=b'\0'*((-len(binary))%4)
     path.write_bytes(struct.pack('<4sII',b'glTF',2,28+len(text)+len(binary))+struct.pack('<II',len(text),0x4e4f534a)+text+struct.pack('<II',len(binary),0x004e4942)+binary)
+
+
+def verify_export(destination, manifest):
+    """Check the staged files that will actually be published."""
+    delivered = destination / 'model.glb'
+    validate_glb(delivered)
+    if source_sha256(delivered) != manifest['source_glb_sha256']:
+        raise ValueError('The exported GLB differs from the checked source model.')
+    names = {path for material in manifest['materials'] for path in material['maps'].values()}
+    for name in sorted(names):
+        with Image.open(destination / name) as texture:
+            texture.verify()
+    target = manifest['target']
+    if target in ('unity', 'unreal'):
+        files = [destination / 'model.fbx']
+        if (destination / 'Collisions/collision.glb').is_file():
+            files.append(destination / 'Collisions/collision.fbx')
+        for fbx in files:
+            with fbx.open('rb') as stream:
+                if fbx.stat().st_size < 168 or stream.read(23) != b'Kaydara FBX Binary  \x00\x1a\x00':
+                    raise ValueError('The exported FBX is incomplete or unreadable.')
+                # Blender writes the file version and a fixed trailer after the final object.
+                version = stream.read(4)
+                stream.seek(-140, 2)
+                if stream.read(140) != version + bytes(120) + bytes.fromhex('f85a8c6adef5d97eece90ce3758f290b'):
+                    raise ValueError('The exported FBX is incomplete or unreadable.')
+    conversion = manifest.get('conversion')
+    if conversion:
+        dimensions = conversion['dimensions_m']
+        if (conversion['triangles'] <= 0 or len(dimensions) != 3
+                or not all(math.isfinite(value) and value >= 0 for value in dimensions)
+                or max(dimensions) <= 0):
+            raise ValueError('The target conversion has no valid geometry or scale.')
+        if conversion['bones'] < manifest['bones'] or len(conversion['actions']) < len(manifest['animations']):
+            raise ValueError('The target conversion lost skeleton joints or animation clips.')
+    return dict(glb_sha256=manifest['source_glb_sha256'], texture_files=len(names),
+                binary_fbx=target in ('unity', 'unreal'))
 
 def export_asset(source,destination,target,notify=lambda fraction,stage:None,*,preflight_budget=None,expected_hash=None):
     source=Path(source);destination=Path(destination);destination.mkdir(parents=True,exist_ok=True)
@@ -107,6 +144,8 @@ def export_asset(source,destination,target,notify=lambda fraction,stage:None,*,p
                 or matching_report(source/'diagnostics.json',digest,current=False))
     if diagnostic:
         (destination/'diagnostics.json').write_text(json.dumps(diagnostic,indent=2),encoding='utf-8')
+    notify(.96,'Verifying exported files')
+    manifest['verification'] = verify_export(destination, manifest)
     (destination/'studio-export.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
     lines=[f'TRELLIS Studio — {recipe["label"]} export','',f'Units: {recipe["units"]}; up: {recipe["up"]}; forward: {recipe["forward"]}.',
       'The original GLB is included byte-for-byte. Its own coordinates are always Y up / metres.',

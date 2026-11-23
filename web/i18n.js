@@ -2,6 +2,7 @@ import staticFrench from './fr-static.js';
 import animationFrench from './fr-animation.js';
 import studioFrench from './fr-studio.js';
 import controlsFrench from './fr-controls.js';
+import qualityFrench from './fr-quality.js';
 import serverFrench from './fr-server.js';
 
 const storageKey = 'trellis.studio.language';
@@ -24,7 +25,7 @@ function languagePreference() {
 
 export const language = chooseLanguage(languagePreference(), globalThis.navigator?.language);
 export const formatLocale = language === 'fr' ? 'fr-FR' : 'en-US';
-const french = { ...staticFrench, ...studioFrench, ...animationFrench, ...controlsFrench, ...serverFrench };
+const french = { ...staticFrench, ...studioFrench, ...animationFrench, ...controlsFrench, ...serverFrench, ...qualityFrench };
 
 export function t(message, values, context) {
   const key = context && Object.hasOwn(french, context + '|' + message) ? context + '|' + message : message;

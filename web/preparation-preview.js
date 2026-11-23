@@ -13,9 +13,9 @@ export async function createPreparationPreview(container,url){
  function showEdges(overlay){
   for(const line of edgeLines.splice(0)){scene.remove(line);line.geometry.dispose();line.material.dispose();}
   if(!overlay)return;
-  for(const [kind,color] of [['boundary',0xf8c865],['nonmanifold',0xf685b7]]){
+  for(const [kind,color] of [['boundary',0xf8c865],['nonmanifold',0xf685b7],['intersection',0x73d6df]]){
    const vertices=overlay.positions[kind];
-   if(!vertices.length)continue;
+   if(!vertices?.length)continue;
    const geometry=new THREE.BufferGeometry();
    geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
    const material=new THREE.LineBasicMaterial({color,depthTest:false,transparent:true,opacity:.9});

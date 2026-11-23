@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest an improvement to TRELLIS Studio.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue will be public. Redact private information and include only images and files you have permission to share.
+  - type: textarea
+    id: workflow
+    attributes:
+      label: What are you trying to do?
+      description: Describe the task and what gets in your way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: How should Studio help?
+      description: Describe the result you want and where the change would fit in your workflow.
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples or constraints
+      description: Add a shareable example, a relevant limitation or a use case the proposed change should cover.

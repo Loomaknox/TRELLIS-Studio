@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet('Workshop','PrepareWorkshop','Generation','Rig','Pixal3D','Kimodo','Full','Retry','Stop','Server','ServerSetup','ConfigureServer','StopServer')]
     [string]$Mode='Workshop',
     [switch]$NoBrowser,
@@ -7,13 +7,21 @@ param(
     [switch]$AcceptKimodoModelLicenses,
     [switch]$AcceptHi3dModelLicenses,
     [switch]$SkipHi3d,
+    [switch]$AcceptMultiviewTextureModelLicenses,
+    [switch]$SkipMultiviewTexture,
+    [switch]$AcceptUltraTexModelLicenses,
+    [switch]$SkipUltraTex,
+    [switch]$AcceptNativeWorkflowModelLicenses,
+    [switch]$SkipNativeWorkflows,
     [switch]$Guided,
     [string]$Components='',
     [string]$BlenderPath='',
     [string]$GpuUuid='',
-    [string]$WslDistribution=''
+    [string]$WslDistribution='',
+    [ValidateSet(1033,1036)][int]$SetupLanguage=$(if ((Get-UICulture).TwoLetterISOLanguageName -eq 'fr') {1036} else {1033})
 )
 $ErrorActionPreference='Stop'
+$taskFrench=$SetupLanguage -eq 1036
 $taskInstallFull = $Mode -eq 'Full' -or ($Mode -eq 'ServerSetup' -and $FullStudio)
 $taskRoot=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if (-not (Test-Path -LiteralPath (Join-Path $taskRoot 'bundled-web.json'))) { throw 'Run this launcher from the Windows Setup installation.' }
@@ -70,7 +78,10 @@ if ($Mode -ne 'Workshop' -or $taskNeedsWorkshop -or $WithKimodo) {
     & (Join-Path $PSScriptRoot 'check-idle.ps1') -InstallRoot $taskRoot -IgnoreCurrentProcess -IgnoreTray:$taskGuided
     $taskLockPath=Join-Path $taskRoot '.component-install.lock'
     try { $taskLock=[IO.File]::Open($taskLockPath,'OpenOrCreate','ReadWrite','None') }
-    catch [IO.IOException] { throw 'Another TRELLIS component installation is running.' }
+    catch [IO.IOException] {
+        if ($taskFrench) { throw "Une autre installation de composants TRELLIS est en cours." }
+        throw 'Another TRELLIS component installation is running.'
+    }
     $taskTranscript=$false
     try {
         if ($taskGuided) {
@@ -94,6 +105,12 @@ if ($Mode -ne 'Workshop' -or $taskNeedsWorkshop -or $WithKimodo) {
                 WslDistribution=$WslDistribution; Retry=($Mode -eq 'Retry'); NeedsWorkshop=$taskNeedsWorkshop
                 WithKimodo=$WithKimodo; AcceptKimodoModelLicenses=$AcceptKimodoModelLicenses
                 AcceptHi3dModelLicenses=$AcceptHi3dModelLicenses; SkipHi3d=$SkipHi3d
+                AcceptMultiviewTextureModelLicenses=$AcceptMultiviewTextureModelLicenses
+                SkipMultiviewTexture=$SkipMultiviewTexture
+                AcceptUltraTexModelLicenses=$AcceptUltraTexModelLicenses; SkipUltraTex=$SkipUltraTex
+                AcceptNativeWorkflowModelLicenses=$AcceptNativeWorkflowModelLicenses
+                SkipNativeWorkflows=$SkipNativeWorkflows
+                Language=$(if ($taskFrench) {'fr'} else {'en'})
             }
             $taskGuidedStatus=Invoke-GuidedSetup @taskOptions
         } elseif ($Mode -eq 'Generation') {
@@ -145,7 +162,10 @@ if ($Mode -ne 'Workshop' -or $taskNeedsWorkshop -or $WithKimodo) {
             & (Join-Path $PSScriptRoot 'Install-Kimodo.ps1') -InstallRoot $taskRoot -AcceptModelLicenses:$AcceptKimodoModelLicenses
         }
     } catch {
-        if ($taskTranscript) { Write-Host ('Setup stopped. ' + $_.Exception.Message) }
+        if ($taskTranscript) {
+            $taskFailurePrefix=if ($taskFrench) {"Installation interrompue. "} else {'Setup stopped. '}
+            Write-Host ($taskFailurePrefix + $_.Exception.Message)
+        }
         throw
     } finally {
         try { if ($taskTranscript) { Stop-Transcript | Out-Null } }

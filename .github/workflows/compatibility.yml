@@ -27,9 +27,12 @@ jobs:
           python-version: '3.11'
       - run: python -B -m unittest discover -s tests -p installation_compatibility.py -v
       - run: python -B tests/runtime_merge.py
-      - run: 'python -m pip install --only-binary=:all: numpy==2.2.6'
+      - name: Install CPU diagnostics dependencies
+        run: 'python -m pip install --only-binary=:all: numpy==2.2.6 pillow==12.3.0 scipy==1.17.1 trimesh==4.12.2'
       - run: python -B tests/narrow_a_pose.py
       - run: python -B tests/animation_names.py
+      - run: python -B tests/animation_diagnostics.py
+      - run: python -B tests/quality_diagnostics.py
       - run: python -B tests/gpu_compatibility.py
       - run: python -B tests/kimodo_installer.py
       - run: python -B tests/game_copy_installer.py
@@ -39,6 +42,20 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install lightweight preview dependencies
+        run: 'python -m pip install --only-binary=:all: pillow==12.3.0'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: python -B tests/collection_preview_stability.py PreviewQueue WindowsPreviewJob
+      - shell: powershell
+        run: ./tests/setup_preflight_locale.ps1
+      - shell: powershell
+        run: ./tests/windows_setup_localization.ps1
       - shell: powershell
         run: ./tests/kimodo_probe.ps1
       - shell: powershell

@@ -238,3 +238,4 @@ button.has-icon{gap:7px}button>.ui-icon{flex-shrink:0;vertical-align:middle}#sav
   .export-preflight { margin-inline: 19px; }
   .export-check-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+.compare-metrics:empty{display:none}

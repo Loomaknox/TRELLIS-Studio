@@ -46,7 +46,10 @@ def find_blender():
             if drives & (1 << index) and ctypes.windll.kernel32.GetDriveTypeW(drive) == 3:
                 roots.append(Path(drive))
     candidates = sorted({p for base in roots for p in base.glob('Blender Foundation/Blender */blender.exe') if p.is_file()}, reverse=True)
-    return candidates[0] if candidates else None
+    if candidates:
+        return candidates[0]
+    bundled = runtime.parent.parent / '.tools/blender-5.2.2/blender.exe'
+    return bundled if bundled.is_file() else None
 
 def validate_glb(path):
     """Reject incomplete containers and external references before opening them."""

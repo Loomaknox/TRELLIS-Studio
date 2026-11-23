@@ -51,7 +51,7 @@ def make_package(work, name, identifier, parent, *, width, colour, node_name):
     return destination
 
 
-def run(editor):
+def run(editor, crouch_model=None, mapping_file=None):
     with tempfile.TemporaryDirectory(prefix="trellis-unity-reimport-") as temporary:
         work = Path(temporary)
         installed = make_package(work, "Initial", "a" * 32, "", width=1, colour="red", node_name="Body")
@@ -69,22 +69,50 @@ def run(editor):
         shutil.copy2(ROOT / "unity" / "TrellisPackageImporter.cs", editor_dir)
         shutil.copy2(ROOT / "tests" / "unity_reimport_editor.cs", editor_dir)
         shutil.copytree(installed, project / "Assets" / "Installed")
+        if crouch_model:
+            from glb_data import read
+            source = work / "sources" / ("f" * 32)
+            source.mkdir()
+            shutil.copyfile(crouch_model, source / "model.glb")
+            (source / "settings.json").write_text('{"name":"Crouch QA"}')
+            (source / "metadata.json").write_text("{}")
+            package = project / "Assets/Crouch"
+            exported = export_asset(source, package, "unity")
+            mapping = json.loads(mapping_file.read_text(encoding="utf-8"))["humanoid_mapping"]
+            document, _ = read(source / "model.glb")
+            joints = sorted({i for skin in document['skins'] for i in skin['joints']})
+            expected = dict(bones=[document['nodes'][i]['name'] for i in joints],
+                            clips=exported['animations'], height=exported['conversion']['height_m'],
+                            surfaces=[dict(name=item['name'], albedo=item['maps'].get('BaseColor',''))
+                                      for item in exported['materials']],
+                            ankles=[mapping[side+'_foot'] for side in ('left','right')],
+                            knees=[mapping[side+'_shin'] for side in ('left','right')],
+                            hips=[mapping[side+'_leg'] for side in ('left','right')])
+            (work / "crouch.json").write_text(json.dumps(expected), encoding="utf-8")
         (project / "Packages").mkdir()
         (project / "Packages" / "manifest.json").write_text('{"dependencies":{}}', encoding="utf-8")
         log = work / "unity.log"
         result = subprocess.run(
             [str(editor), "-batchmode", "-nographics", "-quit", "-projectPath", str(project),
              "-logFile", str(log), "-executeMethod", "TrellisStudio.ReimportRegression.Run"],
-            timeout=180, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=600 if crouch_model else 180, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         report = log.read_text(encoding="utf-8", errors="replace")
-        if result.returncode or "TRELLIS REIMPORT PASS" not in report:
+        markers = ["TRELLIS REIMPORT PASS"]
+        if crouch_model:
+            markers.append("TRELLIS CHARACTER PASS")
+        if result.returncode or any(marker not in report for marker in markers):
             print(report[-15000:])
             raise SystemExit("Unity reimport regression failed.")
-        print("TRELLIS REIMPORT PASS")
+        print("\n".join(markers))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("unity", type=Path)
-    run(parser.parse_args().unity.resolve(strict=True))
+    parser.add_argument("--crouch-model", type=Path)
+    parser.add_argument("--mapping", type=Path)
+    args = parser.parse_args()
+    if bool(args.crouch_model) != bool(args.mapping):
+        parser.error("--crouch-model and --mapping must be supplied together")
+    run(args.unity.resolve(strict=True), args.crouch_model, args.mapping)

@@ -2,11 +2,12 @@ import {createComparison} from './compare-studio.js?v=3.4.0';
 import {createDiagnostics} from './diagnostics.js?v=3.4.0';
 import {createExportStudio} from './export-studio.js?v=3.4.0';
 import {createLibrarySelection} from './library-selection.js?v=3.4.0';
-import {installButtonIcons} from './button-icons.js?v=3.4.0';
+import {installButtonIcons} from './button-icons.js?v=option-help';
 import {icon} from './card-menu.js?v=3.4.0';
 import {t} from './i18n.js';
+import {isCreatureRigDraft} from './creature-rig-editor.js';
 export function createStudioTools({api,getRecords,getJob,refresh,printCopy,labelAnimation,openPreparation}){
- const compare=createComparison({getRecords,labelAnimation}),diagnostics=createDiagnostics({api});
+ const compare=createComparison({api,getRecords,labelAnimation}),diagnostics=createDiagnostics({api});
  const exports=createExportStudio({api,printCopy,openAction(action,job){
   if(action==='diagnostics')diagnostics.open(job);
   else if(action==='print')printCopy.open(job);
@@ -15,6 +16,6 @@ export function createStudioTools({api,getRecords,getJob,refresh,printCopy,label
  const selection=createLibrarySelection({api,getRecords,refresh,compare,exports});const $=id=>document.getElementById(id);
  $('compareModel').onclick=()=>compare.open(getJob());$('diagnoseModel').onclick=()=>diagnostics.open(getJob());$('exportModel').onclick=()=>exports.open(getJob());$('detailDiagnostics').onclick=()=>diagnostics.open(getJob());
  installButtonIcons();
- return {compare,diagnostics,exports,selection,update(job,records,trashMode){for(const id of ['compareModel','diagnoseModel','exportModel','detailDiagnostics'])$(id).disabled=!job||job.state!=='done';selection.sync(records,trashMode);},
-  mediaBadge(job){const m=job.media,available=m?.available??job.state==='done';const animated=m?.animated??!!job.settings.animation_clips?.length;const badge=document.createElement('span');badge.className='card-media '+(animated?'animated':available?'static':'pending');const clips=m?.clips||job.settings.animation_clips?.length||1;const label=available?(animated?t(clips===1?'Animated · {count} clip':'Animated · {count} clips',{count:clips}):t('Static model')):t('Model not ready');badge.title=label;badge.setAttribute('aria-label',label);badge.append(icon(animated?'motion':available?'cube':'clock'));const text=document.createElement('span');text.textContent=animated?String(clips):'';badge.append(text);return badge;}};
+ return {compare,diagnostics,exports,selection,update(job,records,trashMode){for(const id of ['compareModel','diagnoseModel','exportModel','detailDiagnostics'])$(id).disabled=!job||job.state!=='done'||isCreatureRigDraft(job);selection.sync(records,trashMode);},
+  mediaBadge(job){const m=job.media,available=m?.available??job.state==='done';const animated=m?.animated??!!job.settings.animation_clips?.length;const badge=document.createElement('span');badge.className='card-media '+(animated?'animated':available?'static':'pending');const clips=m?.clips||job.settings.animation_clips?.length||1;const draft=isCreatureRigDraft(job)&&job.state==='done';const label=available?(animated?t(clips===1?'Animated · {count} clip':'Animated · {count} clips',{count:clips}):t('Static model')):t(draft?'Creature rig draft':'Model not ready');badge.title=label;badge.setAttribute('aria-label',label);badge.append(icon(animated?'motion':available?'cube':draft?'skeleton':'clock'));const text=document.createElement('span');text.textContent=animated?String(clips):'';badge.append(text);return badge;}};
 }

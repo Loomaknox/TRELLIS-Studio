@@ -3,6 +3,7 @@ from collections import Counter
 from pathlib import Path
 import json, shutil, subprocess, sys, time, traceback, uuid
 from studio_import import animation_recipe, animation_recipes, find_blender, validate_glb
+from animation_diagnostics import require_valid_animation
 from animation_edits import FILES, recover
 from glb_data import remove_animation
 from lod_animations import prepare as prepare_lod_clips
@@ -71,9 +72,11 @@ def animation_metadata(model, authored):
     for clip in model.get('animations', []):
         name = clip.get('name')
         recipe = animation_recipe(name)
-        if recipe:
-            result.append(by_name.get(name, dict(id=recipe['id'], name=recipe['id'], clip=name,
-                                                duration_s=recipe['duration'], source='Existing embedded clip')))
+        if name in by_name:
+            result.append(by_name[name])
+        elif recipe:
+            result.append(dict(id=recipe['id'], name=recipe['id'], clip=name,
+                               duration_s=recipe['duration'], source='Existing embedded clip'))
     return result
 
 
@@ -84,11 +87,28 @@ try:
     settings = dict(previous_settings)
     previous_clips = previous_result.get('animation_set') or []
     authored = {}
+    edited_clips = set()
     if removing:
         status('running', 'Removing the selected animation', 35)
         remove_animation(source, stage / 'model.glb', request.get('remove_clip'), request.get('remove_index'))
         run_blender('animation_blend.py', 240)
         model = validate_glb(stage / 'model.glb')
+    elif request.get('creature_motion') is not None:
+        from creature_motion_edit import write_creature_clip
+
+        status('running', 'Generating a procedural motion on the existing rig', 35)
+        motion = write_creature_clip(source, stage / 'model.glb', request['creature_motion'])
+        status('running', 'Saving the Blender companion', 72)
+        run_blender('animation_blend.py', 240)
+        model = validate_glb(stage / 'model.glb')
+        clip = motion['clip']
+        if clip_names(model) != clip_names(source_data) + Counter({clip: 1}):
+            raise ValueError('The procedural motion update did not preserve the animation set.')
+        authored = {'animation_set': [
+            dict(id='creature_' + motion['effective_motion'], name=clip, clip=clip,
+                 duration_s=motion['duration_s'], source='TRELLIS Studio procedural motion')
+        ]}
+        edited_clips.add(clip)
     else:
         previous = {clip['id']: clip for clip in animation_recipes(source_data)}
         changed = [clip['id'] for clip in request['clips'] if previous.get(clip['id']) != clip]
@@ -96,7 +116,9 @@ try:
         status('running', 'Adding motions to model', 35)
         if changed:
             write(stage/'settings.json', dict(settings, animation_clips=request['clips'], rig_options=None,
-                                             regenerate_ids=changed, previous_animation_set=previous_clips))
+                                             regenerate_ids=changed, previous_animation_set=previous_clips,
+                                             existing_rig_profile=previous_result.get('rig_profile'),
+                                             existing_humanoid_mapping=previous_result.get('humanoid_mapping')))
             shutil.copy2(source, stage/'rig-work'/'rigged.glb')
             run_blender('standard_animations.py', 240 + 20 * (len(changed) - 1))
             authored = json.loads((stage/'result.json').read_text(encoding='utf-8'))
@@ -107,9 +129,13 @@ try:
         if not model.get('skins') or (changed and not authored.get('humanoid_mapping')):
             raise ValueError('Standard humanoid motions could not be applied to this skeleton.')
         verify_clips(source_data, model, authored.get('animation_set', []), changed)
+        edited_clips = {item['clip'] for item in authored.get('animation_set', []) if item['id'] in changed}
+    if edited_clips:
+        require_valid_animation(stage/'model.glb', clips=edited_clips,
+                                mapping=authored.get('humanoid_mapping') or previous_result.get('humanoid_mapping'))
     settings['animation_clips'] = animation_recipes(model)
     result = {**previous_result, **authored, 'revision': time.time_ns(),
-              'animation_set': animation_metadata(model, authored.get('animation_set', previous_clips)),
+              'animation_set': animation_metadata(model, [*previous_clips, *authored.get('animation_set', [])]),
               'animations': len(model.get('animations', []))}
     if not removing:
         result['rig_engine'] = previous_result.get('rig_engine', 'existing')

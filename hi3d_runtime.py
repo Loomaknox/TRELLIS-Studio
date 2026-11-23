@@ -19,12 +19,8 @@ _SOURCE_DECODED_RESOLUTIONS = {512: (512,), 1024: (1024,), 1536: range(1024, 153
 HI3D_PORT_REVISION = '03dea7e366ba951d7475f3f1c8a71596a87f913c'
 HI3D_WEIGHT_REVISION = '23d1bace196f618265b4b0b9c90d95fa9a9b1df5'
 HI3D_PORT_PYTHON_SHA256 = 'adeda18e23db59c66b34b63ecc2e7882191dd2c7a843c9a83baff77a835afdd9'
-HI3D_SEED = 42
-HI3D_STEPS = 25
 HI3D_VOXEL_TOKENS = 90_000
 HI3D_TRIANGLE_CAP = 1_000_000
-HI3D_MAX_HOLE_EDGES = 10_000
-HI3D_FLOATER_FACE_RATIO = 0.005
 REQUIRED_PACKAGES = {'spconv-cu124': '2.3.8', 'cumm-cu124': '0.8.2', 'pyfqmr': '0.5.0'}
 RUNTIME_HINT = 'Configure the optional local Hi3D component.'
 SOURCE_HINT = 'Hi3D requires a native TRELLIS.2 single-image source with its prepared transparent cutout.'
@@ -212,12 +208,13 @@ def _compiler_workspace(root):
                      'Use a shorter Studio installation or Windows profile path.')
 
 
-def _run(root, runtime, work, resolution, triangle_target):
+def _run(root, runtime, work, resolution, triangle_target, options):
     command = [
         str(runtime.python), '-I', '-B', '-u', '-X', 'utf8',
         str(Path(__file__).resolve().with_name('hi3d_worker.py')),
         '--source', str(runtime.source), '--weights', str(runtime.weights),
         '--resolution', str(resolution), '--triangles', str(triangle_target),
+        '--refinement-options', json.dumps(options, allow_nan=False, separators=(',', ':')),
     ]
     for directory in runtime.dependencies:
         command.extend(('--dependency', str(directory)))
@@ -251,19 +248,25 @@ def _run(root, runtime, work, resolution, triangle_target):
         print(log.rstrip(), flush=True)
     if process.returncode == 2 and 'HI3D_GPU_MEMORY_LIMIT' in process.stdout:
         retry = 'Choose Detail Refinement (512) or free GPU memory.' if resolution == 1024 else 'Free GPU memory and retry.'
+        if not options['hi3d_tiled_decode']:
+            retry = 'Enable tiled decoding or reduce the voxel budget and retry.'
         raise ValueError(f'Hi3D exceeded available GPU memory. {retry}')
     if process.returncode:
         raise ValueError('Hi3D refinement failed. See the generation log for details.')
 
 
-def reconstruct(root, job, reference, vertices, faces, resolution, triangle_ceiling, *, source_resolution):
+def reconstruct(root, job, reference, vertices, faces, resolution, triangle_ceiling, *,
+                source_resolution, refinement_options=None):
     """Refine a copy and return valid replacement geometry in decoded TRELLIS.2 coordinates."""
     import numpy as np
+
+    from generation_options import hi3d_refinement_options
 
     if (resolution not in HI3D_METHODS.values() or type(triangle_ceiling) is not int or triangle_ceiling < 1000
             or type(source_resolution) is not int
             or not any(source_resolution in allowed for allowed in _SOURCE_DECODED_RESOLUTIONS.values())):
         raise ValueError('Invalid Hi3D refinement settings.')
+    options = hi3d_refinement_options(refinement_options)
     check_mesh(vertices, faces)
     runtime = _read_runtime(root)
     input_bytes = (vertices.size + faces.size) * 4
@@ -276,7 +279,7 @@ def reconstruct(root, job, reference, vertices, faces, resolution, triangle_ceil
         np.save(work / 'vertices.npy', np.ascontiguousarray(vertices, dtype=np.float32), allow_pickle=False)
         np.save(work / 'faces.npy', np.ascontiguousarray(faces, dtype=np.int32), allow_pickle=False)
         shutil.copyfile(reference, work / 'source.png')
-        _run(root, runtime, work, resolution, ceiling)
+        _run(root, runtime, work, resolution, ceiling, options)
         try:
             v_out, f_out = work / 'refined-vertices.npy', work / 'refined-faces.npy'
             if v_out.stat().st_size + f_out.stat().st_size > OUTPUT_LIMIT_BYTES:
@@ -293,10 +296,10 @@ def reconstruct(root, job, reference, vertices, faces, resolution, triangle_ceil
             raise ValueError('Hi3D returned an invalid reconstructed mesh.') from error
     report = dict(
         engine='Hi3D', port_revision=HI3D_PORT_REVISION, weights_revision=HI3D_WEIGHT_REVISION,
-        source_resolution=source_resolution, resolution=resolution, steps=HI3D_STEPS, seed=HI3D_SEED,
-        scheduler='heun', voxel_token_limit=HI3D_VOXEL_TOKENS, triangle_target=ceiling,
-        extracted_triangles=len(rebuilt_faces), fill_holes_max_edges=HI3D_MAX_HOLE_EDGES,
-        floater_face_ratio=HI3D_FLOATER_FACE_RATIO, tiled_decode=True, vram_mode='model_swap',
+        source_resolution=source_resolution, resolution=resolution,
+        voxel_token_limit=round(HI3D_VOXEL_TOKENS * options['hi3d_voxel_budget_scale']),
+        triangle_target=ceiling, extracted_triangles=len(rebuilt_faces), vram_mode='model_swap',
         peak_vram_gib=allocated, peak_reserved_gib=reserved, seconds=round(perf_counter() - started, 3),
+        **{key.removeprefix('hi3d_'): value for key, value in options.items()},
     )
     return rebuilt_vertices, rebuilt_faces, report

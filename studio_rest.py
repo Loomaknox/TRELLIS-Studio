@@ -3,7 +3,7 @@ from pathlib import Path
 from contextlib import ExitStack
 import inspect,io,json,time,uuid,hashlib,os
 from fastapi import APIRouter,UploadFile,File,HTTPException,Query
-from fastapi.responses import FileResponse,HTMLResponse,RedirectResponse
+from fastapi.responses import FileResponse,HTMLResponse,RedirectResponse,Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.openapi.docs import get_swagger_ui_html
 from starlette.requests import Request
@@ -165,9 +165,12 @@ def install(app,g):
 
     @router.post('/generations',tags=['Generation'],status_code=202,response_model=JobAccepted,summary='Queue a generation from an uploaded image')
     async def generate(data:Generation):
-        if set(data.overrides)-{'triangles','texture_size','resolution','remove_bg','advanced_settings','asset_type','reference_prompt','parent_id','keep_finishing_source','repair_surface','hd_reconstruction'}:raise HTTPException(400,'Unsupported recipe override.')
-        source,entry=upload(data.upload_id,'image');spec=dict(name=data.name,profile_id=data.profile_id,height_m=data.height_m,seed=data.seed,priority=data.priority,**data.overrides)
-        spec.update(data.model_dump(include={'reference_edits', 'engine', 'master_finishing', 'reproject_face'},
+        if set(data.overrides)-{'triangles','texture_size','resolution','remove_bg','advanced_settings','asset_type','reference_prompt','parent_id','keep_finishing_source','repair_surface','hd_reconstruction','workflow_options'}:raise HTTPException(400,'Unsupported recipe override.')
+        source,entry=upload(data.upload_id,'image');spec=dict(name=data.name,profile_id=data.profile_id,height_m=data.height_m,priority=data.priority,**data.overrides)
+        if 'seed' in data.model_fields_set:
+            spec['seed'] = data.seed
+        spec.update(data.model_dump(include={'reference_edits', 'engine', 'master_finishing', 'reproject_face',
+                                             'retexture_after_refinement', 'multiview_texture_refinement', 'texture_method'},
                                     exclude_none=True))
         with source.open('rb') as stream:
             result=await legacy('POST','/api/queue/batch',images=[UploadFile(file=stream,filename=entry['name'])],specifications=json.dumps([spec]))
@@ -206,6 +209,8 @@ def install(app,g):
         summaries=[]
         for r in records[offset:offset+limit]:
             summaries.append(dict(id=r['id'],name=r['metadata'].get('display_name',r['settings']['name']),state=r['state'],progress=r.get('progress',0),metadata=r['metadata'],media=r.get('media',{}),parent_id=r['settings'].get('parent_id'),status_url='/api/v1/jobs/'+r['id'],model_url='/api/v1/models/'+r['id']+'/files/model.glb'))
+            if r.get('collection_preview'):
+                summaries[-1]['collection_preview'] = r['collection_preview']
         return dict(total=len(records),offset=offset,limit=limit,models=summaries)
 
     @router.get('/jobs/{identifier}',tags=['Models'],summary='Read job progress, recipe, rig, clips and prepared resources')
@@ -264,6 +269,12 @@ def install(app,g):
     ]):
         return await g['files'](identifier, filename)
 
+    @router.get('/models/{identifier}/collection-preview/{revision}/{mode}.webp', tags=['Models'],
+                summary='Download a saved Collection thumbnail', response_class=Response,
+                responses={200: {'content': {'image/webp': {}}}})
+    def collection_preview(identifier: Identifier, revision: str, mode: Literal['textured', 'clay']):
+        return g['collection_preview'](identifier, revision, mode)
+
     @router.get('/models/{identifier}/presentation/{filename}', tags=['Models'],
                 summary='Download a saved thumbnail, capture or turntable')
     async def presentation_file(
@@ -285,14 +296,58 @@ def install(app,g):
     @router.post('/models/{identifier}/print-copy',tags=['Preparation'],status_code=202,response_model=JobAccepted,summary='Create a dedicated printing mesh')
     async def printing(identifier:Identifier,data:PrintCopy):return accepted(await legacy('POST',f'/api/jobs/{identifier}/print-copy',data.model_dump()))
 
-    @router.post('/models/{identifier}/rig',tags=['Animation'],status_code=202,response_model=JobAccepted,summary='Generate a UniRig skeleton on a linked copy')
-    async def rig(identifier:Identifier,data:Rig):return accepted(await legacy('POST',f'/api/jobs/{identifier}/rig',data.model_dump(exclude_none=True)))
+    @router.post('/models/{identifier}/rig',tags=['Animation'],status_code=202,response_model=JobAccepted,summary='Generate a UniRig skeleton on a linked copy',
+                 description='Creature mode returns an editable draft. Complete it as a separate step to calculate skin weights.')
+    async def rig(identifier:Identifier,data:Rig):
+        return accepted(await legacy('POST',f'/api/jobs/{identifier}/rig',data.model_dump(exclude_none=True, exclude_unset=True)))
+
+    @router.get('/models/{identifier}/rig-preview', tags=['Animation'], summary='Read an aligned skeleton preview')
+    def rig_preview(identifier: Identifier):
+        return g['rig_preview'](identifier)
+
+    @router.post('/models/{identifier}/rig-complete', tags=['Animation'], status_code=202,
+                 response_model=JobAccepted, summary='Skin a creature rig draft',
+                 description='Submit the exact preview revision and the complete edited hierarchy. The final rig uses the same linked model ID.')
+    async def rig_complete(identifier: Identifier, data: CreatureRigCompletion):
+        payload = data.model_dump(mode='json')
+        if payload['swim'] is None:
+            payload.pop('swim')
+        return accepted(await legacy('POST', f'/api/jobs/{identifier}/rig-complete', payload))
+
+    if not server_mode:
+        @router.post('/models/{identifier}/rig-tentacles', tags=['Animation'], summary='Adapt tentacle chains to their length')
+        async def rig_tentacles(identifier: Identifier, data: CreatureTentacles):
+            return await legacy('POST', f'/api/jobs/{identifier}/rig-tentacles', data.model_dump())
+
+        @router.get('/models/{identifier}/creature-swim', tags=['Animation'], summary='Read creature swim controls')
+        async def creature_swim_options(identifier: Identifier):
+            return await legacy('GET', f'/api/jobs/{identifier}/creature-swim')
+
+        @router.post('/models/{identifier}/creature-swim', tags=['Animation'], summary='Generate or update a creature swim clip')
+        async def creature_swim(identifier: Identifier, data: CreatureSwim):
+            return await legacy('POST', f'/api/jobs/{identifier}/creature-swim', data.model_dump())
+
+    @router.get('/models/{identifier}/rig-source', tags=['Animation'], summary='Find the verified unrigged source for a rig variant')
+    async def rig_source(identifier:Identifier):
+        return await g['get_rig_source'](identifier)
 
     def animation_accepted(result):
         if 'operation_id' not in result:
             return accepted(result)
         operation = result['operation_id']
         return {**result, 'state': 'queued', 'status_url': '/api/v1/animation-operations/' + operation}
+
+    @router.get('/models/{identifier}/creature-motions', tags=['Animation'],
+                summary='Inspect procedural motions available on the existing rig')
+    def creature_motion_options(identifier: Identifier):
+        return g['creature_motion_options'](identifier)
+
+    @router.post('/models/{identifier}/creature-motions', tags=['Animation'], status_code=202,
+                 response_model=AnimationAccepted, response_model_exclude_none=True,
+                 summary='Add a procedural animation to the existing rig')
+    async def creature_motion(identifier: Identifier, data: CreatureMotion):
+        return await legacy('POST', f'/api/jobs/{identifier}/creature-motions',
+                            data.model_dump(exclude_none=True))
 
     @router.get('/models/{identifier}/animations', tags=['Animation'], summary='List embedded clips by exact name and index')
     def model_animations(identifier: Identifier):

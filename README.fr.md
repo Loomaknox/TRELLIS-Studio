@@ -2,7 +2,7 @@
 <h1 align="center">TRELLIS Studio</h1>
 <p align="center">Un atelier local pour créer, préparer, équiper d’un squelette et animer des modèles 3D.</p>
 <p align="center"><a href="README.md" lang="en">English</a> · <strong>Français</strong></p>
-<p align="center"><a href="LICENSE">MIT · Code de Studio</a> · <a href="INSTALLATION.md">Installation</a> · <a href="docs/API.md">API REST</a> · <a href="docs/MCP.md">MCP</a> · <a href="THIRD_PARTY_NOTICES.md">Crédits et licences</a></p>
+<p align="center"><a href="#installer-la-version-française-sur-windows">Installer ce fork</a> · <a href="LICENSE">MIT · Code de Studio</a> · <a href="docs/API.md">API REST</a> · <a href="docs/MCP.md">MCP</a> · <a href="THIRD_PARTY_NOTICES.md">Crédits et licences</a></p>
 
 TRELLIS Studio est une application communautaire indépendante qui s’appuie sur **Microsoft TRELLIS.2** et **UniRig**. Elle permet de générer un maillage texturé à partir d’une image, d’importer un modèle existant, de l’inspecter dans une visionneuse PBR et de le préparer pour Blender, Unity, Unreal Engine ou l’impression 3D.
 
@@ -10,9 +10,15 @@ Les calculs s’exécutent sur la machine qui héberge Studio, où restent les i
 
 ## Interface en français
 
-Le sélecteur de langue dans l’en-tête permet de choisir **Français** ou **English**. Studio démarre en français si c’est la langue préférée de ton navigateur. Il mémorise ensuite ton choix dans ce navigateur.
+Le sélecteur de langue dans l’en-tête permet de choisir **Français** ou **English**. Studio démarre en français si c’est la langue préférée de ton navigateur. Il mémorise ensuite ton choix dans ce navigateur. Quelques réglages de génération apparaissent encore en anglais, dont **Use Profile Settings**.
 
-Cette version du fork est basée sur **TRELLIS Studio 3.11.0**, qui réunit la création, la collection et le studio d’animation dans une interface remaniée. [Notes de version du projet d’origine](docs/RELEASE_3.11.0.md)
+Cette version du fork est basée sur **TRELLIS Studio 3.15.1**. Elle intègre le graphe de génération, la finition multivue, UltraTex 2K et les nouveaux outils de la collection et des créatures. [Notes de version](docs/RELEASE_3.15.1.md) · [Profils de génération autonomes](docs/NATIVE_PROFILES.md)
+
+## Vérifications sur le fork 3.15.1
+
+- **Aperçus de la collection.** Vingt rendus Edge consécutifs ont abouti sans laisser de processus d’aperçu ouvert. L’annulation, le dépassement du délai et l’arrêt de Studio ont aussi été testés. [Tests des aperçus](tests/collection_preview_stability.py)
+- **Textures.** Sur une RTX 5070 Ti, MV-Adapter et UltraTex ont chacun produit un atlas de 2 048 × 2 048 pixels sur le même maillage de test. Les deux résultats conservent la géométrie et les UV.
+- **Animation et Unity.** Sur un personnage à 95 os, le déplacement maximal de chaque cheville pendant la flexion recalculée est inférieur à 0,5 mm, mesuré à 240 Hz et à chaque image clé. Unity 6 a réimporté le FBX avec son squelette Generic, ses matériaux et ses deux clips. Les appuis restent à examiner sur chaque personnage et chaque mouvement. [Tests des animations](tests/animation_diagnostics.py) · [Test de réimportation Unity](tests/unity_reimport.py)
 
 ## Démo en 30 secondes
 
@@ -22,7 +28,7 @@ Une seule génération a produit deux variantes, toutes deux avec des textures P
 
 ## Installer la version française sur Windows
 
-Ce fork cible **Windows x64**. Pour obtenir l’interface française, télécharge [l’archive ZIP du fork Loomaknox](https://github.com/Loomaknox/TRELLIS-Studio/archive/refs/heads/main.zip) ou clone le dépôt avec Git. Les exécutables disponibles dans les [versions du projet d’origine](https://github.com/yoslo59/TRELLIS-Studio/releases) sont publiés par son mainteneur.
+Ce fork cible **Windows x64**. Sa branche par défaut, `main`, contient la version stabilisée. Télécharge et décompresse l’archive source ou clone le dépôt avec Git. Le mainteneur du projet d’origine publie ses propres exécutables Windows. [Archive ZIP du fork](https://github.com/Loomaknox/TRELLIS-Studio/archive/refs/heads/main.zip) · [Versions du projet d’origine](https://github.com/yoslo59/TRELLIS-Studio/releases)
 
 ```powershell
 git clone https://github.com/Loomaknox/TRELLIS-Studio.git
@@ -30,7 +36,7 @@ cd TRELLIS-Studio
 ```
 
 1. Installe **Node.js LTS x64, version 22 ou supérieure**, avec npm. Installe **Blender** pour les conversions, la préparation et les exports qui en ont besoin. Pour UniRig, prépare **WSL2 avec Ubuntu 22.04** et termine l’initialisation du compte Linux. [Prérequis détaillés](INSTALLATION.md#prerequisites)
-2. Exécute **Install TRELLIS Studio.cmd** dans le dossier cloné. Lis les conditions des modèles, dont DINOv3, et accepte uniquement celles auxquelles tu consens.
+2. Exécute **Install TRELLIS Studio.cmd** dans le dossier extrait ou cloné. Lis les conditions des modèles, dont DINOv3, et accepte uniquement celles auxquelles tu consens.
 3. Exécute **Open TRELLIS.cmd**. Depuis les sources, Studio écoute par défaut sur [127.0.0.1:7860](http://127.0.0.1:7860/) et le pont MCP Desktop sur le port **7861**. Les ports par défaut du paquet Windows sont **7870** et **7871**.
 
 La configuration de référence du projet d’origine est Windows 11 avec une NVIDIA RTX 4070 Ti et 12 Go de VRAM. Le guide d’installation depuis les sources recommande **32 Go de RAM** et **80 Gio d’espace libre** pour une installation complète, auquel s’ajoute l’espace utilisé par ta collection et par les options installées. La génération TRELLIS.2 fonctionne dans l’environnement Windows, et UniRig s’exécute dans un environnement WSL2 séparé. [Installation et dépannage](INSTALLATION.md)
@@ -41,9 +47,20 @@ La configuration de référence du projet d’origine est Windows 11 avec une NV
 | **Pixal3D** | Générer depuis une image ou depuis une vue de face et jusqu’à trois vues complémentaires. | Lance **Install Pixal3D.cmd** pour la génération multivue. L’option `--single-image` ajoute les composants nécessaires à la génération avec une seule image. [Installation de Pixal3D](INSTALLATION.md#optional-pixal3d-generation) |
 | **Hi3D** | Affiner les détails d’une source compatible créée avec TRELLIS.2. | GPU NVIDIA compatible et environ **10,66 Go** de poids supplémentaires après acceptation de la licence. [Compatibilité et installation](docs/HI3D.md) |
 | **WTiVo 1024** | Reconstruire la surface d’un modèle HD à partir d’une source compatible. | Moteur WTiVo facultatif et Blender. Studio propose aussi sa reconstruction intégrée sur grille 768. [Guide WTiVo](docs/WTIVO.md) |
+| **Affinage multivue (MV-Adapter)** | Harmoniser six vues sur le maillage et ses UV. | L’installateur accepte les GPU NVIDIA de capacité 8.6, 8.9 et 12.0 à partir de 8 000 Mio de VRAM. Prévoir environ 3,3 Go de téléchargement. |
+| **UltraTex 2K Preview** | Calculer de nouvelles vues de texture et les projeter sur l’atlas 2K d’un modèle compatible. | Minimum 12 Gio de VRAM, environ 14 Go de poids et acceptation des conditions FLUX.2. [Guide UltraTex](docs/ULTRATEX.md) |
 | **Kimodo** | Générer des mouvements humanoïdes en décrivant une action. | Calcul sur CPU avec AVX2, FMA et F16C, WSL2 initialisé, **12 Gio libres dans WSL** et environ **9,3 Go** de poids supplémentaires. [Guide Kimodo](docs/MOTION_GENERATION.md) |
 
 Pour une installation empaquetée, le projet d’origine documente les modes Desktop et Server, les réparations et la désinstallation. [Programme d’installation Windows](docs/WINDOWS_SETUP.md) · [Configurer TRELLIS Server](docs/SERVER.md)
+
+## Contrôler la qualité d’un personnage
+
+1. Dans **Créer**, ouvrez l’aperçu du détourage. Si un contour touche le bord ou si le masque retient peu de pixels, corrigez le cadrage avant la génération. Si l’orientation d’une référence enregistrée est ambiguë, utilisez l’alignement manuel de **Projection de textures**.
+2. Dans **Comparer**, examinez les écarts de triangles et de bords ouverts entre les variantes. Avant le squelette, ouvrez **Diagnostics** pour localiser les ouvertures et les indices de croisements de surface. Vérifiez visuellement les doigts et les vêtements.
+3. Après le rig, examinez les avertissements avec leur clip, leur os et leur instant. Si les poids d’une phalange sont inutilisables, ouvrez le modèle source pour corriger la main ou recréez une variante avec des mains rigides.
+4. Pour un export, Studio contrôle l’intégrité du GLB livré et les textures extraites. Le paquet Unity contient le FBX et le rapport dans `studio-export.json`. Rejouez les clips sur le personnage importé pour contrôler les appuis.
+
+L’en-tête et la file affichent l’activité et les capacités libres du PC. Les mesures de VRAM sont actualisées au plus toutes les quinze secondes. Un rendu de vignette utilise une session de navigateur temporaire que Studio ferme à la fin du calcul.
 
 ## Utiliser Studio
 
@@ -62,6 +79,20 @@ Pour une installation empaquetée, le projet d’origine documente les modes Des
 2. Pour ajouter un squelette, oriente le personnage de face et positionne les repères du menton, des épaules, des coudes, des poignets, de l’entrejambe, des genoux et des chevilles. Après le calcul UniRig, inspecte les articulations, les mains et les pieds sur la copie créée.
 3. Ajoute plusieurs des **84 animations humanoïdes standard** de Quaternius au même modèle ou utilise des mouvements enregistrés dans ta bibliothèque si tu as configuré Kimodo. L’atelier permet de raccourcir les clips, de travailler les boucles et de choisir entre un mouvement sur place et un déplacement de la racine.
 4. Vérifie les déformations, les appuis des pieds et les contacts avec les objets sur le personnage final. Le contrôleur qui enchaîne les clips en jeu se règle dans le projet Unity ou Unreal.
+
+Lorsque les **profils de squelette** sont activés, **Auto** utilise le parcours UniRig actuel. **Simple** garde 22 os corporels et des mains rigides. **Standard** utilise 52 os sur un maillage aux doigts séparés. **Avancé** ajoute deux os de torsion des avant-bras et propose de choisir le type de mains, pour un total de 24 ou 54 os. Les repères restent ajustables. Chaque profil crée une variante liée à sa source vérifiée et peut recalculer les clips standard du modèle sélectionné.
+
+Le profil expérimental **Expert** ajoute 25 os pondérés aux jambes et au bassin, aux bras et aux épaules, ainsi qu’au tronc. Il utilise 49 os avec mains rigides ou 79 avec doigts articulés. Les auxiliaires suivent une partie des rotations des articulations dans les clips standard.
+
+Le profil expérimental **Expressif** ajoute 16 os corporels à Expert, pour 65 os avec mains rigides ou 95 avec doigts articulés. Il répartit la torsion à un tiers et deux tiers des bras, avant-bras, cuisses et tibias. Il ajoute des correctifs près des omoplates, de la cage thoracique, des hanches et de la voûte plantaire. Les positions sont calculées à partir des proportions et des axes du personnage. La même hiérarchie avec les mêmes options s’applique aux différentes morphologies. [Placement des correctifs corporels](https://dev.epicgames.com/documentation/metahuman/metahuman-stylized-character-body-rig-editing)
+
+Dans Studio Desktop, ouvre **Animation → Ajouter un squelette → Créature** sur un maillage sans squelette. UniRig propose des os adaptés au maillage. L’aperçu 3D permet de déplacer leurs extrémités, de scinder un os et d’ajouter ou retirer des chaînes avant le calcul des poids. Les boucles de test couvrent la déformation, la foulée quadrupède, l’ondulation serpentine et le battement d’ailes. La variante finale reprend la hiérarchie éditée et s’exporte en GLB ou FBX animé.
+
+Pour une méduse, choisis **Adapter les tentacules** dans l’éditeur du squelette. TRELLIS mesure les courbes dans le maillage, puis propose un nombre d’os par tentacule selon l’espacement choisi. Le tableau indique les longueurs et le nombre d’os par chaîne. Tu peux ajuster le résultat avant de lancer le calcul des poids. Lorsque le maillage rend certains tentacules difficiles à suivre, l’éditeur signale les estimations à vérifier.
+
+Le panneau **Nage de méduse** règle la durée de la boucle, le nombre de pulsations, l’amplitude de l’ombrelle, l’ondulation des tentacules, le retard de propagation et le déplacement vertical. **Appliquer et lire la nage** génère et joue le clip directement dans TRELLIS. Tu peux le réappliquer sur le même modèle. Les réglages sont enregistrés dans le GLB avec le clip et les autres animations sont conservées.
+
+Pour une validation locale, démarre le service Desktop avec la liste `TRELLIS_RIG_PROFILES`, par exemple `simple,standard,advanced,expert,expressive`. Le mode Serveur utilise `TRELLIS_SERVER_RIG_PROFILES`. Arrête puis redémarre le service après chaque changement de liste. Une liste vide masque les nouveaux profils. Les variantes existantes restent consultables et exportables.
 
 ### Exporter
 

@@ -19,15 +19,15 @@ def run(*args,**kwargs):
     else:print('>',*map(str,args),flush=True)
     return subprocess.run(list(map(str,args)),cwd=ROOT,check=True,**kwargs)
 
-def fetch(entry,target):
+def fetch(entry,target,*,root=ROOT):
     target=Path(target);target.parent.mkdir(parents=True,exist_ok=True)
     if target.is_file() and (not entry.get('bytes') or target.stat().st_size==entry['bytes']) and digest(target)==entry['sha256']:
-        print('Verified:',target.relative_to(ROOT),flush=True);return
+        print('Verified:',target.relative_to(root),flush=True);return
     if target.exists():raise RuntimeError('Existing file differs from the pinned download; preserved: '+str(target))
     part=target.with_name(target.name+'.part')
     if part.is_file() and (not entry.get('bytes') or part.stat().st_size==entry['bytes']) and digest(part)==entry['sha256']:
         part.replace(target)
-        print('Verified completed download:',target.relative_to(ROOT),flush=True)
+        print('Verified completed download:',target.relative_to(root),flush=True)
         return
     for attempt in range(4):
         try:
@@ -258,8 +258,9 @@ def verify(rig=True,workshop_only=False):
     if not bundled_web():run('node','--check','web/studio.js')
     if workshop_only:return
     if guided_install(ROOT):
-        for path in ('models/trellis2/pipeline.json','engine/MODELS/dinov3/model.safetensors'):
-            if not (ROOT/path).is_file():raise RuntimeError('Missing generation asset: '+path)
+        run(python, '-B', '-c',
+            "from pathlib import Path; from retexture_runtime import pipeline_config; pipeline_config(Path.cwd())",
+            label='Checking local TRELLIS.2 material refinement assets...')
     run(python,'-B',ROOT/'gpu_runtime.py',label='Executing native CUDA operations...',timeout=180)
     if rig or not guided_install(ROOT):
         check="from studio_import import find_blender; from retarget_catalogue import ANIMATIONS, ROOT; assert find_blender(),'Blender not found'; assert all((ROOT / a['source_model']).is_file() for a in ANIMATIONS),'Animation source missing'; print(f'Blender and {len(ANIMATIONS)} animations ready')"

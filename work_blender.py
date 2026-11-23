@@ -85,18 +85,46 @@ elif operation=='motion':
     if old is None:raise ValueError('Animation clip not found.')
     sys.path.insert(0,str(Path(__file__).parent))
     from humanoid_mapping import infer
+    from retarget_motions import LOCOMOTION, continuous_rotation, correct_support_pose, foot_support_offsets
+    from studio_import import animation_recipe
     mapping=request.get('result',{}).get('humanoid_mapping') or infer(arm,lo,hi);report['humanoid_mapping']=mapping;root_name=mapping.get('root') or next(b.name for b in arm.data.bones if b.parent is None)
     fps=scene.render.fps/scene.render.fps_base;start,end=old.frame_range;first=start+(end-start)*options['start'];last=start+(end-start)*options['end'];frames=round(options['duration']*fps);samples=[];feet={side:[] for side in ('left','right') if mapping.get(side+'_foot','') in arm.pose.bones}
+    clearance = {side: [] for side in feet}
     for frame in range(frames+1):
         activate(arm,old);t=first+(last-first)*frame/frames;scene.frame_set(math.floor(t),subframe=t%1);bpy.context.view_layer.update()
         samples.append({p.name:(p.location.copy(),p.rotation_quaternion.copy(),p.scale.copy()) for p in arm.pose.bones})
-        for side in feet:feet[side].append(arm.matrix_world@arm.pose.bones[mapping[side+'_foot']].head)
+        for side in feet:
+            ankle = arm.matrix_world@arm.pose.bones[mapping[side+'_foot']].head
+            toe = arm.pose.bones.get(mapping.get(side+'_toe',''))
+            feet[side].append(ankle)
+            clearance[side].append((arm.matrix_world@toe.head).z if toe else ankle.z)
     # Estimated support phases are visible in the report; they are not proof of contact.
     contacts={};height=max(report['height_m'],.01)
     for side,points in feet.items():
         floor=min(p.z for p in points);mask=[p.z<=floor+height*.025 for p in points];distance=sum((points[i]-points[i-1]).to_2d().length for i in range(1,len(points)) if mask[i] and mask[i-1]);contacts[side]=dict(contact_ratio=sum(mask)/len(mask),travel_during_contact_m=distance,positions=[[p.x,p.z,-p.y] for p in points],contact=mask)
     renamed=re.sub(r'_[0-9.]+s$', '_'+str(float(options['duration']))+'s',old.name) if old.name.startswith('TS_') else old.name;old.name='__Studio_previous_clip';action=bpy.data.actions.new(renamed);action.use_fake_user=True;activate(arm,action)
     first_root=samples[0][root_name][0];basis=arm.matrix_world.to_3x3()@arm.data.bones[root_name].matrix_local.to_3x3();initial_world=basis@first_root
+    in_place = options['mode'] == 'in_place'
+
+    def root_track(location, phase):
+        world = basis @ location
+        if in_place:
+            world.x, world.y = initial_world.x, initial_world.y
+        else:
+            world.y -= options['distance'] * phase
+        return world
+
+    recipe = animation_recipe(options['clip'])
+    support_offsets = {}
+    if recipe and recipe['id'] in LOCOMOTION:
+        deltas = [root_track(sample[root_name][0], frame / frames) - basis @ sample[root_name][0]
+                  for frame, sample in enumerate(samples)]
+        for side, ankles in feet.items():
+            if all(mapping.get(side+'_'+role, '') in arm.pose.bones for role in ('leg','shin','foot')):
+                world_ankles = [point + delta for point, delta in zip(ankles, deltas)]
+                support_offsets[side] = foot_support_offsets(world_ankles, clearance[side], height,
+                                                            cyclic=in_place and options['loop'], in_place=in_place)
+    previous_rotations={}
     for frame,sample in enumerate(samples):
         u=frame/frames
         for p in arm.pose.bones:
@@ -104,11 +132,15 @@ elif operation=='motion':
             if options['loop'] and options['blend']>0 and u>1-options['blend']:
                 w=(u-1+options['blend'])/options['blend'];w=w*w*(3-2*w);a,b,c=samples[0][p.name];location=location.lerp(a,w);rotation=rotation.slerp(b,w);scale=scale.lerp(c,w)
             if p.name==root_name:
-                world=basis@location
-                if options['mode']=='in_place':world.x=initial_world.x;world.y=initial_world.y
-                else:world.y-=options['distance']*u
-                location=basis.inverted()@world
+                location=basis.inverted()@root_track(location,u)
             p.location=location;p.rotation_mode='QUATERNION';p.rotation_quaternion=rotation;p.scale=scale
+        offsets = {side: values[frame] for side, values in support_offsets.items() if values[frame].length_squared > 1e-10}
+        if offsets:
+            bpy.context.view_layer.update()
+            correct_support_pose(arm, mapping, offsets)
+        for p in arm.pose.bones:
+            rotation=continuous_rotation(p.rotation_quaternion,previous_rotations.get(p.name));previous_rotations[p.name]=rotation
+            p.rotation_quaternion=rotation
             for channel in ('location','rotation_quaternion','scale'):p.keyframe_insert(channel,frame=frame,group=p.name)
     curves_linear(action);bpy.data.actions.remove(old)
     contacts={}

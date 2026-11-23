@@ -132,15 +132,45 @@ def _paint(cutout, source, strokes):
             cutout.paste((0, 0, 0, 0), (0, 0, width, height), brush)
 
 
+def _crop_box(size, crop):
+    width, height = size
+    return (math.floor(crop[0] * width), math.floor(crop[1] * height),
+            math.ceil(crop[2] * width), math.ceil(crop[3] * height))
+
+
 def _cropped(image, crop, role):
     if crop is None:
         return image
-    width, height = image.size
-    box = (math.floor(crop[0] * width), math.floor(crop[1] * height),
-           math.ceil(crop[2] * width), math.ceil(crop[3] * height))
+    box = _crop_box(image.size, crop)
     if box[2] - box[0] < 16 or box[3] - box[1] < 16:
         raise ValueError(f'The {role} view crop must be at least 16 × 16 pixels.')
     return image.crop(box)
+
+
+def reference_warnings(cutout, crop, engine):
+    """Describe the mask sent for framing, without changing the approved reference."""
+    width, height = cutout.size
+    left, top, right, bottom = _crop_box(cutout.size, crop) if crop else (0, 0, width, height)
+    alpha = cutout.getchannel('A')
+    threshold = 128 if engine == 'pixal3d' else 205
+    selection = alpha.crop((left, top, right, bottom))
+    visible = sum(selection.histogram()[threshold:])
+    warnings = []
+    if visible < max(64, (right - left) * (bottom - top) * .01):
+        warnings.append('reference_mask_small')
+    if alpha.getextrema()[0] < threshold:
+        # Compare both sides of each new crop edge. An intentional trim of
+        # transparent margins should not be reported as a cut silhouette.
+        mask = np.asarray(alpha) >= threshold
+        crosses = (
+            left > 0 and np.any(mask[top:bottom, left - 1] & mask[top:bottom, left]),
+            right < width and np.any(mask[top:bottom, right - 1] & mask[top:bottom, right]),
+            top > 0 and np.any(mask[top - 1, left:right] & mask[top, left:right]),
+            bottom < height and np.any(mask[bottom - 1, left:right] & mask[bottom, left:right]),
+        )
+        if any(crosses):
+            warnings.append('reference_crop_cut')
+    return warnings
 
 
 def _trellis_frame(image):

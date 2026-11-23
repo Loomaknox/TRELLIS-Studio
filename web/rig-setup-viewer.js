@@ -21,7 +21,7 @@ export function initialRigLandmarks() {
   return Object.fromEntries(RIG_MARKERS.map(([key,,, x, y]) => [key, [x, y]]));
 }
 
-export function createRigSetupViewer({scene, camera, controls, viewport, getModel, stopRotation}) {
+export function createRigSetupViewer({scene, camera, controls, viewport, getModel, stopRotation, onViewChange}) {
   const helpers = new THREE.Group();
   helpers.name = 'Rig preparation helpers';
   const overlay = document.createElement('div');
@@ -34,6 +34,7 @@ export function createRigSetupViewer({scene, camera, controls, viewport, getMode
   overlay.append(legend);
   let base = null, options = null, points = null, markerMode = false, symmetric = true, onChange = null;
   let drag = null, selected = 'chin';
+  let orientationView = 'front';
   const buttons = new Map(), ray = new THREE.Raycaster();
   const dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
   const mannequin = new THREE.Group();
@@ -106,20 +107,27 @@ export function createRigSetupViewer({scene, camera, controls, viewport, getMode
     };
     overlay.append(button); buttons.set(key,button);
   }
-  function frame() {
+  function frame(view) {
     if (!base) return;
+    if (!markerMode && ['front','left','right'].includes(view)) orientationView=view;
+    const angle = markerMode ? 'front' : orientationView;
+    const side = angle!=='front';
     const box = new THREE.Box3().setFromObject(base.model,true);
-    if (!markerMode) box.union(new THREE.Box3().setFromObject(helpers,true));
+    mannequin.visible=!markerMode&&!side;
+    legend.hidden=!mannequin.visible;
+    if (mannequin.visible) box.union(new THREE.Box3().setFromObject(helpers,true));
     const center=box.getCenter(new THREE.Vector3()),size=box.getSize(new THREE.Vector3());
     const halfFov=THREE.MathUtils.degToRad(camera.fov/2);
-    const distance=Math.max(size.y/2/Math.tan(halfFov),size.x/2/Math.tan(halfFov)/camera.aspect)*1.25;
-    camera.up.set(0,1,0);camera.position.set(center.x,center.y,center.z+distance);
+    const distance=Math.max(size.y/2/Math.tan(halfFov),(side?size.z:size.x)/2/Math.tan(halfFov)/camera.aspect)*1.25;
+    camera.up.set(0,1,0);camera.position.copy(center);
+    if(side)camera.position.x+=(angle==='left'?-1:1)*distance;
+    else camera.position.z+=distance;
     camera.near=.001;camera.far=Math.max(100,distance*100);camera.updateProjectionMatrix();
-    controls.minDistance=distance*.1;controls.maxDistance=distance*8;controls.target.copy(center);controls.update();update();
+    controls.minDistance=distance*.1;controls.maxDistance=distance*8;controls.target.copy(center);controls.update();onViewChange?.(angle);update();
   }
-  function preview(next) {
+  function preview(next, model = getModel()) {
     if (!next) return close();
-    const model=getModel(); if (!model) return false;
+    if (!model) return false;
     const first=!base;
     if (first) {
       base={model,position:model.position.clone(),quaternion:model.quaternion.clone(),scale:model.scale.clone(),
@@ -172,7 +180,7 @@ export function createRigSetupViewer({scene, camera, controls, viewport, getMode
     controls.enabled=saved.controlsEnabled;controls.enableRotate=saved.enableRotate;
     camera.near=saved.near;camera.far=saved.far;camera.updateProjectionMatrix();
     controls.minDistance=saved.minDistance;controls.maxDistance=saved.maxDistance;controls.update();
-    scene.remove(helpers);overlay.hidden=true;base=null;options=null;points=null;markerMode=false;drag=null;onChange=null;
+    scene.remove(helpers);overlay.hidden=true;base=null;options=null;points=null;markerMode=false;drag=null;onChange=null;orientationView='front';onViewChange?.();
     for (const button of buttons.values()) button.hidden=true;
   }
   return {preview,startMarkers,endMarkers,getLandmarks,update,close,frame,

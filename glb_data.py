@@ -1,5 +1,6 @@
 """Small read-only GLB helpers, shared by diagnostics, cards and exports."""
 from functools import lru_cache
+from math import isfinite
 from pathlib import Path
 import shutil
 import base64,io,json,struct
@@ -62,6 +63,64 @@ def accessor(data,binary,index):
         result=np.maximum(result.astype(float)/np.iinfo(dtype).max,-1)
     return result
 
+def static_placement(document, *, allow_identity=False):
+    """Return the uniform scale and translation of one static scene placement group."""
+    identities = {'matrix': np.eye(4).ravel().tolist(), 'translation': [0, 0, 0],
+                  'rotation': [0, 0, 0, 1], 'scale': [1, 1, 1]}
+    nodes = document.get('nodes', [])
+
+    def active_transforms(node):
+        return {key for key in identities if key in node and not (allow_identity and node[key] == identities[key])}
+
+    placed = [index for index, node in enumerate(nodes) if 'skin' in node or active_transforms(node)]
+    if not placed:
+        return None
+    unsupported = 'Apply object transforms or use a single scene root with positive uniform scale and translation.'
+    if len(placed) != 1:
+        raise ValueError(unsupported)
+    root = placed[0]
+    group = nodes[root]
+    scenes = document.get('scenes', [])
+    scene = document.get('scene', 0)
+    if (len(scenes) != 1 or type(scene) is not int or scene != 0 or scenes[0].get('nodes') != [root]
+            or 'mesh' in group or 'skin' in group or active_transforms(group) - {'scale', 'translation'}):
+        raise ValueError(unsupported)
+
+    seen = set()
+    pending = [root]
+    while pending:
+        index = pending.pop()
+        if type(index) is not int or not 0 <= index < len(nodes) or index in seen:
+            raise ValueError(unsupported)
+        seen.add(index)
+        children = nodes[index].get('children', [])
+        if not isinstance(children, list):
+            raise ValueError(unsupported)
+        pending.extend(children)
+    if not any('mesh' in nodes[index] for index in seen):
+        raise ValueError(unsupported)
+
+    scale = group.get('scale', identities['scale'])
+    translation = group.get('translation', identities['translation'])
+    for vector in (scale, translation):
+        if (not isinstance(vector, list) or len(vector) != 3
+                or any(type(value) not in (int, float) or not isfinite(value) for value in vector)):
+            raise ValueError(unsupported)
+    if scale[0] <= 0 or any(value != scale[0] for value in scale[1:]):
+        raise ValueError(unsupported)
+    return float(scale[0]), tuple(map(float, translation))
+
+
+def placed_vertices(vertices, placement):
+    if placement is None:
+        return vertices
+    scale, translation = placement
+    world = vertices.astype(np.float64) * scale + translation
+    if not np.isfinite(world).all() or np.abs(world).max() > 1e12:
+        raise ValueError('The placement exceeds the supported coordinate range.')
+    return world
+
+
 def animation_info(data,binary):
     result=[]
     for index,clip in enumerate(data.get('animations',[])):
@@ -69,8 +128,8 @@ def animation_info(data,binary):
         result.append(dict(name=clip.get('name',f'Animation {index+1}'),duration=round(max((float(t.max()) for t in times if len(t)),default=0),5),channels=len(clip.get('channels',[]))))
     return result
 
-def posed_bounds(data,binary):
-    """Evaluate stored glTF node transforms and linear skinning in world metres."""
+def node_transforms(data):
+    """Return the parent index and a cached world transform lookup."""
     nodes=data.get('nodes',[]);parents={child:i for i,n in enumerate(nodes) for child in n.get('children',[])};world={}
     def matrix(i):
         if i in world:return world[i]
@@ -80,6 +139,12 @@ def posed_bounds(data,binary):
             x,y,z,w=n.get('rotation',[0,0,0,1]);m=np.eye(4)
             m[:3,:3]=np.array([[1-2*(y*y+z*z),2*(x*y-z*w),2*(x*z+y*w)],[2*(x*y+z*w),1-2*(x*x+z*z),2*(y*z-x*w)],[2*(x*z-y*w),2*(y*z+x*w),1-2*(x*x+y*y)]])@np.diag(n.get('scale',[1,1,1]));m[:3,3]=n.get('translation',[0,0,0])
         world[i]=matrix(parents[i])@m if i in parents else m;return world[i]
+    return parents,matrix
+
+
+def posed_bounds(data,binary):
+    """Evaluate stored glTF node transforms and linear skinning in world metres."""
+    _,matrix=node_transforms(data);nodes=data.get('nodes',[])
     low=np.full(3,np.inf);high=np.full(3,-np.inf)
     for i,node in enumerate(nodes):
         if 'mesh' not in node:continue

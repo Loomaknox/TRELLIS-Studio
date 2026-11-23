@@ -6,6 +6,7 @@ from generated_animations import (PROVENANCE_FIELDS, SOURCE_FILES, digest, finis
                                   library_path, load_motion, validate_skeleton)
 from generated_animation_runtime import command, load_config, stop_runtime
 from studio_import import validate_glb
+from animation_diagnostics import require_valid_animation
 from studio_workspace import read, write
 
 ROOT=Path(__file__).resolve().parent
@@ -48,6 +49,7 @@ def apply_copy(folder):
     after=validate_glb(folder/'model.glb')
     if len(after.get('animations',[]))!=len(before.get('animations',[]))+1:
         raise ValueError('The transferred model did not retain its animation set.')
+    require_valid_animation(folder/'model.glb', clips={manifest['clip_name']}, mapping=mapping)
     for lod in sorted((folder/'LODs').glob('LOD*.glb')):
         target=lod.with_name(lod.stem+'.generated.glb')
         append_generated_motion(lod,target,motion_path=library/'motion.npz',skeleton=skeleton,
@@ -103,6 +105,8 @@ def apply_update(folder):
         after=validate_glb(stage/'model.glb')
         if len(after.get('animations',[]))!=len(before.get('animations',[]))+1:
             raise ValueError('The updated model did not retain its animation set.')
+        require_valid_animation(stage/'model.glb', clips={manifest['clip_name']},
+                                mapping=options['target_mapping'])
         files=['model.glb','settings.json','result.json']
         for lod in sorted((folder/'LODs').glob('LOD*.glb')):
             target=stage/'LODs'/lod.name

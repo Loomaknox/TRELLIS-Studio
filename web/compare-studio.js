@@ -7,14 +7,15 @@ import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {icon} from './card-menu.js?v=3.4.0';
 
 const nameOf=j=>j?.metadata?.display_name||j?.settings.name||t('Choose a model');
-export function createComparison({getRecords,labelAnimation}){
+export function createComparison({api,getRecords,labelAnimation}){
  const variant=(j,level)=>({...j,id:j.id+':LOD'+level.level,metadata:{...j.metadata,display_name:nameOf(j)+' · LOD '+level.level},settings:{...j.settings,parent_id:j.id},result:{...j.result,triangles:level.triangles},preview_url:`/api/jobs/${j.id}/variants/${level.file}?v=${j.result?.revision||0}`});
  const records=()=>getRecords().flatMap(j=>[j,...(j.lods?.levels||[]).filter(l=>l.level>0).map(l=>variant(j,l))]);
  const dialog=document.createElement('dialog');dialog.id='compareDialog';dialog.className='studio-dialog compare-dialog';dialog.setAttribute('aria-labelledby','compareTitle');
  dialog.innerHTML=`<header class="studio-dialog-head"><div><span class="eyebrow">SIDE BY SIDE</span><h2 id="compareTitle">Compare models</h2><p>Orbit, pan and zoom either view. Both cameras stay in sync.</p></div><button type="button" class="dialog-x" aria-label="Close comparison" data-close></button></header><div class="compare-options"><label class="check"><input id="compareMatch" type="checkbox" checked><span>Match framing</span></label><label class="check"><input id="compareSkeleton" type="checkbox"><span>Show skeletons</span></label><label class="check"><input id="compareWire" type="checkbox"><span>Wireframe</span></label><button id="compareFrame" class="secondary" type="button">Frame both</button><span id="compareDelta" class="compare-delta"></span></div><div class="compare-panes"></div><footer class="compare-footer"><button id="comparePlay" class="secondary" type="button" aria-pressed="false">Play clips</button><label>Shared timeline<input id="compareTime" type="range" min="0" max="1" step=".001" value="0" aria-label="Comparison timeline"></label><span id="compareTimeValue">0%</span><small>Match framing normalises display height; source files stay unchanged.</small></footer>`;
  localizeStatic(dialog);document.body.append(dialog);const $=id=>dialog.querySelector('#'+id);let panes=[],syncing=false,playing=false,frame=0,last=0,phase=0,token=0;
  const back=document.createElement('button');back.type='button';back.className='secondary';back.textContent=t('Back to finishing board');back.hidden=true;
- dialog.querySelector('.compare-options').prepend(back);
+ const measure=document.createElement('button');measure.type='button';measure.className='secondary';measure.textContent=t('Measure open edges');
+ dialog.querySelector('.compare-options').prepend(back,measure);
  let boardMode=false,boardFramed=false,standardMatch=true;
  function dispose(root){const mats=new Set(),tex=new Set();root?.traverse(x=>{x.geometry?.dispose();for(const m of Array.isArray(x.material)?x.material:[x.material])if(m){mats.add(m);for(const v of Object.values(m))if(v?.isTexture)tex.add(v);}});mats.forEach(m=>m.dispose());tex.forEach(t=>t.dispose());}
  function clear(p){p.mixer?.stopAllAction();p.mixer=null;p.action=null;p.clips=[];p.clip.replaceChildren();if(p.helper){p.scene.remove(p.helper);p.helper.geometry.dispose();p.helper.material.dispose();p.helper=null;}if(p.root){p.scene.remove(p.root);dispose(p.root);p.root=null;}p.group=null;p.rig?.fit(null);}
@@ -22,10 +23,38 @@ export function createComparison({getRecords,labelAnimation}){
  function frameBoth(){const box=new THREE.Box3();for(const p of panes)if(p.root)box.union(new THREE.Box3().setFromObject(p.root,true));if(box.isEmpty())return;const size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),d=Math.max(size.x,size.y,size.z,.01)*1.9;
   for(const p of panes){p.camera.position.copy(center).add(new THREE.Vector3(.8,.45,1).multiplyScalar(d));p.camera.near=Math.max(.00001,d/1000);p.camera.far=Math.max(100,d*100);p.camera.updateProjectionMatrix();p.controls.target.copy(center);p.controls.minDistance=d*.03;p.controls.maxDistance=d*20;p.controls.update();}}
  function normalise(reframe=true){for(const p of panes){if(!p.root)continue;p.root.position.set(0,0,0);p.root.scale.setScalar(1);p.root.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(p.root,true),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),factor=$('compareMatch').checked?1/Math.max(size.y,.00001):1;p.root.scale.setScalar(factor);p.root.position.set(-center.x*factor,-box.min.y*factor,-center.z*factor);p.root.updateMatrixWorld(true);p.rig.fit(p.root);}if(reframe)frameBoth();}
- function updateDelta(){const a=panes[0]?.job?.result?.triangles,b=panes[1]?.job?.result?.triangles;$('compareDelta').textContent=a&&b?t('{delta}% triangles · B vs A',{delta:(b>a?'+':'')+((b/a-1)*100).toLocaleString(formatLocale,{minimumFractionDigits:1,maximumFractionDigits:1})}):'';}
+ function updateDelta(){
+  const [left,right]=panes;
+  const a=left?.job?.result?.triangles,b=right?.job?.result?.triangles;
+  const delta=a&&b?[t('{delta}% triangles · B vs A',{delta:(b>a?'+':'')+((b/a-1)*100).toLocaleString(formatLocale,{minimumFractionDigits:1,maximumFractionDigits:1})})]:[];
+  if(Number.isInteger(left?.boundary)&&Number.isInteger(right?.boundary)){
+   const difference=right.boundary-left.boundary;
+   delta.push(t('{delta} open edges · B vs A',{delta:difference.toLocaleString(formatLocale,{signDisplay:'exceptZero'})}));
+  }
+  $('compareDelta').textContent=delta.join(' · ');
+  measure.disabled=panes.length!==2||panes.some(p=>!p.job||p.job.preview_url||p.measuring);
+ }
+ measure.onclick=async()=>{
+  const pair=panes.map(p=>({pane:p,id:p.job.id,version:p.version}));
+  for(const {pane} of pair) {pane.measuring=true;pane.topology.textContent=t('Measuring open edges…');}
+  updateDelta();
+  for(const {pane,id,version} of pair){
+   if(pane.version!==version||!dialog.open)continue;
+   try{
+    const report=await api(`/api/jobs/${id}/diagnostics`);
+    if(pane.version!==version||!dialog.open)continue;
+    pane.boundary=report.summary.boundary_edges;
+    pane.topology.textContent=t('Open edges: {count}',{count:pane.boundary.toLocaleString(formatLocale)});
+   }catch{
+    if(pane.version===version&&dialog.open)pane.topology.textContent=t('Open edge count unavailable');
+   }finally{
+    if(pane.version===version){pane.measuring=false;updateDelta();}
+   }
+  }
+ };
  function updatePlayback(){const active=panes.some(p=>p.action);$('comparePlay').disabled=!active;$('compareTime').disabled=!active;if(!active){playing=false;$('comparePlay').setAttribute('aria-pressed','false');$('comparePlay').replaceChildren(icon('play'),document.createTextNode(t('Play clips')));}}
  function updatePose(){for(const p of panes)if(p.action){p.action.time=phase*Math.max(p.action.getClip().duration-.00001,0);p.mixer.update(0);}}
- async function load(p,id){const version=++p.version;clear(p);$('compareDelta').textContent='';p.job=records().find(j=>j.id===id);p.select.value=id||'';p.note.textContent=id?t('Loading model…'):t('Choose a model to compare');p.metrics.textContent='';if(!p.job){updateDelta();return;}
+ async function load(p,id){const version=++p.version;clear(p);p.job=records().find(j=>j.id===id);p.select.value=id||'';p.note.textContent=id?t('Loading model…'):t('Choose a model to compare');p.metrics.textContent=p.topology.textContent='';p.boundary=null;p.measuring=false;updateDelta();if(!p.job)return;
   try{const gltf=await new GLTFLoader().loadAsync(p.job.preview_url||`/api/jobs/${id}/files/model.glb?v=${p.job.result?.revision||0}`);if(version!==p.version||!dialog.open){dispose(gltf.scene);return;}
    p.root=gltf.scene;p.scene.add(p.root);p.clips=gltf.animations;p.mixer=new THREE.AnimationMixer(p.root);p.root.traverse(x=>{if(x.isMesh)x.material&&(Array.isArray(x.material)?x.material:[x.material]).forEach(m=>m.wireframe=$('compareWire').checked);});
    p.helper=new THREE.SkeletonHelper(p.root);p.helper.material.depthTest=false;p.helper.material.vertexColors=false;p.helper.material.color.set(0xc4f58a);p.helper.renderOrder=10;p.helper.visible=$('compareSkeleton').checked;p.scene.add(p.helper);
@@ -41,7 +70,8 @@ export function createComparison({getRecords,labelAnimation}){
  function makePane(letter){const el=document.createElement('section');el.className='compare-pane';const head=document.createElement('div');head.className='compare-pane-head';const badge=document.createElement('b');badge.textContent=letter;const select=document.createElement('select');select.setAttribute('aria-label',letter==='A'?t('Reference model'):t('Compared model'));head.append(badge,select);const metrics=document.createElement('p');metrics.className='compare-metrics';const view=document.createElement('div');view.className='compare-canvas';const note=document.createElement('p');note.className='compare-loading';view.append(note);const clip=document.createElement('select');clip.className='compare-clip';clip.setAttribute('aria-label',t('Animation {number}',{number:letter}));el.append(head,metrics,view,clip);dialog.querySelector('.compare-panes').append(el);
   const renderer=new THREE.WebGLRenderer({alpha:true,antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.1;view.prepend(renderer.domElement);const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(40,1,.001,1000);camera.position.set(2,1.5,2);const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=false;
   const pmrem=new THREE.PMREMGenerator(renderer),room=new RoomEnvironment(),env=pmrem.fromScene(room,.04);scene.environment=env.texture;room.dispose();pmrem.dispose();scene.add(new THREE.HemisphereLight(0xffffff,0x394a3a,1));const grid=new THREE.GridHelper(10,40,0x65785b,0x394334);grid.material.transparent=true;grid.material.opacity=.15;scene.add(grid);
-  const p={el,select,metrics,view,note,clip,renderer,scene,camera,controls,env,grid,version:0,root:null,job:null};controls.addEventListener('change',()=>cameraSync(p));
+  const topology=document.createElement('p');topology.className='compare-metrics';topology.setAttribute('role','status');view.before(topology);
+  const p={el,select,metrics,topology,view,note,clip,renderer,scene,camera,controls,env,grid,version:0,root:null,job:null};controls.addEventListener('change',()=>cameraSync(p));
   p.rig=createLightingRig(scene,renderer);
   p.observer=new ResizeObserver(()=>{const w=Math.max(1,view.clientWidth),h=Math.max(1,view.clientHeight);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();});p.observer.observe(view);
   select.onchange=()=>load(p,select.value);clip.onchange=()=>{p.mixer?.stopAllAction();p.action=null;if(clip.value!==''){p.action=p.mixer.clipAction(p.clips[Number(clip.value)]).play();updatePose();}else{p.root?.traverse(x=>{if(x.isSkinnedMesh)x.skeleton.pose();});p.root?.updateMatrixWorld(true);}updatePlayback();};return p;}

@@ -23,16 +23,17 @@ $taskPackage=Get-Content -LiteralPath (Join-Path $taskRoot 'package.json') -Raw 
 if ($taskPackage.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected a numeric major.minor.patch version.' }
 
 # Use the public source allowlist, then include only runtime/documentation trees.
-$taskRoots=@('web','installer','runtime','licenses','animations','unity','UniRig','integrations')
+$taskRoots=@('web','installer','runtime','licenses','animations','unity','UniRig','integrations','native_workflows','native_ultratex')
 $taskRootFiles=@('LICENSE','README.md','README.fr.md','INSTALLATION.md','SECURITY.md','THIRD_PARTY_NOTICES.md','package.json','package-lock.json')
 $taskDocFiles=@('docs/API.md','docs/MCP.md','docs/DEPENDENCIES.json','docs/WINDOWS_SETUP.md','docs/SERVER.md',
-    'docs/MOTION_GENERATION.md','docs/WTIVO.md','docs/HI3D.md','docs/BLACKWELL_SETUP.md',('docs/RELEASE_'+$taskPackage.version+'.md'))
+    'docs/MOTION_GENERATION.md','docs/WTIVO.md','docs/HI3D.md','docs/BLACKWELL_SETUP.md','docs/ULTRATEX.md','docs/NATIVE_PROFILES.md',('docs/RELEASE_'+$taskPackage.version+'.md'))
 $taskFiles=@(git -C $taskRoot -c core.quotePath=false ls-files --cached --others --exclude-standard)
 if ($LASTEXITCODE -ne 0) { throw 'Could not read the TRELLIS Studio public source allowlist.' }
 $taskFiles=@($taskFiles | Sort-Object -Unique | Where-Object {
     $parts=$_ -split '/'
-    ($parts.Count -eq 1 -and ($_ -match '\.(py|cmd|ps1)$' -or $taskRootFiles -contains $_ -or $_ -match '^requirements-(windows|mcp-lock|mcp)\.txt$')) -or
+    ($parts.Count -eq 1 -and $_ -cne 'comfy_profiles.py' -and ($_ -match '\.(py|cmd|ps1)$' -or $taskRootFiles -contains $_ -or $_ -match '^requirements-(windows|mcp-lock|mcp)\.txt$')) -or
     ($parts.Count -gt 1 -and ($taskRoots -ccontains $parts[0] -or $_ -in $taskDocFiles -or
+        $_ -cin @('comfy_workflows/game-asset-character-05.json','comfy_workflows/PIXELARTISTRY-MIT-LICENSE.txt') -or
         $_ -cmatch '^third_party/assetfurnace/image_to_3dlab/(__init__|photo_paint|view_align)\.py$'))
 })
 $taskRequired=@('app.py','package.json','installer/setup.py','installer/windows/check-idle.ps1','installer/windows/Launch.cmd','installer/windows/Launch-Installed.ps1','installer/windows/Manage-Shortcuts.ps1','installer/windows/trellis-studio.ico','Start-Studio.ps1','web/studio.html','animations/library.json','unity/TrellisPackageImporter.cs')
@@ -55,9 +56,29 @@ $taskRequired+=@('wtivo_runtime.py','docs/WTIVO.md','master_mesh.py','master_mes
 $taskRequired+=@('hi3d_runtime.py','hi3d_worker.py','hi3d_attention.py','docs/HI3D.md',
     'installer/install_hi3d.py','installer/hi3d-manifest.json','installer/requirements-hi3d.txt',
     'licenses/Hi3D-1.0-LICENSE.md')
+$taskRequired+=@('multiview_texture_runtime.py','multiview_texture_views.py','multiview_texture_fusion.py',
+    'installer/install_multiview_texture.py','installer/multiview-texture-manifest.json',
+    'installer/requirements-multiview-texture.txt','licenses/Stable-Diffusion-2.1-OpenRAIL++-M.txt')
 $taskRequired+=@('studio_release.py','web/release-notification.css','web/release-notification.js')
+$taskRequired+=@('native_high_detail.py','native_high_detail_quant.py','native_high_detail_portable.py',
+    'native_workflow_options.py','native_workflows/high_detail_native.json','native_workflows/game_asset_native.json',
+    'native_workflows/CITY96-APACHE-2.0.txt','docs/NATIVE_PROFILES.md')
+$taskRequired+=@('native_pixal3d.py','native_pixal_layers.py','native_pixal_prepare.py','native_game_asset.py',
+    'native_game_conditioning.py','native_game_sampling.py','native_game_finish.py','native_game_geometry.py','native_game_profile.py')
+$taskRequired+=@('native_ultratex/options.py','native_ultratex/existing_mesh.py','native_ultratex/native_ultratex_models.py',
+    'native_ultratex/native_ultratex_recipe.py','native_ultratex/prepare_character05.py','native_ultratex/run_character05_texture.py',
+    'web/workflow-graph.js','web/workflow-topology.js','web/standard-workflow-graph.js')
+$taskRequired+=@('rig_profiles_blender.py','creature_rig.py','creature_motion.py','creature_verification.py',
+    'UniRig/apply-creature.py','web/creature-rig-editor.js','web/creature-rig-viewer.js',
+    'creature_motion_edit.py','web/creature-motions.js')
+$taskRequired+=@('collection_preview.py','collection_preview_renderer.py','web/collection-previews.js',
+    'web/collection-preview-capture.js','web/collection-preview-render.js')
+$taskRequired+=@('figure_master_repair.py','ultratex_runtime.py','ultratex_worker.py','web/texture-methods.js',
+    'installer/install_ultratex.py','installer/ultratex-manifest.json','installer/requirements-ultratex-comfy.txt',
+    'installer/requirements-ultratex-gguf.txt','licenses/FLUX.2-klein-base-9B-LICENSE.md','docs/ULTRATEX.md')
 $taskRequired+=@('README.fr.md','web/i18n.js','web/fr-static.js','web/fr-animation.js','web/fr-studio.js','web/fr-controls.js','web/fr-server.js',
     'web/language-selector.css','web/language-selector.js')
+$taskRequired+=@('rig_expert_blender.py','creature_api.py','creature_tentacles.py','creature_swim.py','creature_swim_skin.py')
 $taskRequired+=@('generation_view_projection.py','licenses/AssetFurnace-Apache-2.0.txt',
     'third_party/assetfurnace/image_to_3dlab/__init__.py',
     'third_party/assetfurnace/image_to_3dlab/photo_paint.py',
@@ -67,6 +88,14 @@ $taskRequired+=@('gpu_runtime.py','installer/windows/Setup-Preflight.ps1',
     'UniRig/check-runtime.py','UniRig/runtime.sh','UniRig/runtime-profile.py',
     'installer/windows/trellis-welcome.bmp','installer/requirements-unirig-blackwell.txt',
     'installer/prepare_unirig_bpy.py','UniRig/run-skin-inference.py')
+$taskRequired+=@('installer/install_native_workflows.py','installer/native_workflow_install_common.py',
+    'installer/native_workflow_python.py','installer/install_native_high_detail.py',
+    'installer/install_native_game_geometry.py','installer/install_native_ultratex.py',
+    'installer/native-high-detail-manifest.json','installer/native-game-geometry-manifest.json',
+    'installer/native-ultratex-manifest.json','installer/requirements-native-high-detail.txt',
+    'installer/requirements-native-game-geometry.txt','installer/requirements-native-ultratex.txt',
+    'installer/requirements-native-workflow-python.txt','comfy_workflows/game-asset-character-05.json',
+    'comfy_workflows/PIXELARTISTRY-MIT-LICENSE.txt')
 foreach($taskItem in $taskRequired) {
     if ($taskItem -cnotin $taskFiles) { throw "Required public payload is missing: $taskItem" }
 }

@@ -37,7 +37,7 @@ def run():
             os.environ['TRELLIS_' + key] = str(private / name)
         import app
         import studio_api
-        from api_contract import Generation, Refinish, FinishingOptions
+        from api_contract import Generation, MultiViewGeneration, Refinish, FinishingOptions
         from generation_options import validate_create_master_finishing
         from studio_workspace import read
 
@@ -45,7 +45,7 @@ def run():
             assert Generation(upload_id='f' * 32, master_finishing=method).master_finishing == method
             assert Refinish(master_finishing=method).master_finishing == method
             validate_create_master_finishing(method, preset='dense_master', resolution=512, triangles=1_200_000)
-            for change in ({'preset': 'game_d'}, {'resolution': 2048}, {'engine': 'pixal3d_single'},
+            for change in ({'preset': 'missing'}, {'resolution': 2048}, {'engine': 'pixal3d_single'},
                            {'hd_reconstruction': True}, {'repair_surface': True}):
                 options = dict(preset='dense_master', resolution=512, triangles=1_200_000)
                 try:
@@ -69,6 +69,8 @@ def run():
                 settings.update(engine='pixal3d', view_mode='single')
             if name == 'variant':
                 settings.update(source_kind='refinish', finish_source_id=identifiers['valid'])
+                settings['generation_options'] = dict(hi3d_steps=31, hi3d_seed=23)
+                settings['profile_snapshot'] = dict(generation_options=settings['generation_options'])
             app.write_json(directory / 'settings.json', settings)
             app.write_json(directory / 'status.json', dict(state='done', progress=100))
             (directory / 'model.glb').write_bytes(b'completed model fixture')
@@ -95,9 +97,11 @@ def run():
 
         with patch.object(app, 'hi3d_status', return_value=ready), \
              patch.object(studio_api, 'hi3d_status', return_value=ready), \
+             patch.object(app, 'detail_texturing_capability', return_value=ready), \
+             patch.object(app, 'wtivo_capability', return_value=(True, '')), \
              patch.object(app, 'find_blender', return_value=Path('fixture-blender.exe')), \
              patch.object(app, 'status', side_effect=lambda: dict(original_status(), ready=True)), \
-             patch.object(app, 'generation_capabilities', return_value=([512, 1024], [1024, 2048])):
+             patch.object(app, 'generation_capabilities', return_value=([512, 1024], [1024, 2048, 4096])):
             thread.start()
             try:
                 for _ in range(100):
@@ -115,16 +119,72 @@ def run():
                     FinishingOptions.model_validate(info)
                     eligible = name in ('valid', 'high', 'variant')
                     assert info['master_finishing']['methods']['hi3d_512']['available'] == eligible, (name, info)
+                    assert (info['hi3d_options'] is not None) is eligible
+                    assert info['retexture']['available'] is eligible
+                    assert info['retexture']['enabled'] is False
+                    if eligible:
+                        assert info['hi3d_options']['hi3d_steps'] == (31 if name == 'variant' else 25)
                     if not eligible:
                         call('POST', f'/api/v1/models/{identifiers[name]}/refinish', 400,
                              json={'master_finishing': 'hi3d_512'})
                 for method in ('hi3d_512', 'hi3d_1024'):
                     route = f'/api/v1/models/{identifiers["variant"]}/refinish'
-                    identifier = call('POST', route, 202, json={'master_finishing': method, 'texture_size': 2048})['id']
+                    identifier = call('POST', route, 202, json={'master_finishing': method, 'texture_size': 4096,
+                                      'retexture_after_refinement': True,
+                                      'hi3d_options': {'hi3d_seed': 180, 'hi3d_scheduler': 'euler'}})['id']
                     settings = read(app.OUTPUT / identifier / 'settings.json')
                     assert settings['master_finishing'] == method
                     assert settings['finish_source_id'] == identifiers['valid']
                     assert not any(settings.get(key) for key in ('adaptive_finishing', 'hd_reconstruction', 'wtivo_reconstruction'))
+                    assert settings['generation_options']['hi3d_steps'] == 31
+                    assert settings['generation_options']['hi3d_seed'] == 180
+                    assert settings['generation_options']['hi3d_scheduler'] == 'euler'
+                    assert settings['profile_snapshot']['generation_options'] == settings['generation_options']
+                    assert settings['texture_size'] == 4096 and settings['retexture_after_refinement'] is True
+                    assert settings['profile_snapshot']['retexture_after_refinement'] is True
+                    folder = app.OUTPUT / identifier
+                    app.write_json(folder / 'status.json', dict(state='done', progress=100))
+                    variant_board = call('GET', f'/api/v1/models/{identifier}/finishing-board')
+                    assert variant_board['retexture']['enabled'] is True
+                    assert variant_board['source_id'] == identifiers['valid']
+                recipe = {'master_finishing': 'hi3d_1024', 'texture_size': 2048}
+                board_route = f'/api/v1/models/{identifiers["variant"]}/finishing-board'
+                texture_batch = call('POST', board_route, 202, json={'variants': [
+                    recipe, {**recipe, 'retexture_after_refinement': True},
+                ]})
+                assert [read(app.OUTPUT / item / 'settings.json').get('retexture_after_refinement', False)
+                        for item in texture_batch['ids']] == [False, True]
+                with patch.object(app, 'detail_texturing_capability', return_value=unavailable):
+                    assert call('GET', board_route)['retexture']['available'] is False
+                    call('POST', route, 503, json={**recipe, 'retexture_after_refinement': True})
+                call('POST', route, 422, json={**recipe, 'retexture_after_refinement': 'true'})
+                call('POST', route, 422, json={'master_finishing': 'studio_768', 'retexture_after_refinement': True})
+                batch = call('POST', board_route, 202, json={'variants': [
+                    {**recipe, 'hi3d_options': {'hi3d_steps': 18}},
+                    {**recipe, 'hi3d_options': {'hi3d_steps': 32}},
+                ]})
+                assert batch['source_id'] == identifiers['valid']
+                for identifier, steps in zip(batch['ids'], (18, 32), strict=True):
+                    folder = app.OUTPUT / identifier
+                    settings = read(folder / 'settings.json')
+                    assert settings['finish_source_id'] == identifiers['valid']
+                    assert settings['generation_options']['hi3d_steps'] == steps
+                    assert settings['generation_options']['hi3d_seed'] == 23
+                    assert not (folder / 'raw_state.pt').exists()
+                app.write_json(folder / 'status.json', dict(state='error', progress=0))
+                retried = call('POST', f'/api/v1/queue/{identifier}/retry', 202, json={})['id']
+                retry_settings = read(app.OUTPUT / retried / 'settings.json')
+                assert retry_settings['finish_source_id'] == identifiers['valid']
+                assert retry_settings['generation_options'] == settings['generation_options']
+                call('POST', board_route, 400, json={'variants': [recipe, {**recipe, 'hi3d_options': {'hi3d_steps': 31}}]})
+                for controls in ({'hi3d_steps': 0}, {'hi3d_tiled_decode': 'false'}, {'shape_steps': 20}):
+                    call('POST', route, 422, json={**recipe, 'hi3d_options': controls})
+                    call('POST', f'/api/jobs/{identifiers["variant"]}/refinish', 400,
+                         json={**recipe, 'hi3d_options': controls})
+                call('POST', route, 422, json={'master_finishing': 'studio_768', 'hi3d_options': {'hi3d_steps': 20}})
+                call('POST', route, 422, json={'mesh_mode': 'direct', 'hi3d_options': {'hi3d_steps': 20}})
+                original = app.OUTPUT / identifiers['valid']
+                assert (original / 'raw_state.pt').read_bytes() == b'cache fixture'
                 missing = app.OUTPUT / identifiers['valid'] / 'prepared.png'
                 cutout = missing.read_bytes()
                 missing.unlink()
@@ -158,6 +218,87 @@ def run():
                 call('POST', '/api/v1/generations/multiview', 400,
                      json=dict(upload_id=upload, left_upload_id=upload, profile_id='dense_master',
                                master_finishing='hi3d_1024'))
+                study = next(p for p in call('GET', '/api/v1/profiles')['profiles'] if p['id'] == 'detail_study')
+                recipe = study['settings']
+                custom = call('POST', '/api/profiles', 201, json=dict(name='Detail Study copy', settings=recipe))
+                assert custom['settings'] == recipe
+                study_request = dict(upload_id=upload, profile_id='detail_study')
+                identifier = call('POST', '/api/v1/generations', 202, json=study_request)['id']
+                folder = app.OUTPUT / identifier
+                settings = read(folder / 'settings.json')
+                assert settings['master_finishing'] == 'hi3d_1024'
+                assert settings['texture_size'] == 4096 and settings['triangles'] == 1_000_000
+                assert settings['retexture_after_refinement'] is settings['profile_snapshot']['retexture_after_refinement'] is True
+                options = settings['generation_options']
+                assert [options[f'{phase}_steps'] for phase in ('structure', 'shape', 'texture')] == [12, 24, 12]
+                assert options['texture_guidance'] == 1 and options['hi3d_steps'] == 25
+                app.write_json(folder / 'status.json', dict(state='error', progress=0))
+                call('POST', f'/api/v1/queue/{identifier}/retry', 400, json={'resolution': 512})
+                retry = call('POST', f'/api/v1/queue/{identifier}/retry', 202, json={'texture_size': 2048})['id']
+                assert read(app.OUTPUT / retry / 'settings.json')['retexture_after_refinement'] is True
+                identifier = call('POST', '/api/v1/generations', 202, json={
+                    **study_request, 'retexture_after_refinement': False,
+                    'overrides': dict(advanced_settings={**recipe['advanced'], 'hi3d_steps': 18}),
+                })['id']
+                settings = read(app.OUTPUT / identifier / 'settings.json')
+                assert 'retexture_after_refinement' not in settings and settings['generation_options']['hi3d_steps'] == 18
+                call('POST', '/api/v1/generations', 400,
+                     json={**study_request, 'overrides': {'resolution': 512}})
+                with patch.object(app, 'detail_texturing_capability', return_value=unavailable):
+                    call('POST', '/api/v1/generations', 503, json=study_request)
+                game = next(p for p in call('GET', '/api/v1/profiles')['profiles'] if p['id'] == 'game_d')
+                custom_game = call('POST', '/api/profiles', 201, json=dict(name='Custom Game with Hi3D', settings={
+                    **game['settings'], 'master_finishing': 'hi3d_1024', 'retexture_after_refinement': True,
+                }))
+                for method in ('studio_768', 'wtivo_1024', 'hi3d_512', 'hi3d_1024'):
+                    identifier = call('POST', '/api/v1/generations', 202, json=dict(
+                        upload_id=upload, profile_id='game_d', master_finishing=method))['id']
+                    settings = read(app.OUTPUT / identifier / 'settings.json')
+                    assert settings['master_finishing'] == method and settings['keep_finishing_source'] is True
+                    assert settings['preset'] == 'game_d' and settings['triangles'] == 28000
+                identifier = call('POST', '/api/v1/generations', 202,
+                                  json=dict(upload_id=upload, profile_id=custom_game['id']))['id']
+                settings = read(app.OUTPUT / identifier / 'settings.json')
+                assert settings['preset'] == 'game_d' and settings['profile']['id'] == custom_game['id']
+                assert settings['master_finishing'] == 'hi3d_1024' and settings['retexture_after_refinement'] is True
+                profile_path = '/api/profiles/' + custom_game['id']
+                call('DELETE', '/api/profiles/game_d', 403)
+                assert call('DELETE', profile_path) == {'id': custom_game['id'], 'deleted': True}
+                call('DELETE', profile_path, 404)
+                assert read(app.OUTPUT / identifier / 'settings.json') == settings
+                assert methods['none']['available']
+                assert MultiViewGeneration(upload_id=upload, master_finishing='none').master_finishing == 'none'
+                for profile_id in ('game_d', 'dense_master'):
+                    identifier = call('POST', '/api/v1/generations', 202, json=dict(
+                        upload_id=upload, profile_id=profile_id, master_finishing='none',
+                        overrides=dict(resolution=512, keep_finishing_source=False)))['id']
+                    settings = read(app.OUTPUT / identifier / 'settings.json')
+                    assert settings['master_finishing'] == 'none' and settings['keep_finishing_source'] is True
+                    assert not any(settings.get(key) for key in ('adaptive_finishing', 'hd_reconstruction', 'wtivo_reconstruction'))
+                    assert settings['generation_options']['mesh_mode'] == 'direct'
+                    assert not any(settings['generation_options'][key] for key in ('pre_simplify', 'repair_holes'))
+                no_finish = call('POST', '/api/profiles', 201, json=dict(name='Decoded source', settings={
+                    **game['settings'], 'master_finishing': 'none', 'triangles': 4_000_000,
+                }))
+                identifier = call('POST', '/api/v1/generations', 202,
+                                  json=dict(upload_id=upload, profile_id=no_finish['id']))['id']
+                folder = app.OUTPUT / identifier
+                assert read(folder / 'settings.json')['master_finishing'] == 'none'
+                app.write_json(folder / 'status.json', dict(state='error', progress=0))
+                retried = call('POST', f'/api/v1/queue/{identifier}/retry', 202, json={'resolution': 512})['id']
+                assert read(app.OUTPUT / retried / 'settings.json')['master_finishing'] == 'none'
+                app.write_json(folder / 'status.json', dict(state='done', progress=100))
+                (folder / 'prepared.png').write_bytes(png())
+                (folder / 'raw_state.pt').write_bytes(b'decoded mesh fixture')
+                (folder / 'model.glb').write_bytes(b'completed model fixture')
+                variant = call('POST', f'/api/v1/models/{identifier}/refinish', 202,
+                               json={'master_finishing': 'hi3d_1024'})['id']
+                variant_settings = read(app.OUTPUT / variant / 'settings.json')
+                assert variant_settings['master_finishing'] == 'hi3d_1024' and variant_settings['finish_source_id'] == identifier
+                assert read(folder / 'settings.json')['master_finishing'] == 'none'
+                call('POST', '/api/v1/generations', 400, json=dict(upload_id=upload, master_finishing='none',
+                                                                 retexture_after_refinement=True))
+                call('POST', f'/api/v1/models/{identifiers["valid"]}/refinish', 422, json={'master_finishing': 'none'})
             finally:
                 server.should_exit = True
                 thread.join(8)
