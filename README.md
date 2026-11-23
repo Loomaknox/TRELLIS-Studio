@@ -2,14 +2,20 @@
 <h1 align="center">TRELLIS Studio</h1>
 <p align="center">A local workspace for creating, preparing, rigging and animating 3D assets.</p>
 <p align="center"><strong>English</strong> · <a href="README.fr.md" lang="fr">Français</a></p>
-<p align="center"><a href="https://github.com/yoslo59/TRELLIS-Studio/releases/latest">Download Windows Setup</a> · <a href="docs/WINDOWS_SETUP.md">Setup guide</a> · <a href="docs/API.md">REST API</a> · <a href="docs/MCP.md">MCP</a> · <a href="LICENSE">MIT · Studio code</a></p>
+<p align="center"><a href="#get-started">Install this fork</a> · <a href="docs/WINDOWS_SETUP.md">Windows Setup guide</a> · <a href="docs/API.md">REST API</a> · <a href="docs/MCP.md">MCP</a> · <a href="LICENSE">MIT · Studio code</a></p>
 <p align="center"><a href="https://github.com/sponsors/yoslo59"><img src="https://img.shields.io/badge/GitHub%20Sponsors-Support%20TRELLIS%20Studio-ea4aaa?logo=githubsponsors&amp;logoColor=white" alt="Support TRELLIS Studio on GitHub Sponsors"></a></p>
 
 TRELLIS Studio is an independent community application built around **Microsoft TRELLIS.2** and **UniRig**. Generate textured meshes from an image, import existing models, organise a collection, prepare game or printing derivatives, add a skeleton and combine authored or generated humanoid motions. Inspect everything in a browser-based PBR viewer and export for your workflow.
 
 **Desktop** is for single-user use. **Server** gives each approved user their own library in a browser, with options for local access, LAN HTTPS and Internet HTTPS. The host runs inference and stores references and generated models. No paid inference service is required. [Server setup](docs/SERVER.md)
 
-> **Windows x64 preview.** The maintainer tested Full Studio installation, generation and uninstallation on Windows 11 with an RTX 4070 Ti (12 GB VRAM). Installation verifies components, but output quality, deformation and target-engine suitability still need visual review. The Studio code is MIT; model and dependency licenses are separate, particularly DINOv3.
+> **Windows x64 preview.** The upstream maintainer tested Full Studio installation, generation and uninstallation on Windows 11 with an RTX 4070 Ti (12 GB VRAM). Installation verifies components, but output quality, deformation and target-engine suitability still need visual review. The Studio code is MIT; model and dependency licenses are separate, particularly DINOv3.
+
+## What was tested in the 3.15.1 fork
+
+- **Collection previews.** Twenty consecutive Edge renders completed with zero preview processes left running. Cancellation, timeout and Studio shutdown were also tested. [Preview tests](tests/collection_preview_stability.py)
+- **Textures.** On an RTX 5070 Ti, MV-Adapter and UltraTex each produced a 2048 × 2048 atlas on the same test mesh. Both outputs preserved the geometry and UVs.
+- **Animation and Unity.** On a 95-bone character, the largest ankle movement during the recalculated crouch was under 0.5 mm on each side, measured at 240 Hz and at each keyframe. Unity 6 reimported the FBX with its Generic rig, materials and two clips. Foot contact still needs visual review on other motions and characters. [Animation regression tests](tests/animation_diagnostics.py) · [Unity reimport test](tests/unity_reimport.py)
 
 ## 30-second demo
 
@@ -21,7 +27,20 @@ One local generation produced two finishes from the same saved source. The high-
 
 ## Get started
 
-1. Download the latest Windows Setup executable and `SHA256SUMS.txt`. Verify the unsigned executable against the published checksum. [Latest release](https://github.com/yoslo59/TRELLIS-Studio/releases/latest)
+### Install from source
+
+For the stabilized fork, download and extract the source ZIP or clone the branch with Git. [Fork source ZIP](https://github.com/Loomaknox/TRELLIS-Studio/archive/refs/heads/fix/stabilisation-studio-3.15.1.zip)
+
+```powershell
+git clone --branch fix/stabilisation-studio-3.15.1 https://github.com/Loomaknox/TRELLIS-Studio.git
+cd TRELLIS-Studio
+```
+
+Open the extracted or cloned folder and run **Install TRELLIS Studio.cmd**, then **Open TRELLIS.cmd**. The source launcher uses ports 7860 and 7861. It needs Node.js to assemble the viewer dependencies. Review the DINOv3 model terms during installation. [Source installation guide](INSTALLATION.md)
+
+### Upstream Windows installer
+
+1. For the upstream edition, download its Windows Setup executable and `SHA256SUMS.txt`. Verify the unsigned executable against the published checksum. [Upstream releases](https://github.com/yoslo59/TRELLIS-Studio/releases/latest)
 2. Choose **TRELLIS Desktop (single user)** or **TRELLIS Server (multi-user)**. Both include the CPU Workshop for GLB import, viewing, library management and standard animation files. Install Blender separately for features such as additional import formats, FBX export and baked game copies. [Windows Setup guide](docs/WINDOWS_SETUP.md)
 3. Select **TRELLIS.2 image-to-3D** for local generation. On a supported GPU, Setup offers **High Detail and Game Asset**, including the geometry engines, mesh finishing and native UltraTex. Review the FLUX.2 and MeshLib terms before installing those profiles. **Check this PC** shows the NVIDIA GPU, driver, VRAM and free disk space. [Setup requirements](docs/WINDOWS_SETUP.md#standalone-generation-profiles)
 4. Open **TRELLIS Studio** or **TRELLIS Server** from the Start menu. A new Server installation guides you through creating the first administrator. [Server setup guide](docs/SERVER.md)
@@ -30,25 +49,11 @@ One local generation produced two finishes from the same saved source. The high-
 
 Use **Repair or resume components** after an interrupted download. Setup verifies downloads with SHA-256. The uninstaller can stop its own idle local services and keeps the library. [Repair and uninstall](docs/WINDOWS_SETUP.md)
 
-**New in 3.14.0** — Choose **Advanced** for humanoid rigs with twist bones
-and optional articulated fingers. Use **Creature** to edit a predicted
-skeleton before skinning and add procedural clips to compatible rigs.
-[Release notes](docs/RELEASE_3.14.0.md)
-
-### Install from source
-
-Install from [the Loomaknox fork](https://github.com/Loomaknox/TRELLIS-Studio) to use its French interface. The Windows installers linked above are builds published by the upstream project. [Download the fork’s source ZIP](https://github.com/Loomaknox/TRELLIS-Studio/archive/refs/heads/main.zip) or clone it with Git.
-
-```powershell
-git clone https://github.com/Loomaknox/TRELLIS-Studio.git
-cd TRELLIS-Studio
-```
-
-Follow the [source installation guide](INSTALLATION.md). Run **Install TRELLIS Studio.cmd**, then **Open TRELLIS.cmd**. The source launcher uses ports 7860 and 7861. It needs Node.js to assemble the viewer dependencies. Read and accept the DINOv3 license only if you agree to the terms. Setup does not enable WSL features or replace GPU drivers.
+For the Windows Setup changes and optional components in the 3.15.1 base, see the [release notes](docs/RELEASE_3.15.1.md).
 
 ### Interface language
 
-Use the language selector in the Studio header to switch between **English** and **Français**. Studio starts in French if it is your browser’s preferred language and remembers your selection in that browser.
+Use the language selector in the Studio header to switch between **English** and **Français**. Studio starts in French if it is your browser’s preferred language and remembers your selection in that browser. A few generation settings still appear in English, including **Use Profile Settings**.
 
 ## What you can do
 

@@ -2,7 +2,7 @@
 <h1 align="center">TRELLIS Studio</h1>
 <p align="center">Un atelier local pour créer, préparer, équiper d’un squelette et animer des modèles 3D.</p>
 <p align="center"><a href="README.md" lang="en">English</a> · <strong>Français</strong></p>
-<p align="center"><a href="LICENSE">MIT · Code de Studio</a> · <a href="INSTALLATION.md">Installation</a> · <a href="docs/API.md">API REST</a> · <a href="docs/MCP.md">MCP</a> · <a href="THIRD_PARTY_NOTICES.md">Crédits et licences</a></p>
+<p align="center"><a href="#installer-la-version-française-sur-windows">Installer ce fork</a> · <a href="LICENSE">MIT · Code de Studio</a> · <a href="docs/API.md">API REST</a> · <a href="docs/MCP.md">MCP</a> · <a href="THIRD_PARTY_NOTICES.md">Crédits et licences</a></p>
 
 TRELLIS Studio est une application communautaire indépendante qui s’appuie sur **Microsoft TRELLIS.2** et **UniRig**. Elle permet de générer un maillage texturé à partir d’une image, d’importer un modèle existant, de l’inspecter dans une visionneuse PBR et de le préparer pour Blender, Unity, Unreal Engine ou l’impression 3D.
 
@@ -10,9 +10,15 @@ Les calculs s’exécutent sur la machine qui héberge Studio, où restent les i
 
 ## Interface en français
 
-Le sélecteur de langue dans l’en-tête permet de choisir **Français** ou **English**. Studio démarre en français si c’est la langue préférée de ton navigateur. Il mémorise ensuite ton choix dans ce navigateur.
+Le sélecteur de langue dans l’en-tête permet de choisir **Français** ou **English**. Studio démarre en français si c’est la langue préférée de ton navigateur. Il mémorise ensuite ton choix dans ce navigateur. Quelques réglages de génération apparaissent encore en anglais, dont **Use Profile Settings**.
 
 Cette version du fork est basée sur **TRELLIS Studio 3.15.1**. Elle intègre le graphe de génération, la finition multivue, UltraTex 2K et les nouveaux outils de la collection et des créatures. [Notes de version](docs/RELEASE_3.15.1.md) · [Profils de génération autonomes](docs/NATIVE_PROFILES.md)
+
+## Vérifications sur le fork 3.15.1
+
+- **Aperçus de la collection.** Vingt rendus Edge consécutifs ont abouti sans laisser de processus d’aperçu ouvert. L’annulation, le dépassement du délai et l’arrêt de Studio ont aussi été testés. [Tests des aperçus](tests/collection_preview_stability.py)
+- **Textures.** Sur une RTX 5070 Ti, MV-Adapter et UltraTex ont chacun produit un atlas de 2 048 × 2 048 pixels sur le même maillage de test. Les deux résultats conservent la géométrie et les UV.
+- **Animation et Unity.** Sur un personnage à 95 os, le déplacement maximal de chaque cheville pendant la flexion recalculée est inférieur à 0,5 mm, mesuré à 240 Hz et à chaque image clé. Unity 6 a réimporté le FBX avec son squelette Generic, ses matériaux et ses deux clips. Les appuis restent à examiner sur chaque personnage et chaque mouvement. [Tests des animations](tests/animation_diagnostics.py) · [Test de réimportation Unity](tests/unity_reimport.py)
 
 ## Démo en 30 secondes
 
@@ -22,15 +28,15 @@ Une seule génération a produit deux variantes, toutes deux avec des textures P
 
 ## Installer la version française sur Windows
 
-Ce fork cible **Windows x64**. Pour installer cette version, télécharge [l’archive ZIP de la branche Créature](https://github.com/Loomaknox/TRELLIS-Studio/archive/refs/heads/feat/creature-rig.zip) ou clone cette branche avec Git. Les exécutables disponibles dans les [versions du projet d’origine](https://github.com/yoslo59/TRELLIS-Studio/releases) sont publiés par son mainteneur.
+Ce fork cible **Windows x64**. Pour installer la version stabilisée, télécharge et décompresse l’archive source ou clone la branche avec Git. Les exécutables Windows du projet d’origine sont publiés par son mainteneur. [Archive ZIP du fork](https://github.com/Loomaknox/TRELLIS-Studio/archive/refs/heads/fix/stabilisation-studio-3.15.1.zip) · [Versions du projet d’origine](https://github.com/yoslo59/TRELLIS-Studio/releases)
 
 ```powershell
-git clone --branch feat/creature-rig https://github.com/Loomaknox/TRELLIS-Studio.git
+git clone --branch fix/stabilisation-studio-3.15.1 https://github.com/Loomaknox/TRELLIS-Studio.git
 cd TRELLIS-Studio
 ```
 
 1. Installe **Node.js LTS x64, version 22 ou supérieure**, avec npm. Installe **Blender** pour les conversions, la préparation et les exports qui en ont besoin. Pour UniRig, prépare **WSL2 avec Ubuntu 22.04** et termine l’initialisation du compte Linux. [Prérequis détaillés](INSTALLATION.md#prerequisites)
-2. Exécute **Install TRELLIS Studio.cmd** dans le dossier cloné. Lis les conditions des modèles, dont DINOv3, et accepte uniquement celles auxquelles tu consens.
+2. Exécute **Install TRELLIS Studio.cmd** dans le dossier extrait ou cloné. Lis les conditions des modèles, dont DINOv3, et accepte uniquement celles auxquelles tu consens.
 3. Exécute **Open TRELLIS.cmd**. Depuis les sources, Studio écoute par défaut sur [127.0.0.1:7860](http://127.0.0.1:7860/) et le pont MCP Desktop sur le port **7861**. Les ports par défaut du paquet Windows sont **7870** et **7871**.
 
 La configuration de référence du projet d’origine est Windows 11 avec une NVIDIA RTX 4070 Ti et 12 Go de VRAM. Le guide d’installation depuis les sources recommande **32 Go de RAM** et **80 Gio d’espace libre** pour une installation complète, auquel s’ajoute l’espace utilisé par ta collection et par les options installées. La génération TRELLIS.2 fonctionne dans l’environnement Windows, et UniRig s’exécute dans un environnement WSL2 séparé. [Installation et dépannage](INSTALLATION.md)
