@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from animation_diagnostics import inspect_animation, require_valid_animation
+from animation_diagnostics import inspect_animation, read_tracks, require_valid_animation
 
 
 def fixture(output, times, rotations, *, mode='LINEAR'):
@@ -30,7 +30,38 @@ def fixture(output, times, rotations, *, mode='LINEAR'):
                        + metadata + struct.pack('<II', len(binary), 0x004e4942) + binary)
 
 
+def normalized_tracks():
+    """Older exporters also write normalized integer rotations and morph weights."""
+    for component, dtype in ((5120, 'i1'), (5121, 'u1'), (5122, '<i2'), (5123, '<u2')):
+        dtype = np.dtype(dtype)
+        high = np.iinfo(dtype).max
+        low = np.iinfo(dtype).min
+        binary = (struct.pack('<2f', 0, 1) +
+                  np.array([[0, 0, 0, high], [low, 0, 0, high if low == 0 else 0]], dtype=dtype).tobytes() +
+                  np.array([0, high], dtype=dtype).tobytes())
+        size = dtype.itemsize
+        nodes = [dict(name='joint'), dict(name='face', mesh=0)]
+        data = dict(nodes=nodes, meshes=[{'primitives': [{'targets': [{}]}]}],
+                    buffers=[{'byteLength': len(binary)}],
+                    bufferViews=[dict(buffer=0, byteLength=8),
+                                 dict(buffer=0, byteOffset=8, byteLength=8 * size),
+                                 dict(buffer=0, byteOffset=8 + 8 * size, byteLength=2 * size)],
+                    accessors=[dict(bufferView=0, componentType=5126, count=2, type='SCALAR'),
+                               dict(bufferView=1, componentType=component, count=2, type='VEC4', normalized=True),
+                               dict(bufferView=2, componentType=component, count=2, type='SCALAR', normalized=True)])
+        clip = dict(channels=[dict(sampler=0, target=dict(node=0, path='rotation')),
+                              dict(sampler=1, target=dict(node=1, path='weights')),
+                              dict(sampler=0, target=dict(path='rotation'))],
+                    samplers=[dict(input=0, output=1), dict(input=0, output=2)])
+        tracks, _, errors = read_tracks(data, binary, clip)
+        assert not errors, errors
+        assert np.array_equal(tracks[0, 'rotation'][1][0], [0, 0, 0, 1])
+        assert tracks[0, 'rotation'][1][1, 0] == (-1 if low < 0 else 0)
+        assert np.array_equal(tracks[1, 'weights'][1].ravel(), [0, 1])
+
+
 def run():
+    normalized_tracks()
     identity = [0, 0, 0, 1]
     flip = [1, 0, 0, 0]
     # The old Blender output inserted both flipped keys between a 30 fps test grid.
@@ -46,6 +77,8 @@ def run():
         # q and -q represent the same pose. They are legal in an imported LINEAR track.
         fixture(model, times, [identity, [0, 0, 0, -1], identity, identity, [0, 0, 0, -1], identity])
         assert not inspect_animation(model, rate=240)['issues']
+        fixture(model, [0, .04], [identity, identity], mode='invalid')
+        assert inspect_animation(model)['issues'][0]['severity'] == 'error'
         fixture(model, [0, .04], [[0, 0, 0, 0], identity])
         assert inspect_animation(model)['issues'][0]['severity'] == 'error'
         for selected in ({name}, {'missing motion'}):

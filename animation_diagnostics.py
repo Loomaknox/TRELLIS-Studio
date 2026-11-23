@@ -37,15 +37,20 @@ def animation_buffer(path):
             yield binary
 
 
-def floats(data, binary, index, expected_type, limit):
+def floats(data, binary, index, expected_type, limit, *, allow_normalized=False):
     if type(index) is not int or not 0 <= index < len(data['accessors']):
         raise ValueError('Invalid animation accessor index.')
     item = data['accessors'][index]
     if 'sparse' in item:
         raise UnavailableTrack
-    size = {'SCALAR': 4, 'VEC3': 12, 'VEC4': 16}[expected_type]
-    if item.get('componentType') != 5126 or item.get('type') != expected_type or item.get('normalized'):
+    component = item.get('componentType')
+    floating_point = component == 5126 and not item.get('normalized')
+    normalized_integer = (allow_normalized and item.get('normalized') is True
+                          and component in (5120, 5121, 5122, 5123))
+    if item.get('type') != expected_type or not (floating_point or normalized_integer):
         raise ValueError('Invalid animation accessor type.')
+    component_size = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5126: 4}[component]
+    size = {'SCALAR': 1, 'VEC3': 3, 'VEC4': 4}[expected_type] * component_size
     count = item['count']
     if type(count) is not int or count < 1:
         raise ValueError('An animation accessor has no keys.')
@@ -59,7 +64,7 @@ def floats(data, binary, index, expected_type, limit):
         raise UnavailableTrack
     offset, start = item.get('byteOffset', 0), view.get('byteOffset', 0)
     stride = view.get('byteStride', size)
-    if (min(offset, start) < 0 or stride < size or stride % 4 or
+    if (min(offset, start) < 0 or stride < size or stride % component_size or
             offset + (count - 1) * stride + size > view['byteLength'] or
             start + view['byteLength'] > len(binary)):
         raise ValueError('An animation accessor exceeds its buffer view.')
@@ -82,7 +87,7 @@ def read_tracks(data, binary, clip):
     for channel in clip['channels']:
         target = channel['target']
         path = target['path']
-        if path not in TRS and path != 'weights':
+        if 'node' not in target or (path not in TRS and path != 'weights'):
             partial = True
             continue
         index = target['node']
@@ -100,7 +105,7 @@ def read_tracks(data, binary, clip):
             sampler = samplers[sampler_index]
             mode = sampler.get('interpolation', 'LINEAR')
             if mode not in ('LINEAR', 'STEP', 'CUBICSPLINE'):
-                raise UnavailableTrack
+                raise ValueError('Invalid animation interpolation mode.')
             input_index = sampler['input']
             if input_index not in inputs:
                 inputs[input_index] = floats(data, binary, input_index, 'SCALAR', 12000).ravel()
@@ -109,7 +114,8 @@ def read_tracks(data, binary, clip):
                 raise ValueError('Animation key times must be ordered and non-negative.')
             factor = 3 if mode == 'CUBICSPLINE' else 1
             value_type = TRS.get(path, 'SCALAR')
-            values = floats(data, binary, sampler['output'], value_type, 36000)
+            values = floats(data, binary, sampler['output'], value_type, 36000,
+                            allow_normalized=path in ('rotation', 'weights'))
             if path == 'weights':
                 primitives = data['meshes'][nodes[index]['mesh']]['primitives']
                 morphs = len(primitives[0].get('targets', []))
