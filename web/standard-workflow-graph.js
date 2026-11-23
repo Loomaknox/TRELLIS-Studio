@@ -63,7 +63,7 @@ export function createStandardWorkflowGraph(workspace, profileName, preset, fiel
     stage('reference', 'Reference image', 'reference', [['removeBg', 'Remove image background']], {open: true}),
     stage('structure', 'Sparse structure', 'geometry', [['seed', '3D seed'],
       ...advancedFields(field => field.key.startsWith('structure_'))], {geometry_backend: 'trellis2'}),
-    stage('shape', 'Shape generation', 'geometry', [['resolution', '3D resolution'],
+    stage('shape', 'Shape generation', 'geometry', [['resolution', '3D resolution'], ['facialHeadEnhancement', 'Enhance face (TOPOS)'],
       ...advancedFields(field => field.key.startsWith('shape_'))], {geometry_backend: 'trellis2'}),
     stage('finish', 'Mesh finishing', 'mesh', [['denseMasterFinishing', 'Master finishing'],
       ['triangles', 'Triangle budget'], ...advancedFields(field => ['mesh', 'hi3d'].includes(field.group))]),

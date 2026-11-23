@@ -261,6 +261,28 @@ def pixal3d_capabilities():
             'texture_sizes': PIXAL_TEXTURE_SIZES}
 
 
+def facial_head_capability():
+    if WORKSPACE_CONFIG:
+        return dict(ready=False, reason='Face enhancement is available in the desktop edition.')
+    from facial_head_runtime import readiness
+    state = readiness(ROOT)
+    if state['ready']:
+        materials = detail_texturing_capability()
+        if not materials['available']:
+            return dict(ready=False, reason=materials['reason'])
+    return dict(ready=state['ready'], reason=state['reason'])
+
+
+def require_facial_head(*, engine, asset_type, resolution, texture_method, reconstructing):
+    if engine != 'trellis2' or asset_type != 'humanoid' or resolution != 1024:
+        raise HTTPException(400, 'Choose TRELLIS.2 Single image, a humanoid and 1024 resolution for face enhancement.')
+    if texture_method != 'trellis' or reconstructing:
+        raise HTTPException(400, 'Choose Native PBR and direct or standard mesh finishing for face enhancement.')
+    state = facial_head_capability()
+    if not state['ready']:
+        raise HTTPException(503, state['reason'])
+
+
 def create_master_finishing_capabilities():
     available, reason = wtivo_capability(ROOT, 1024)
     if available and not find_blender():
@@ -366,7 +388,7 @@ def status():
                 export_active=EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None,
                 resolution=DEFAULT_GENERATION['resolution'], default_profile=DEFAULT_PROFILE, local=True, studio_version=VERSION,source_revision=SOURCE_REVISION,ui_revision=UI_REVISION,multi_view=pixal3d['ready'],pixal3d=pixal3d,
                 generation_methods=generation_methods, create_master_finishing=create_master_finishing_capabilities(),
-                detail_texturing=detail_texturing_capability(),
+                facial_head_enhancement=facial_head_capability(), detail_texturing=detail_texturing_capability(),
                 multiview_texture_refinement=multiview,
                 ultratex_texture_refinement=ultratex,
                 texture_methods=dict(trellis=dict(available=True, reason=''),
@@ -1667,6 +1689,7 @@ async def generate_multiview(
     repair_surface: Annotated[bool, Form()] = False,
     hd_reconstruction: Annotated[bool, Form()] = False,
     reproject_face: Annotated[bool, Form()] = False,
+    facial_head_enhancement: Annotated[bool, Form()] = False,
     queue_priority: Annotated[int, Form()] = 0,
     reference_edits: Annotated[str, Form()] = '',
     preset: Annotated[str, Form()] = '',
@@ -1674,6 +1697,8 @@ async def generate_multiview(
     master_finishing: Annotated[str | None, Form()] = None,
     texture_method: Annotated[str | None, Form()] = None,
 ):
+    if facial_head_enhancement:
+        raise HTTPException(400, 'Choose TRELLIS.2 Single image, a humanoid and 1024 resolution for face enhancement.')
     profile = next((p for p in PIXAL_PROFILES if p['id'] == profile_id), None)
     if profile is None:
         try:
@@ -1855,6 +1880,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                    engine: Annotated[str, Form()] = 'trellis2',
                    master_finishing: Annotated[str | None, Form()] = None,
                    reproject_face: Annotated[bool, Form()] = False,
+                   facial_head_enhancement: Annotated[bool, Form()] = False,
                    retexture_after_refinement: Annotated[bool, Form()] = False,
                    multiview_texture_refinement: Annotated[bool | None, Form()] = None,
                    texture_method: Annotated[str | None, Form()] = None,
@@ -1871,7 +1897,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                 or triangles not in (0, recipe['target_faces']) or texture_size not in (0, recipe['texture_size'])
                 or resolution not in (None, recipe['resolution']) or texture_method not in (None, recipe['texture_method'])
                 or advanced_settings not in ('', '{}') or reference_edits not in ('', '{}') or master_finishing
-                or any((reproject_face, retexture_after_refinement, multiview_texture_refinement,
+                or any((facial_head_enhancement, reproject_face, retexture_after_refinement, multiview_texture_refinement,
                         keep_finishing_source, repair_surface, hd_reconstruction))):
             raise HTTPException(400, 'Use the advanced settings for the selected generation profile.')
         try:
@@ -1917,6 +1943,10 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
     try:
         texture_method = resolve_texture_method(texture_method, multiview_texture_refinement,
                                                 'multiview' if preset == FIGURE_MASTER else 'trellis')
+        if facial_head_enhancement:
+            require_facial_head(engine=engine, asset_type=asset_type, resolution=resolution, texture_method=texture_method,
+                                reconstructing=repair_surface or hd_reconstruction or retexture_after_refinement
+                                or master_finishing not in (None, NO_MASTER_FINISHING))
         validate_texture_method(texture_method, engine=engine, texture_size=texture)
         multiview_texture_refinement = texture_method == 'multiview'
         validate_hd_reconstruction(hd_reconstruction, preset=preset, resolution=resolution,
@@ -2005,6 +2035,10 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                 settings['profile_snapshot']['repair_surface'] = True
             if hd_reconstruction:
                 settings['profile_snapshot']['hd_reconstruction'] = True
+        if facial_head_enhancement:
+            settings['facial_head_enhancement'] = True
+            if snapshot := settings.get('profile_snapshot'):
+                snapshot['facial_head_enhancement'] = True
         assign_create_master_finishing(settings, master_finishing)
         if retexture_after_refinement:
             settings['retexture_after_refinement'] = True

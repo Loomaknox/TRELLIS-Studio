@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "topos_revision": "581ad9e218cc7559072960ea44464014c808cef3",
+  "assets": [
+    {
+      "filename": "topos.zip",
+      "destination": "TOPOS",
+      "archive": true,
+      "url": "https://codeload.github.com/ymxbj/TOPOS/zip/581ad9e218cc7559072960ea44464014c808cef3",
+      "bytes": 4359603,
+      "sha256": "9e107f0ca5d823ef17c708fc279b416fba7a4b95150424ef7a4a6634c3c66ea4"
+    },
+    {
+      "filename": "dinov2.zip",
+      "destination": "TOPOS/pretrained_ckpt/facebookresearch_dinov2_main",
+      "archive": true,
+      "url": "https://codeload.github.com/facebookresearch/dinov2/zip/7764ea0f912e53c92e82eb78a2a1631e92725fc8",
+      "bytes": 3001681,
+      "sha256": "04276715cddb29d45d05bff3a6fc132224dc27749b279ac98ad2ce4620e20d48"
+    },
+    {
+      "filename": "face_landmarker.task",
+      "destination": "face_landmarker.task",
+      "url": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+      "bytes": 3758596,
+      "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+    },
+    {
+      "filename": "TOPOS-VAE.model.pth",
+      "destination": "TOPOS/pretrained_ckpt/TOPOS-VAE.model.pth",
+      "url": "https://drive.usercontent.google.com/download?id=1yEQIHQAXomgNVJ8chkuNc34RgF5rotoJ&export=download&confirm=t",
+      "bytes": 40033015,
+      "sha256": "6459f9704e1f93d50aebbc22221bfbbefa80d51b46531afc4315455118c77248"
+    },
+    {
+      "filename": "TOPOS-DiT.model.pth",
+      "destination": "TOPOS/pretrained_ckpt/TOPOS-DiT.model.pth",
+      "url": "https://drive.usercontent.google.com/download?id=1VwiVdPYXJM4gnPbwo8SGCI4og2G1zeul&export=download&confirm=t",
+      "bytes": 2228761001,
+      "sha256": "10143fd11c43651ecd3c8109256f47b9703b5eaf9b5ae50ee28545132424730d"
+    },
+    {
+      "filename": "dinov2_vitl14_reg4_pretrain.pth",
+      "destination": "TOPOS/pretrained_ckpt/dinov2_vitl14_reg4_pretrain.pth",
+      "url": "https://dl.fbaipublicfiles.com/dinov2/dinov2_vitl14/dinov2_vitl14_reg4_pretrain.pth",
+      "bytes": 1217607321,
+      "sha256": "36e4deffbaef061a2576705b0c36f93621e2ae20bf6274694821b0b492551b51"
+    }
+  ]
+}

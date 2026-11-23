@@ -536,3 +536,21 @@
 !/tests/collection_preview_stability.py
 !/tests/animation_diagnostics.py
 !/tests/quality_diagnostics.py
+!/facial_head_runtime.py
+!/facial_head_infer.py
+!/facial_head_geometry.py
+!/facial_head_generation.py
+!/facial_head_eyes.py
+!/facial_head_color.py
+!/Installer le module visage.cmd
+!/Desinstaller le module visage.cmd
+!/installer/facial_head_lock.py
+!/installer/install_facial_head.py
+!/installer/facial-head-manifest.json
+!/installer/requirements-facial-head.txt
+!/tests/facial_head_api.py
+!/tests/facial_head_runtime.py
+!/tests/facial_head_geometry.py
+!/tests/facial_head_color.py
+!/tests/facial_head_installer.py
+!/docs/FACIAL_HEAD.md

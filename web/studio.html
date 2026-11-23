@@ -171,6 +171,10 @@
   <label id="advancedMasterField" class="field" hidden>Finishing override<select id="advancedMasterFinishing" disabled><option value="">Use master finishing</option><option value="direct">Direct Export</option><option value="repair">Repair Holes</option></select></label>
   <label id="removeBgField" class="check"><input id="removeBg" name="remove_bg" type="checkbox" checked><span>Remove image background</span></label>
   <div id="faceProjectionField" hidden><label class="check"><input id="reprojectFace" type="checkbox" autocomplete="off" aria-describedby="reprojectFaceHelp" disabled><span>Reproject the reference face</span></label><p class="hint" id="reprojectFaceHelp"></p></div>
+  <div id="facialHeadField" hidden>
+    <label class="check"><input id="facialHeadEnhancement" type="checkbox" autocomplete="off" aria-describedby="facialHeadHelp" disabled><span>Enhance face (TOPOS)</span></label>
+    <p class="hint" id="facialHeadHelp"></p>
+  </div>
   <label id="keepFinishingSourceField" class="check"><input id="keepFinishingSource" name="keep_finishing_source" type="checkbox" value="true"><span>Keep source for finishing variants</span></label>
   <p id="finishingSourceHelp" class="hint">Stores the decoded geometry and materials so finishing can be repeated.</p>
   <fieldset id="generationSampling" class="mode-fields">

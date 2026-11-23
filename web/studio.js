@@ -99,7 +99,7 @@ function syncCapabilities(status){
   for(const option of $('resolution').options)option.disabled=!availableResolutions.includes(Number(option.value));
   profileControls?.setFinishingCapabilities(status.features?.includes('repair_surface')===true,
     status.features?.includes('hd_reconstruction')===true,status.create_master_finishing,status.detail_texturing,
-    textureMethodAvailability(status));
+    textureMethodAvailability(status),status.edition==='desktop'?status.facial_head_enhancement:null);
   explainCost();
 }
 function explainCost(){const hint=$('qualityHint');if(!hint)return;const notes=[];if(Number($('resolution').value)===1536)notes.push(t('1536³ requires more processing time and memory.'));if(Number($('textureSize').value)===4096)notes.push(t('4K uses larger textures; reserve it for close-up objects and large surfaces.'));hint.textContent=notes.join(' ');hint.hidden=!!profileControls?.workflow||!notes.length;}
@@ -367,6 +367,10 @@ function renderSelected(){const j=jobOf(),draft=isCreatureRigDraft(j),workflow=!
     const label=refinement && ['skipped','failed','error'].includes(refinement.state)
       ? t('{method} skipped · Native PBR used', {method:t(textureLabel)}) : t(textureLabel);
     entries.push([t('Texture method'),label]);
+  }
+  if(j.settings.facial_head_enhancement){
+    const state=r?.facial_head_enhancement?.state==='applied'?'Applied':j.state==='done'?'No report':'Requested';
+    entries.push([t('Enhance face (TOPOS)'),t(state)]);
   }
   const triangleBudget=[j.settings.adaptive_finishing?t('Triangle ceiling'):t('Target triangles'),Number(j.settings.triangles).toLocaleString(formatLocale)];
   if(pixal){
@@ -896,7 +900,7 @@ async function loadRigSource(id){
 animationStudio=await createAnimationStudio({api,getJob:jobOf,isBusy:()=>busy,startJob:startStudioJob,refresh,rigSetup:rigSetupViewer,creatureViewer:creatureRigViewer,getClips:loadedAnimationClips,playClip:playAnimationClip,loadRigSource,
   openDiagnostics:id=>studioTools.diagnostics.open(records.find(record=>record.id===id))});createModelImport({api,startJob:startStudioJob});
 workbench=await createStudioWorkbench({api,getRecords:()=>records,getJob:jobOf,refresh,startJob:startStudioJob,renderLibrary,tools:studioTools,canUseCardTurntables:()=>cardTurntablesAvailable,labelAnimation:name=>animationStudio?.label(name)||name,getViewer:()=>({scene,renderer,camera,controls,model,loadedId,lighting:viewerLighting})});
-document.querySelector('.journal').addEventListener('toggle',refreshLog);await refresh();const entry=new URLSearchParams(location.search),entryModel=entry.get('model');if(entryModel&&records.some(j=>j.id===entryModel))selectJob(entryModel);if(entry.get('workspace')==='animation')openAnimationStudio();if(entry.get('workspace')==='details'&&jobOf())openDetails(jobOf());const comparison=records.find(j=>j.id===entry.get('compare')&&j.state==='done');if(comparison&&jobOf()?.state==='done')studioTools.compare.open(jobOf(),comparison);setInterval(refresh,3000);
+document.querySelector('.journal').addEventListener('toggle',refreshLog);await refresh();const entry=new URLSearchParams(location.search),entryModel=entry.get('model');if(entryModel&&records.some(j=>j.id===entryModel))selectJob(entryModel);if(entry.get('workspace')==='animation')openAnimationStudio();if(entry.get('workspace')==='details'&&jobOf())openDetails(jobOf());const comparison=records.find(j=>j.id===entry.get('compare')&&j.state==='done');if(comparison&&jobOf()?.state==='done')studioTools.compare.open(jobOf(),comparison,{focus:entry.get('focus')});setInterval(refresh,3000);
 
 function setupClips(gltf){
  clips=gltf.animations;mixer=clips.length?new THREE.AnimationMixer(model):null;

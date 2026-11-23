@@ -57,6 +57,9 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
   const retextureField=$('detailTexturingField');
   const retextureStatus=$('detailTexturingStatus');
   optionHelp(retexture.closest('label'), 'Retexture after Hi3D', retextureHelp);
+  const facialHead=$('facialHeadEnhancement');
+  let headCapability=null;
+  let facialHeadReason='';
   const textureMethod=$('textureMethod');
   const textureMethodStatus=$('textureMethodStatus');
   textureMethod.replaceChildren(...textureMethodChoices.map(([id,name])=>new Option(t(name),id)));
@@ -186,10 +189,31 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     $('generationSummary').textContent=`${selected.name} · ${$('profileSummary').textContent}`;
     syncProfileActions(false);
   }
+  function syncFacialHead(finishing) {
+    const field=$('facialHeadField');
+    field.hidden=!headCapability || !!selected?.workflow || usePixal();
+    if(field.hidden){
+      facialHead.disabled=true;
+      facialHeadReason='';
+      return;
+    }
+    if(!headCapability.ready){
+      facialHeadReason=headCapability.reason || 'Install the optional face reconstruction component.';
+    }else if($('assetType').value!=='humanoid' || Number($('resolution').value)!==1024){
+      facialHeadReason='Choose TRELLIS.2 Single image, a humanoid and 1024 resolution for face enhancement.';
+    }else if(textureMethod.value!=='trellis' || !['','direct','none'].includes(finishing)){
+      facialHeadReason='Choose Native PBR and direct or standard mesh finishing for face enhancement.';
+    }else{
+      facialHeadReason='';
+    }
+    // A restored recipe can still be switched off after uninstalling its runtime.
+    facialHead.disabled=!!facialHeadReason && !facialHead.checked;
+    $('facialHeadHelp').textContent=t(facialHeadReason || 'Use a front-facing T- or A-pose. Rebuilds the face before native PBR texturing.');
+  }
   function sync(){
     if(!selected)return;
     syncFixedWorkflow(selected.workflow);
-    if(selected.workflow){changed();return;}
+    if(selected.workflow){syncFacialHead();changed();return;}
     const activePreset=$('preset').value;
     const experimental=activePreset==='humanoid_experimental', dense=activePreset==='dense_master';
     const figureUnsupported=activePreset==='figure_master'&&usePixal();
@@ -237,6 +261,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     textureMethod.disabled=false;
     textureMethodStatus.textContent=textureMethodExplanation(preferredTextureMethod,textureSupport,!isMultiview());
     textureMethodStatus.hidden=!textureMethodStatus.textContent;
+    syncFacialHead(selectedFinish);
     syncRefinementBudget(Boolean(detail));
     const textureSize=$('textureSize');
     const ultraSelected=textureMethod.value==='ultratex';
@@ -363,6 +388,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     selected=profiles.find(p=>p.id===id);if(!selected)return;
     $('profileChoice').querySelector('[data-variant]')?.remove();
     const s=selected.settings;
+    facialHead.checked=false;
     if(selected.workflow){
       showWorkflowFields(selected);
       $('preset').value=s.preset;
@@ -500,12 +526,14 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     finally{saving=false;$('confirmProfile').disabled=false;}
   };
   return {sync,reset:()=>apply(selected?.id||startupProfile),
-    setFinishingCapabilities(available, hdAvailable, methods, texturing, textureMethods){
+    setFinishingCapabilities(available, hdAvailable, methods, texturing, textureMethods, facialHeadRuntime){
       const supported=methods||{};
       const texturingSupport=texturing||{};
       if(repairSupported===available&&hdSupported===hdAvailable&&JSON.stringify(masterSupport)===JSON.stringify(supported)
         &&JSON.stringify(detailTexturing)===JSON.stringify(texturingSupport)
-        &&JSON.stringify(textureSupport)===JSON.stringify(textureMethods))return;
+        &&JSON.stringify(textureSupport)===JSON.stringify(textureMethods)
+        &&JSON.stringify(headCapability)===JSON.stringify(facialHeadRuntime))return;
+      headCapability=facialHeadRuntime;
       repairSupported=available;
       hdSupported=hdAvailable;
       masterSupport=supported;
@@ -515,6 +543,10 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     },
     appendFinishing(form){
       const value=readFinishing();
+      if(facialHead.checked && !$('facialHeadField').hidden){
+        if(facialHeadReason)throw Error(t(facialHeadReason));
+        form.set('facial_head_enhancement','true');
+      }
       if (value==='repair') form.set('repair_surface','true');
       if (value==='none'||detailRefinements[value]||value==='wtivo_1024'||(value==='studio_768'&&masterSupport.studio_768?.available)) {
         form.set('master_finishing',value);
@@ -535,6 +567,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       $('advancedMasterFinishing').value=settings.preset!=='dense_master'||settings.master_finishing||settings.hd_reconstruction
         ? '' : settings.repair_surface ? 'repair' : 'direct';
       retexture.checked=settings.retexture_after_refinement===true;
+      facialHead.checked=settings.facial_head_enhancement===true;
       preferredTextureMethod=textureMethodOf(settings);
     },
     budget,
@@ -558,6 +591,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       return true;
     },
     get finishingReady(){
+      if(facialHead.checked && !$('facialHeadField').hidden && facialHeadReason)return false;
       if(usePixal()&&$('preset').value==='figure_master')return false;
       const value=readFinishing();
       if (value==='repair') return repairSupported;

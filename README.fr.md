@@ -10,6 +10,8 @@ Les calculs s’exécutent sur la machine qui héberge Studio, où restent les i
 
 ## Interface en français
 
+Sous Windows, le raccourci **TRELLIS Studio** du bureau ou du menu Démarrer ouvre l’interface. Le module facultatif **Améliorer le visage (TOPOS)** reconstruit les paupières et les yeux pendant la génération. [Installation et désinstallation de TOPOS](docs/FACIAL_HEAD.md)
+
 Le sélecteur de langue dans l’en-tête permet de choisir **Français** ou **English**. Studio démarre en français si c’est la langue préférée de ton navigateur. Il mémorise ensuite ton choix dans ce navigateur. Quelques réglages de génération apparaissent encore en anglais, dont **Use Profile Settings**.
 
 Cette version du fork est basée sur **TRELLIS Studio 3.15.1**. Elle intègre le graphe de génération, la finition multivue, UltraTex 2K et les nouveaux outils de la collection et des créatures. [Notes de version](docs/RELEASE_3.15.1.md) · [Profils de génération autonomes](docs/NATIVE_PROFILES.md)

@@ -1,0 +1,8 @@
+# Installed in the private face venv. Compatible Studio CUDA packages are reused read-only.
+mediapipe==1.2.3
+torch-geometric==2.7.0
+tensorboard==2.20.0
+einops==0.8.2
+easydict==1.13
+yacs==0.1.8
+plyfile==1.1.5

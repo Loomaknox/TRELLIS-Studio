@@ -13,6 +13,17 @@ test('browser language, preference and parameter substitution', async () => {
   try {
     const {language, t, localizeStatic} = await import('../web/i18n.js?fr-test');
     assert.equal(language, 'fr');
+    const faceMessages = [
+      'Enhance face (TOPOS)',
+      'Use a front-facing T- or A-pose. Rebuilds the face before native PBR texturing.',
+      'Install the optional face reconstruction component.',
+      'Install the local TRELLIS.2 shape encoder and 1024 material weights.',
+      'Fitting the facial surface and eye sockets',
+      'Insufficient native geometry at the projected eyelid.',
+      'The facial reference does not cover visible material voxels.',
+      'Frame faces',
+    ];
+    for (const message of faceMessages) assert.notEqual(t(message), message);
     assert.equal(t('Queued'), 'En attente');
     assert.equal(t('Multiview refinement'), 'Affinage multivue');
     assert.equal(t('Unavailable'), 'Indisponible');
@@ -51,6 +62,7 @@ test('browser language, preference and parameter substitution', async () => {
     globalThis.location.search = '?lang=en';
     const {language: english, t: translateEnglish} = await import('../web/i18n.js?en-test');
     assert.equal(english, 'en');
+    for (const message of faceMessages) assert.equal(translateEnglish(message), message);
     assert.equal(translateEnglish('Queued'), 'Queued');
     assert.equal(translateEnglish('Multiview refinement'), 'Multiview refinement');
     assert.equal(translateEnglish('Reference for {name}', {name: 'Avatar'}), 'Reference for Avatar');

@@ -62,7 +62,7 @@ def move_inverse_maps(cache, device):
                 entries[key] = tuple(tensor.to(device) for tensor in entries[key])
 
 
-def infer(config, reference, normalized, faces, recipe):
+def infer(config, reference, normalized, faces, recipe, *, condition_transform=None):
     import numpy as np
     import torch
     import torch.nn.functional as functional
@@ -81,6 +81,8 @@ def infer(config, reference, normalized, faces, recipe):
         prepared = saved.convert('RGB')
     pipeline.image_cond_model.to(pipeline.device)
     conditioning = pipeline._cast_cond(pipeline.get_cond([prepared], resolution))
+    if condition_transform is not None:
+        conditioning = condition_transform(pipeline, conditioning, resolution)
     pipeline.image_cond_model.cpu()
     torch.cuda.empty_cache()
 

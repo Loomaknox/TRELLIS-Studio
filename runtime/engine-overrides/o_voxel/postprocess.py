@@ -91,6 +91,7 @@ def to_glb(
     finalized_reconstruction: bool = False,
     master_finishing: bool = False,
     preserve_decoded_mesh: bool = False,
+    face_material_guide: Optional[dict] = None,
 ):
     """
     Convert an extracted mesh to a GLB file.
@@ -471,6 +472,9 @@ def to_glb(
             print("Done")
 
     material_coverage = None
+    if face_material_guide is not None:
+        surface_mask = mask
+        surface_positions = valid_pos
     if master_finishing or preserve_decoded_mesh:
         attrs, mask, material_coverage = bake_master_material(
             valid_pos, mask, vertices, faces, bvh, attr_volume_cpu.cuda(), coords_cpu.cuda(), aabb, voxel_size, grid_size,
@@ -495,6 +499,11 @@ def to_glb(
             mode=texture_sampling,
         )
         del attr_volume, coords
+    if face_material_guide is not None:
+        from facial_head_color import apply_face_material
+        facial_reference_texels = apply_face_material(surface_positions, surface_mask, mask, attrs,
+                                                       attr_layout, face_material_guide)
+        del surface_mask, surface_positions
     del attr_volume_cpu, coords_cpu, valid_pos
     torch.cuda.empty_cache()
 
@@ -573,6 +582,8 @@ def to_glb(
         textured_mesh.metadata['finishing']['uv_degenerate_triangles_removed'] = uv_degenerate_triangles
     if material_coverage is not None:
         textured_mesh.metadata['finishing']['material_coverage'] = material_coverage
+    if face_material_guide is not None:
+        textured_mesh.metadata['finishing']['facial_reference_texels'] = facial_reference_texels
     if master_diagnostics is not None:
         textured_mesh.metadata['finishing']['topology_before_uv'] = master_diagnostics
     if adaptive_report is not None:

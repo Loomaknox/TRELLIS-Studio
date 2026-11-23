@@ -58,6 +58,9 @@ def generate_source(torch):
             del session
             gc.collect()
         image.save(JOB / 'prepared.png')
+    if settings.get('facial_head_enhancement') is True:
+        from facial_head_generation import generate
+        return generate(ROOT, JOB, settings, image, reviewed, options, status)
     status('running', 'Loading model weights', 8)
     from api_spz.core.state_manage import _apply_patches
     _apply_patches()
@@ -223,6 +226,8 @@ def finish_mesh(torch, source, source_id=None):
     spec.loader.exec_module(module)
     export = module.to_glb
     export_kwargs = export_options(options)
+    if 'face_material_guide' in source:
+        export_kwargs['face_material_guide'] = source['face_material_guide']
     if preserve_decoded:
         export_kwargs.update(remesh=False, repair_holes=False, preserve_decoded_mesh=True)
     elif master_finishing:
@@ -628,6 +633,9 @@ def main():
     resolution = source['resolution']
     result = finish_mesh(torch, source, source_id)
     raw_triangles = len(source['faces'])
+    facial_eyes = source.get('facial_eye_nodes')
+    facial_report = source.get('facial_head_enhancement')
+    facial_uv_guide = 'face_material_guide' in source
     del source
     material_report = (refine_materials(torch, result, source_id, resolution)
                        if settings.get('retexture_after_refinement') else None)
@@ -635,6 +643,14 @@ def main():
     face_report = project_requested_face()
     if source_id and settings.get('master_finishing'):
         preserve_master_generation_views(source_id, result)
+    if facial_eyes:
+        from facial_head_eyes import append_eyes
+        counts = append_eyes(JOB / 'model.glb', facial_eyes, result.metadata['finishing']['normalization'],
+                             check_openings=facial_uv_guide)
+        result.metadata['facial_head_enhancement'] = dict(facial_report, eye_geometry=counts)
+        texels = result.metadata['finishing'].get('facial_reference_texels')
+        if texels is not None:
+            result.metadata['facial_head_enhancement']['reference_color_texels'] = texels
     with (JOB / 'model.glb').open('rb') as model_file:
         result.metadata['finishing']['model_sha256'] = hashlib.file_digest(model_file, 'sha256').hexdigest()
     stats = dict(name=settings['name'], height_m=settings['height_m'], seed=settings['seed'],
@@ -650,6 +666,11 @@ def main():
                  seconds=round(time.time()-started, 1))
     if face_report is not None:
         stats['face_projection'] = face_report
+    if 'facial_head_enhancement' in result.metadata:
+        report = result.metadata['facial_head_enhancement']
+        stats['facial_head_enhancement'] = report
+        stats['triangles'] += report['eye_geometry']['triangles']
+        stats['vertices'] += report['eye_geometry']['vertices']
     if multiview_report is not None:
         method = resolve_texture_method(settings.get('texture_method'), settings.get('multiview_texture_refinement'))
         if method == 'multiview':
