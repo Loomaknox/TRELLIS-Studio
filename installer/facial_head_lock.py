@@ -9,7 +9,7 @@ from pathlib import Path
 @contextmanager
 def component_lock(root):
     if os.name != 'nt':
-        raise RuntimeError('This experimental component currently targets Windows Desktop.')
+        raise RuntimeError('TOPOS face reconstruction requires Windows Desktop.')
     from ctypes import wintypes
     kernel = ctypes.WinDLL('kernel32', use_last_error=True)
     kernel.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]

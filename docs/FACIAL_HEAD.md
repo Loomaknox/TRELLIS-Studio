@@ -1,11 +1,11 @@
-# Visage humanoïde expérimental
+# Améliorer un visage humanoïde avec TOPOS
 
 L’option **Améliorer le visage** utilise MediaPipe et TOPOS-DiT pour traiter automatiquement la tête depuis la T-pose. Elle vise Windows Desktop, TRELLIS.2 mono-image, un humanoïde de face, la résolution 1024 et les matériaux PBR natifs. Elle est décochée par défaut. Sur l’installation de test, le composant occupe environ **4,1 Go** en plus de TRELLIS et des rendus enregistrés.
 
 ## Essayer
 
 1. Dans le dossier de cette version de Studio, ouvrir **Installer le module visage.cmd**. Une installation TRELLIS.2 fonctionnelle et son encodeur de géométrie pour les matériaux 1024 sont requis. L’installateur vérifie les téléchargements et exécute une reconstruction de tête sur le GPU avant de déclarer le composant prêt.
-2. Dans **Créer**, sélectionner l’image, **TRELLIS.2 · Image unique**, **Humanoïde**, **1024** et **PBR natif**. Dans les réglages avancés, cocher **Améliorer le visage (expérimental)**. Les finitions qui reconstruisent ensuite toute la surface et la régénération de matériaux sont incompatibles avec cette option.
+2. Ouvrir le raccourci **TRELLIS Studio** du bureau ou du menu Démarrer. Le serveur fonctionne en arrière-plan et écrit ses journaux dans le dossier `logs` de Studio. Dans **Créer**, sélectionner l’image, **TRELLIS.2 · Image unique**, **Humanoïde**, **1024** et **PBR natif**. Dans les réglages avancés, cocher **Améliorer le visage (TOPOS)**. Les finitions qui reconstruisent ensuite toute la surface et la régénération de matériaux sont incompatibles avec cette option.
 3. Comparer le nouveau modèle avec la génération ordinaire, en gardant la même référence, la même graine et le même profil. Dans **Comparer**, choisir **Cadrer les visages** pour centrer les deux caméras sur les yeux. Examiner le bord des paupières, l’implant, le nez et la bouche de face puis de trois quarts.
 
 Le traitement détecte 478 repères dans le portrait recadré et prédit un maillage de tête. Il reconstruit la surface centrale du visage et découpe une ouverture pour chaque œil. Pendant la création de l’atlas UV, la couleur de la référence guide la peau, les sourcils, les paupières et les lèvres. Les matériaux sont générés une seule fois. Le GLB contient deux globes oculaires, chacun avec son pivot. La couleur des iris est estimée sur l’image quand elle est suffisamment détaillée.
@@ -16,7 +16,7 @@ Les yeux restent des objets distincts dans le GLB exporté. Les outils qui exige
 
 ## Revenir en arrière
 
-- Pour la génération suivante, décocher **Améliorer le visage**. Les générations expérimentales sont des modèles distincts de la collection.
+- Pour la génération suivante, décocher **Améliorer le visage**. Chaque génération avec TOPOS crée un modèle distinct dans la collection.
 - Pour retirer les poids, les dépendances et les caches facultatifs, ouvrir **Desinstaller le module visage.cmd**. Le composant possède son dossier `.tools/facial-head`. Le désinstalleur vérifie son marqueur de propriété et protège les opérations en cours. Il fonctionne aussi après une installation interrompue.
 - Une fois le composant retiré, actualiser la page. Les GLB déjà exportés restent autonomes. Chaque modèle d’essai peut être retiré individuellement depuis la collection.
 

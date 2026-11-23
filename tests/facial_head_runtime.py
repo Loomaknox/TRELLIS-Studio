@@ -39,6 +39,7 @@ class RuntimeTests(unittest.TestCase):
             (out / "head.obj").write_text("previous", encoding="utf-8")
 
             def fail(command, *, cwd, **kwargs):
+                self.assertEqual(kwargs['creationflags'], getattr(runtime.subprocess, 'CREATE_NO_WINDOW', 0))
                 (Path(cwd) / "error.json").write_text(json.dumps({"message": "invalid portrait"}))
                 return type("Result", (), {"returncode": 1})()
 

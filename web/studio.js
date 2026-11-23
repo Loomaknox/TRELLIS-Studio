@@ -370,7 +370,7 @@ function renderSelected(){const j=jobOf(),draft=isCreatureRigDraft(j),workflow=!
   }
   if(j.settings.facial_head_enhancement){
     const state=r?.facial_head_enhancement?.state==='applied'?'Applied':j.state==='done'?'No report':'Requested';
-    entries.push([t('Enhance face (experimental)'),t(state)]);
+    entries.push([t('Enhance face (TOPOS)'),t(state)]);
   }
   const triangleBudget=[j.settings.adaptive_finishing?t('Triangle ceiling'):t('Target triangles'),Number(j.settings.triangles).toLocaleString(formatLocale)];
   if(pixal){

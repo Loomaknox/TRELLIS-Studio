@@ -14,7 +14,7 @@ test('browser language, preference and parameter substitution', async () => {
     const {language, t, localizeStatic} = await import('../web/i18n.js?fr-test');
     assert.equal(language, 'fr');
     const faceMessages = [
-      'Enhance face (experimental)',
+      'Enhance face (TOPOS)',
       'Use a front-facing T- or A-pose. Rebuilds the face before native PBR texturing.',
       'Install the optional face reconstruction component.',
       'Install the local TRELLIS.2 shape encoder and 1024 material weights.',

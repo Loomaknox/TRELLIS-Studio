@@ -75,7 +75,8 @@ def _infer(root, image, output_dir, seed):
         argv = [str(_python(component)), "-I", "-B", "-u", str(script), str(component),
                 str(Path(image).resolve(strict=True)), str(stage), str(int(seed))]
         result = subprocess.run(argv, cwd=stage, env=env, stdin=subprocess.DEVNULL,
-                                timeout=1200, check=False)
+                                timeout=1200, check=False,
+                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         if result.returncode:
             error = stage / "error.json"
             reason = json.loads(error.read_text(encoding="utf-8")) if error.is_file() else {}

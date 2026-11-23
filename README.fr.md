@@ -10,7 +10,7 @@ Les calculs s’exécutent sur la machine qui héberge Studio, où restent les i
 
 ## Interface en français
 
-La branche expérimentale propose un [module local de reconstruction du visage et sa procédure de désinstallation](docs/FACIAL_HEAD.md).
+Sous Windows, le raccourci **TRELLIS Studio** du bureau ou du menu Démarrer ouvre l’interface. Le module facultatif **Améliorer le visage (TOPOS)** reconstruit les paupières et les yeux pendant la génération. [Installation et désinstallation de TOPOS](docs/FACIAL_HEAD.md)
 
 Le sélecteur de langue dans l’en-tête permet de choisir **Français** ou **English**. Studio démarre en français si c’est la langue préférée de ton navigateur. Il mémorise ensuite ton choix dans ce navigateur. Quelques réglages de génération apparaissent encore en anglais, dont **Use Profile Settings**.
 

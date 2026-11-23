@@ -13,7 +13,7 @@ TRELLIS Studio is an independent community application built around **Microsoft 
 
 ## What was tested in the 3.15.1 fork
 
-This experimental branch includes an opt-in [local facial reconstruction module with installation and removal instructions](docs/FACIAL_HEAD.md).
+On Windows, open Studio from its desktop or Start menu shortcut. The optional **Enhance face (TOPOS)** setting reconstructs eyelids and eyes as part of generation. [Install or remove TOPOS](docs/FACIAL_HEAD.md).
 
 - **Collection previews.** Twenty consecutive Edge renders completed with zero preview processes left running. Cancellation, timeout and Studio shutdown were also tested. [Preview tests](tests/collection_preview_stability.py)
 - **Textures.** On an RTX 5070 Ti, MV-Adapter and UltraTex each produced a 2048 × 2048 atlas on the same test mesh. Both outputs preserved the geometry and UVs.
