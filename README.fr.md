@@ -28,10 +28,10 @@ Une seule génération a produit deux variantes, toutes deux avec des textures P
 
 ## Installer la version française sur Windows
 
-Ce fork cible **Windows x64**. Pour installer la version stabilisée, télécharge et décompresse l’archive source ou clone la branche avec Git. Les exécutables Windows du projet d’origine sont publiés par son mainteneur. [Archive ZIP du fork](https://github.com/Loomaknox/TRELLIS-Studio/archive/refs/heads/fix/stabilisation-studio-3.15.1.zip) · [Versions du projet d’origine](https://github.com/yoslo59/TRELLIS-Studio/releases)
+Ce fork cible **Windows x64**. Sa branche par défaut, `main`, contient la version stabilisée. Télécharge et décompresse l’archive source ou clone le dépôt avec Git. Le mainteneur du projet d’origine publie ses propres exécutables Windows. [Archive ZIP du fork](https://github.com/Loomaknox/TRELLIS-Studio/archive/refs/heads/main.zip) · [Versions du projet d’origine](https://github.com/yoslo59/TRELLIS-Studio/releases)
 
 ```powershell
-git clone --branch fix/stabilisation-studio-3.15.1 https://github.com/Loomaknox/TRELLIS-Studio.git
+git clone https://github.com/Loomaknox/TRELLIS-Studio.git
 cd TRELLIS-Studio
 ```
 

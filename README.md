@@ -29,10 +29,10 @@ One local generation produced two finishes from the same saved source. The high-
 
 ### Install from source
 
-For the stabilized fork, download and extract the source ZIP or clone the branch with Git. [Fork source ZIP](https://github.com/Loomaknox/TRELLIS-Studio/archive/refs/heads/fix/stabilisation-studio-3.15.1.zip)
+The fork’s default branch, `main`, contains the stabilized version. Download and extract the source ZIP or clone the repository with Git. [Fork source ZIP](https://github.com/Loomaknox/TRELLIS-Studio/archive/refs/heads/main.zip)
 
 ```powershell
-git clone --branch fix/stabilisation-studio-3.15.1 https://github.com/Loomaknox/TRELLIS-Studio.git
+git clone https://github.com/Loomaknox/TRELLIS-Studio.git
 cd TRELLIS-Studio
 ```
 
