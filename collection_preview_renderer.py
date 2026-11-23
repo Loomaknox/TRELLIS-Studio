@@ -1,6 +1,8 @@
 """Render matching Collection thumbnails in an isolated local Chromium process."""
 
 import base64
+import ctypes
+from ctypes import wintypes
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
@@ -10,6 +12,7 @@ import secrets
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -34,6 +37,127 @@ CSP = (
     "img-src 'self' blob: data:; connect-src 'self' blob: data:; "
     "base-uri 'none'; frame-ancestors 'none'"
 )
+_JOB_BASIC_ACCOUNTING = 1
+_JOB_EXTENDED_LIMIT = 9
+_JOB_KILL_ON_CLOSE = 0x2000
+_PROCESS_ASSIGN_ACCESS = 0x0100 | 0x0001  # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+# Wait for job assignment before launching Chromium. The pipe closes without a
+# permit if Studio exits during startup.
+_JOB_LAUNCHER = """\
+import subprocess
+import sys
+
+if sys.stdin.buffer.read(1) != b'1':
+    sys.exit(1)
+sys.exit(subprocess.call(sys.argv[1:]))
+"""
+
+
+class _JobBasicLimits(ctypes.Structure):
+    _fields_ = [
+        ('per_process_time', ctypes.c_int64), ('per_job_time', ctypes.c_int64),
+        ('flags', wintypes.DWORD), ('min_working_set', ctypes.c_size_t),
+        ('max_working_set', ctypes.c_size_t), ('active_process_limit', wintypes.DWORD),
+        ('affinity', ctypes.c_size_t), ('priority', wintypes.DWORD),
+        ('scheduling_class', wintypes.DWORD),
+    ]
+
+
+class _JobExtendedLimits(ctypes.Structure):
+    _fields_ = [
+        ('basic', _JobBasicLimits), ('io_counters', ctypes.c_uint64 * 6),
+        ('process_memory_limit', ctypes.c_size_t), ('job_memory_limit', ctypes.c_size_t),
+        ('peak_process_memory', ctypes.c_size_t), ('peak_job_memory', ctypes.c_size_t),
+    ]
+
+
+class _JobAccounting(ctypes.Structure):
+    _fields_ = [
+        ('total_user_time', ctypes.c_int64), ('total_kernel_time', ctypes.c_int64),
+        ('period_user_time', ctypes.c_int64), ('period_kernel_time', ctypes.c_int64),
+        ('page_faults', wintypes.DWORD), ('total_processes', wintypes.DWORD),
+        ('active_processes', wintypes.DWORD), ('terminated_processes', wintypes.DWORD),
+    ]
+
+
+class _WindowsBrowserJob:
+    """Keep all descendants in a disposable job owned by Studio."""
+
+    def __init__(self, command):
+        kernel = self.kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        handle = wintypes.HANDLE
+        dword = wintypes.DWORD
+        for name, result, arguments in (
+            ('CreateJobObjectW', handle, (ctypes.c_void_p, wintypes.LPCWSTR)),
+            ('SetInformationJobObject', wintypes.BOOL, (handle, ctypes.c_int, ctypes.c_void_p, dword)),
+            ('QueryInformationJobObject', wintypes.BOOL,
+             (handle, ctypes.c_int, ctypes.c_void_p, dword, ctypes.POINTER(dword))),
+            ('OpenProcess', handle, (dword, wintypes.BOOL, dword)),
+            ('AssignProcessToJobObject', wintypes.BOOL, (handle, handle)),
+            ('TerminateJobObject', wintypes.BOOL, (handle, wintypes.UINT)),
+            ('CloseHandle', wintypes.BOOL, (handle,)),
+        ):
+            function = getattr(kernel, name)
+            function.restype = result
+            function.argtypes = arguments
+
+        self.job = kernel.CreateJobObjectW(None, None)
+        if not self.job:
+            raise ctypes.WinError(ctypes.get_last_error())
+        self.process = None
+        try:
+            limits = _JobExtendedLimits()
+            limits.basic.flags = _JOB_KILL_ON_CLOSE
+            if not kernel.SetInformationJobObject(
+                self.job, _JOB_EXTENDED_LIMIT, ctypes.byref(limits), ctypes.sizeof(limits)
+            ):
+                raise ctypes.WinError(ctypes.get_last_error())
+            self.process = subprocess.Popen(
+                [sys.executable, '-I', '-S', '-c', _JOB_LAUNCHER, *command],
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW, bufsize=0,
+            )
+            with self.process.stdin as permit:
+                process_handle = kernel.OpenProcess(_PROCESS_ASSIGN_ACCESS, False, self.process.pid)
+                if not process_handle:
+                    raise ctypes.WinError(ctypes.get_last_error())
+                try:
+                    if not kernel.AssignProcessToJobObject(self.job, process_handle):
+                        raise ctypes.WinError(ctypes.get_last_error())
+                finally:
+                    kernel.CloseHandle(process_handle)
+                permit.write(b'1')
+        except BaseException:
+            self.close()
+            raise
+
+    def _active_processes(self):
+        accounting = _JobAccounting()
+        if not self.kernel.QueryInformationJobObject(
+            self.job, _JOB_BASIC_ACCOUNTING, ctypes.byref(accounting), ctypes.sizeof(accounting), None
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return accounting.active_processes
+
+    def poll(self):
+        code = self.process.poll()
+        # Chromium on Windows can hand off to another process and exit cleanly.
+        return code if code is not None and self._active_processes() == 0 else None
+
+    def close(self):
+        try:
+            if self.kernel.TerminateJobObject(self.job, 1):
+                deadline = time.monotonic() + 3
+                while self._active_processes() and time.monotonic() < deadline:
+                    time.sleep(.025)
+        finally:
+            self.kernel.CloseHandle(self.job)
+            if self.process is not None:
+                try:
+                    self.process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait(timeout=3)
 
 
 def _find_browser():
@@ -62,29 +186,19 @@ def collection_preview_renderer_available():
 
 
 def _stop_browser(process):
-    if process.poll() is not None:
-        return
     if os.name == 'nt':
-        try:
-            taskkill = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32' / 'taskkill.exe'
-            subprocess.run(
-                [str(taskkill), '/PID', str(process.pid), '/T', '/F'],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
-            process.wait(timeout=3)
-        except (OSError, subprocess.TimeoutExpired):
-            process.kill()
-            process.wait(timeout=3)
-    else:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=3)
-        except ProcessLookupError:
-            process.wait(timeout=2)
+        process.close()
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.wait(timeout=2)
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait(timeout=3)
 
 
 def _thumbnail_server(source, token, results, finished):
@@ -198,21 +312,28 @@ def render_collection_preview(glb: Path, *, cancel: threading.Event | None = Non
             worker.start()
             process = None
             try:
-                options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {'start_new_session': True}
-                process = subprocess.Popen([
+                command = [
                     str(browser), '--headless=new', f'--user-data-dir={profile}',
                     '--no-first-run', '--no-default-browser-check', '--no-proxy-server',
                     '--disable-background-networking', '--disable-component-update', '--disable-default-apps',
                     '--disable-extensions', '--disable-sync', '--disable-breakpad',
                     '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
                     f'http://127.0.0.1:{server.server_port}/{token}/',
-                ], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **options)
+                ]
+                if os.name == 'nt':
+                    process = _WindowsBrowserJob(command)
+                else:
+                    process = subprocess.Popen(
+                        command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL, start_new_session=True,
+                    )
                 deadline = time.monotonic() + TIMEOUT_SECONDS
                 while not finished.wait(.15):
                     if cancel and cancel.is_set():
                         raise RuntimeError('Collection preview cancelled.')
-                    if process.poll() is not None:
-                        raise RuntimeError(f'The Collection preview browser exited ({process.returncode}).')
+                    code = process.poll()
+                    if code is not None:
+                        raise RuntimeError(f'The Collection preview browser exited ({code}).')
                     if time.monotonic() >= deadline:
                         raise RuntimeError('The Collection preview render timed out.')
                 if 'error' in results:

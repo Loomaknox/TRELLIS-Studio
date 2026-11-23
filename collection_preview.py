@@ -19,6 +19,9 @@ MODES = ('textured', 'clay')
 RECIPE = 'v1'
 ARCHIVE = re.compile(r'[a-f0-9]{32}-v[0-9]+-[a-f0-9]+-[a-f0-9]+\.zip')
 MAX_WEBP_BYTES = 512 * 1024
+RETRY_DELAY = 300
+MAX_ATTEMPTS = 2
+STALE_STAGE_SECONDS = 24 * 60 * 60
 
 
 def revision_for(folder):
@@ -86,7 +89,7 @@ def save_preview(cache, folder, revision, content):
         raise ValueError('Invalid collection preview storage.')
     cache.mkdir(parents=True, exist_ok=True)
     target = archive_path(cache, folder, revision)
-    with NamedTemporaryFile(dir=cache, suffix='.tmp', delete=False) as output:
+    with NamedTemporaryFile(dir=cache, prefix='preview-', suffix='.tmp', delete=False) as output:
         staged = Path(output.name)
         try:
             output.write(content)
@@ -107,6 +110,13 @@ def missing_previews(workspaces, failed):
     for owner, outputs, trash, cache in workspaces:
         if cache.resolve() != cache:
             continue
+        stale_before = time.time() - STALE_STAGE_SECONDS
+        for path in cache.glob('preview-*.tmp'):
+            try:
+                if not path.is_symlink() and path.is_file() and path.stat().st_mtime < stale_before:
+                    path.unlink()
+            except OSError:
+                pass
         for path in cache.glob('*.zip'):
             identifier = path.name[:32]
             if ARCHIVE.fullmatch(path.name) and not (outputs / identifier).exists() and not (trash / identifier).exists():
@@ -120,8 +130,9 @@ def missing_previews(workspaces, failed):
             if not ID.fullmatch(folder.name):
                 continue
             revision = revision_for(folder)
-            last_revision, retry_at = failed.get(folder, (None, 0))
-            if (revision and (revision != last_revision or time.monotonic() >= retry_at)
+            last_revision, attempts, retry_at = failed.get(folder, (None, 0, 0))
+            can_retry = revision != last_revision or (attempts < MAX_ATTEMPTS and time.monotonic() >= retry_at)
+            if (revision and can_retry
                     and not archive_path(cache, folder, revision).is_file() and published(folder)):
                 yield owner, cache, folder, revision
 
@@ -135,12 +146,12 @@ class CollectionPreviews:
         self.pending = pending
         self.publish = publish
         self.task = None
-        self.cancel = Event()
+        self.cancel = asyncio.Event()
 
     def start(self):
         from collection_preview_renderer import collection_preview_renderer_available
 
-        if collection_preview_renderer_available():
+        if self.task is None and collection_preview_renderer_available():
             self.task = asyncio.create_task(self.run())
 
     async def close(self):
@@ -153,20 +164,27 @@ class CollectionPreviews:
 
         render_cancel = Event()
         render = asyncio.create_task(asyncio.to_thread(render_collection_preview, folder / 'model.glb', cancel=render_cancel))
-        while not render.done():
-            await asyncio.wait({render}, timeout=0.25)
-            if self.cancel.is_set() or self.busy():
+        try:
+            while not render.done():
+                await asyncio.wait({render}, timeout=0.25)
+                if self.cancel.is_set() or self.busy():
+                    render_cancel.set()
+                    return None
+            return preview_archive(render.result())
+        finally:
+            if render_cancel.is_set() or not render.done():
                 render_cancel.set()
-        if render_cancel.is_set():
-            await asyncio.gather(render, return_exceptions=True)
-            return None
-        return preview_archive(render.result())
+                await asyncio.gather(render, return_exceptions=True)
 
     async def run(self):
         failed = {}
         delay = 0.25
         while not self.cancel.is_set():
-            await asyncio.sleep(delay)
+            try:
+                await asyncio.wait_for(self.cancel.wait(), timeout=delay)
+                break
+            except asyncio.TimeoutError:
+                pass
             delay = 2
             if self.cancel.is_set() or self.busy():
                 continue
@@ -178,7 +196,7 @@ class CollectionPreviews:
                 LOG.exception('Could not scan the Collection for missing previews.')
                 delay = 20
                 continue
-            if not candidate or self.busy():
+            if not candidate or self.cancel.is_set() or self.busy():
                 continue
             owner, cache, folder, revision = candidate
             try:
@@ -187,11 +205,13 @@ class CollectionPreviews:
                     continue
                 saved = (save_preview(cache, folder, revision, content) if self.publish is None
                          else await self.publish(owner, cache, folder, revision, content))
-                if not saved:
-                    failed[folder] = (revision, time.monotonic() + 300)
-                else:
+                if saved:
                     failed.pop(folder, None)
+                    delay = 0.25
+                    continue
             except (OSError, RuntimeError, ValueError):
                 LOG.exception('Could not save the Collection preview for %s.', folder.name)
-                failed[folder] = (revision, time.monotonic() + 300)
+            last_revision, attempts, _ = failed.get(folder, (None, 0, 0))
+            attempts = attempts + 1 if last_revision == revision else 1
+            failed[folder] = (revision, attempts, time.monotonic() + RETRY_DELAY)
             delay = 0.25
