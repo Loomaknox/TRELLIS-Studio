@@ -1,8 +1,53 @@
-# Shared by Windows Setup and the Start menu repair shortcut.
+﻿# Shared by Windows Setup and the Start menu repair shortcut.
+$guidedFrenchText=@{
+    'Expected a JSON object in {0}.'='Le fichier {0} doit contenir un objet JSON.'
+    'Required executable was not found: {0}'='Exécutable requis introuvable : {0}'
+    'Component command exited with code {0}. {1}'="La commande du composant s’est terminée avec le code {0}. {1}"
+    'Checking prerequisites and existing files.'='Vérification des prérequis et des fichiers existants.'
+    'Existing {0} check failed. Preparing only this component again.'='La vérification de {0} a échoué. Reprise de ce composant uniquement.'
+    'Verification completed.'='Vérification terminée.'
+    'Unsupported component setup receipt. Existing settings were preserved.'="Format du reçu d’installation non pris en charge. Les réglages ont été conservés."
+    'Unknown setup component: {0}.'='Composant inconnu : {0}.'
+    'The packaged FLUX.2 [klein] 9B model terms could not be verified. Use the complete Setup package.'="Impossible de vérifier les conditions de FLUX.2 [klein] 9B. Utilisez le programme d’installation complet."
+    'The pinned MeshLib terms could not be verified. Use the complete Setup package.'="Impossible de vérifier les conditions de MeshLib. Utilisez le programme d’installation complet."
+    'The FLUX.2 [klein] 9B model terms have not been accepted. Run Setup again to select High Detail and Game Asset.'="Les conditions de FLUX.2 [klein] 9B n’ont pas été acceptées. Relancez l’installation et sélectionnez High Detail et Game Asset."
+    'The MeshLib terms have not been accepted. Run Setup again to select High Detail and Game Asset.'="Les conditions de MeshLib n’ont pas été acceptées. Relancez l’installation et sélectionnez High Detail et Game Asset."
+    'GPU selection changed. Run Repair or resume components to verify it on the new GPU.'='Le GPU sélectionné a changé. Ouvrez Réparer ou reprendre les composants pour vérifier le nouveau GPU.'
+    'Workshop preparation failed. See logs/component-setup.log and open Repair or resume components from the Start menu.'="La préparation de l’Atelier a échoué. Consultez logs/component-setup.log, puis ouvrez Réparer ou reprendre les composants dans le menu Démarrer."
+    'TRELLIS and Pixal3D use DINOv3. Read the model license at {0}.'='TRELLIS et Pixal3D utilisent DINOv3. Lisez la licence du modèle dans {0}.'
+    'Type ACCEPT after reading the DINOv3 license'='Après lecture de la licence DINOv3, saisissez ACCEPT'
+    'The DINOv3 license has not been accepted.'="La licence DINOv3 n’a pas été acceptée."
+    'Preparing the standalone High Detail and Game Asset workflows with native UltraTex. The optional six-view UltraTex preview is a separate component.'="Préparation des profils High Detail et Game Asset avec UltraTex natif. L’aperçu UltraTex à six vues est un composant distinct."
+    'Verify TRELLIS.2 generation on the selected GPU first.'="Vérifiez d’abord la génération TRELLIS.2 sur le GPU sélectionné."
+    'Verify TRELLIS generation on the selected GPU first.'="Vérifiez d’abord la génération TRELLIS.2 sur le GPU sélectionné."
+    'The Hi3D, DINOv2 and CLIP terms have not been accepted. Run Setup and select Hi3D again.'="Les conditions de Hi3D, DINOv2 et CLIP n’ont pas été acceptées. Relancez l’installation et sélectionnez Hi3D."
+    'The Stable Diffusion 2.1 and MV-Adapter terms have not been accepted. Run Setup and select multiview texture refinement.'="Les conditions de Stable Diffusion 2.1 et de MV-Adapter n’ont pas été acceptées. Relancez l’installation et sélectionnez MV-Adapter."
+    'The FLUX.2 [klein] 9B model terms have not been accepted. Run Setup again to select UltraTex.'="Les conditions de FLUX.2 [klein] 9B n’ont pas été acceptées. Relancez l’installation et sélectionnez UltraTex."
+    'This test build has no validated UniRig wheels for the selected GPU.'="Les paquets UniRig n’ont pas été validés pour ce GPU sur cette version de test."
+    'WSL is unavailable. Install and initialize Ubuntu 22.04 under WSL2, then resume UniRig.'="WSL est indisponible. Installez et initialisez Ubuntu 22.04 dans WSL2, puis reprenez l’installation d’UniRig."
+    'Open and finish the first-run setup of the selected WSL2 distribution, then resume UniRig.'="Ouvrez la distribution WSL2 sélectionnée et terminez sa configuration initiale, puis reprenez l’installation d’UniRig."
+    'Kimodo is not enabled in the existing runtime settings.'='Kimodo est désactivé dans les réglages actuels.'
+    'Components to resume: {0}. Open Repair or resume components from the Start menu.'='Composants à reprendre : {0}. Ouvrez Réparer ou reprendre les composants dans le menu Démarrer.'
+    'The selected components are ready.'='Les composants sélectionnés sont prêts.'
+    workshop='Atelier'
+    animations='Animations standard'
+    'native-workflows'='High Detail et Game Asset'
+    'multiview-texture'='MV-Adapter'
+    installing='en cours'
+    deferred='reporté'
+    ready='prêt'
+    failed='échec'
+}
+
+function Get-GuidedSetupText([string]$Text) {
+    if ($setupFrench -and $guidedFrenchText.ContainsKey($Text)) { return $guidedFrenchText[$Text] }
+    return $Text
+}
+
 function Read-GuidedSetupJson([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return @{} }
     $document=Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($document -isnot [pscustomobject]) { throw "Expected a JSON object in $Path." }
+    if ($document -isnot [pscustomobject]) { throw ((Get-GuidedSetupText 'Expected a JSON object in {0}.') -f $Path) }
     $values=@{}
     foreach ($property in $document.PSObject.Properties) { $values[$property.Name]=$property.Value }
     return $values
@@ -21,7 +66,7 @@ function Save-GuidedSetupJson([string]$Path,[hashtable]$Document) {
 }
 
 function Invoke-GuidedSetupCommand([string]$Executable,[string[]]$Arguments) {
-    if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) { throw "Required executable was not found: $Executable" }
+    if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) { throw ((Get-GuidedSetupText 'Required executable was not found: {0}') -f $Executable) }
     # Windows PowerShell can surface ordinary native stderr output as an ErrorRecord.
     $ErrorActionPreference='Continue'
     $lastLine=''; $lastError=''
@@ -41,14 +86,14 @@ function Invoke-GuidedSetupCommand([string]$Executable,[string[]]$Arguments) {
     $code=$LASTEXITCODE
     if ($code -ne 0) {
         $detail=if ($lastError) {$lastError} else {$lastLine}
-        throw "Component command exited with code $code. $detail"
+        throw ((Get-GuidedSetupText 'Component command exited with code {0}. {1}') -f $code,$detail)
     }
 }
 
 function Set-GuidedComponentResult([string]$Component,[string]$Status,[string]$Message) {
     $setupState.components[$Component]=@{status=$Status;message=$Message;checked_at=[DateTime]::UtcNow.ToString('o')}
     Save-GuidedSetupJson $setupStatePath $setupState
-    Write-Host "$($Component): $Status. $Message"
+    Write-Host ('{0}: {1}. {2}' -f (Get-GuidedSetupText $Component),(Get-GuidedSetupText $Status),(Get-GuidedSetupText $Message))
 }
 
 function Invoke-GuidedComponent([string]$Component,[scriptblock]$Install,[scriptblock]$Verify,[string]$DeferredReason='') {
@@ -62,7 +107,7 @@ function Invoke-GuidedComponent([string]$Component,[scriptblock]$Install,[script
         $verified=$false
         if ($previous.status -eq 'ready' -and $Verify) {
             try { & $Verify; $verified=$true }
-            catch { Write-Host "Existing $Component check failed. Preparing only this component again." }
+            catch { Write-Host ((Get-GuidedSetupText 'Existing {0} check failed. Preparing only this component again.') -f (Get-GuidedSetupText $Component)) }
         }
         if (-not $verified) { & $Install }
         Set-GuidedComponentResult $Component 'ready' 'Verification completed.'
@@ -89,15 +134,17 @@ function Invoke-GuidedSetup {
         [switch]$AcceptUltraTexModelLicenses,
         [switch]$SkipUltraTex,
         [switch]$AcceptNativeWorkflowModelLicenses,
-        [switch]$SkipNativeWorkflows
+        [switch]$SkipNativeWorkflows,
+        [ValidateSet('en','fr')][string]$Language='en'
     )
+    $setupFrench=$Language -eq 'fr'
     $env:UV_LINK_MODE='copy'
     $env:UV_NO_CACHE='1'
     . (Join-Path $PSScriptRoot 'Setup-Preflight.ps1')
     $setupOrder=@('trellis','native-workflows','pixal3d','hi3d','multiview-texture','ultratex','unirig','kimodo')
     $setupStatePath=Join-Path $InstallRoot 'config\component-install.json'
     $setupState=Read-GuidedSetupJson $setupStatePath
-    if ($setupState.Count -and $setupState.schema -ne 1) { throw 'Unsupported component setup receipt. Existing settings were preserved.' }
+    if ($setupState.Count -and $setupState.schema -ne 1) { throw (Get-GuidedSetupText 'Unsupported component setup receipt. Existing settings were preserved.') }
     $setupState.schema=1
     foreach ($section in @('components','licenses')) {
         $entries=@{}
@@ -126,7 +173,7 @@ function Invoke-GuidedSetup {
         $setupState.requested=@($setupState.requested | Where-Object { $_ -ne 'ultratex' })
     }
     foreach ($name in $requested) {
-        if ($name -notin $setupOrder) { throw "Unknown setup component: $name." }
+        if ($name -notin $setupOrder) { throw ((Get-GuidedSetupText 'Unknown setup component: {0}.') -f $name) }
     }
     if (@($requested | Where-Object { $_ -in @('native-workflows','pixal3d','hi3d','multiview-texture','ultratex') }).Count) { $requested+=@('trellis') }
     $selected=@($setupOrder | Where-Object {$_ -in $requested})
@@ -135,7 +182,7 @@ function Invoke-GuidedSetup {
 
     $setupConfigPath=Join-Path $InstallRoot 'config\runtime.json'
     $config=Read-GuidedSetupJson $setupConfigPath
-    $probeArgs=@{InstallRoot=$InstallRoot}
+    $probeArgs=@{InstallRoot=$InstallRoot; Language=$Language}
     if ($GpuUuid) { $probeArgs.GpuUuid=$GpuUuid }
     if ($BlenderPath) { $probeArgs.BlenderPath=$BlenderPath }
     if ($WslDistribution) { $probeArgs.WslDistribution=$WslDistribution }
@@ -196,7 +243,7 @@ function Invoke-GuidedSetup {
     if ($NeedsWorkshop -or $setupState.components.workshop.status -ne 'ready') {
         Invoke-GuidedComponent 'workshop' $workshopInstall
         if ($setupState.components.workshop.status -ne 'ready') {
-            throw 'Workshop preparation failed. See logs/component-setup.log and open Repair or resume components from the Start menu.'
+            throw (Get-GuidedSetupText 'Workshop preparation failed. See logs/component-setup.log and open Repair or resume components from the Start menu.')
         }
     }
 
@@ -212,9 +259,9 @@ function Invoke-GuidedSetup {
         $license=Join-Path $InstallRoot 'licenses\DINOv3-LICENSE.md'
         $licenseHash=(Get-FileHash -LiteralPath $license -Algorithm SHA256).Hash
         if ($setupState.licenses.dinov3 -cne $licenseHash) {
-            Write-Host "TRELLIS and Pixal3D use DINOv3. Read the model license at $license."
+            Write-Host ((Get-GuidedSetupText 'TRELLIS and Pixal3D use DINOv3. Read the model license at {0}.') -f $license)
             Write-Host 'https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md'
-            if ((Read-Host 'Type ACCEPT after reading the DINOv3 license') -ceq 'ACCEPT') {
+            if ((Read-Host (Get-GuidedSetupText 'Type ACCEPT after reading the DINOv3 license')) -ceq 'ACCEPT') {
                 $setupState.licenses.dinov3=$licenseHash
                 Save-GuidedSetupJson $setupStatePath $setupState
             } else { $nativeReason='The DINOv3 license has not been accepted.' }
@@ -226,7 +273,7 @@ function Invoke-GuidedSetup {
         Invoke-GuidedComponent 'trellis' $nativeInstall $nativeVerify $nativeReason
     }
     if ('native-workflows' -in $selected) {
-        Write-Host 'Preparing the standalone High Detail and Game Asset workflows with native UltraTex. The optional six-view UltraTex preview is a separate component.'
+        Write-Host (Get-GuidedSetupText 'Preparing the standalone High Detail and Game Asset workflows with native UltraTex. The optional six-view UltraTex preview is a separate component.')
         if (-not $nativeWorkflowReason -and $setupState.components.trellis.status -ne 'ready') {
             $nativeWorkflowReason='Verify TRELLIS.2 generation on the selected GPU first.'
         }
@@ -351,9 +398,10 @@ function Invoke-GuidedSetup {
     }
     $pending=@((@('animations')+$selected) | Where-Object {$setupState.components[$_].status -ne 'ready'})
     if ($pending.Count) {
-        Write-Host ('Components to resume: '+($pending -join ', ')+'. Open Repair or resume components from the Start menu.')
+        $pendingNames=@($pending | ForEach-Object { Get-GuidedSetupText $_ })
+        Write-Host ((Get-GuidedSetupText 'Components to resume: {0}. Open Repair or resume components from the Start menu.') -f ($pendingNames -join ', '))
         return 3
     }
-    Write-Host 'The selected components are ready.'
+    Write-Host (Get-GuidedSetupText 'The selected components are ready.')
     return 0
 }

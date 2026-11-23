@@ -1,8 +1,9 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true)][string]$InstallRoot,
     [Parameter(Mandatory=$true)][ValidateSet('Install','Uninstall','ServerStartup')][string]$Action,
     [ValidateSet(0,1)][int]$DesktopShortcut=0,
-    [ValidateSet(0,1)][int]$ServerMode=0
+    [ValidateSet(0,1)][int]$ServerMode=0,
+    [ValidateSet(1033,1036)][int]$SetupLanguage=$(if ((Get-UICulture).TwoLetterISOLanguageName -eq 'fr') {1036} else {1033})
 )
 $ErrorActionPreference='Stop'
 $installRoot=[IO.Path]::GetFullPath($InstallRoot)
@@ -22,20 +23,21 @@ $serverDesktopName=$serverName+'.lnk'
 $desktopDescription=$studioName+' (Windows Setup)'
 $previousRigLabel='Install generation and UniRig.lnk'
 $rigLabel=if ($guided) {'Install UniRig.lnk'} else {$previousRigLabel}
+$rigLabelFr=if ($guided) {'Installer UniRig.lnk'} else {'Installer la génération et UniRig.lnk'}
 $links=@(
     @{ Name='TRELLIS Studio.lnk'; Arguments='--mode desktop --start'; Target=$tray; Legacy='' }
-    @{ Name='Install TRELLIS generation.lnk'; Arguments='Generation' }
-    @{ Name=$rigLabel; Arguments='Rig' }
-    @{ Name='Install Pixal3D.lnk'; Arguments='Pixal3D' }
-    @{ Name='Install Kimodo motion generation.lnk'; Arguments='Kimodo' }
-    @{ Name='Stop TRELLIS Studio.lnk'; Arguments='Stop' }
+    @{ Name='Install TRELLIS generation.lnk'; FrenchName='Installer la génération TRELLIS.lnk'; Arguments='Generation' }
+    @{ Name=$rigLabel; FrenchName=$rigLabelFr; Arguments='Rig' }
+    @{ Name='Install Pixal3D.lnk'; FrenchName='Installer Pixal3D.lnk'; Arguments='Pixal3D' }
+    @{ Name='Install Kimodo motion generation.lnk'; FrenchName='Installer Kimodo.lnk'; Arguments='Kimodo' }
+    @{ Name='Stop TRELLIS Studio.lnk'; FrenchName='Arrêter TRELLIS Studio.lnk'; Arguments='Stop' }
 )
-if ($guided) { $links+=@(@{ Name='Repair or resume components.lnk'; Arguments='Retry' }) }
+if ($guided) { $links+=@(@{ Name='Repair or resume components.lnk'; FrenchName='Réparer ou reprendre les composants.lnk'; Arguments='Retry' }) }
 if ($ServerMode -or $Action -eq 'Uninstall') {
     $links+=@(
         @{ Name='TRELLIS Server.lnk'; Arguments='--mode server --start'; Target=$tray; Legacy='Server' }
-        @{ Name='Configure TRELLIS Server.lnk'; Arguments='ConfigureServer' }
-        @{ Name='Stop TRELLIS Server.lnk'; Arguments='StopServer' }
+        @{ Name='Configure TRELLIS Server.lnk'; FrenchName='Configurer TRELLIS Server.lnk'; Arguments='ConfigureServer' }
+        @{ Name='Stop TRELLIS Server.lnk'; FrenchName='Arrêter TRELLIS Server.lnk'; Arguments='StopServer' }
     )
 }
 $shell=New-Object -ComObject WScript.Shell
@@ -114,10 +116,22 @@ try {
         New-Item -ItemType Directory -Path $menu -Force | Out-Null
     }
     foreach ($link in $links) {
-        if($link.Target){Update-StudioShortcut (Join-Path $menu $link.Name) $link.Arguments -Target $link.Target -Legacy $link.Legacy}
-        else{Update-StudioShortcut (Join-Path $menu $link.Name) $link.Arguments}
+        if ($link.Target) {
+            Update-StudioShortcut (Join-Path $menu $link.Name) $link.Arguments -Target $link.Target -Legacy $link.Legacy
+            continue
+        }
+        $linkName,$otherName,$otherLanguage=if ($SetupLanguage -eq 1036) {
+            $link.FrenchName,$link.Name,1033
+        } else {
+            $link.Name,$link.FrenchName,1036
+        }
+        Update-StudioShortcut (Join-Path $menu $linkName) "$($link.Arguments) -SetupLanguage $SetupLanguage" -Legacy $link.Arguments
+        Update-StudioShortcut (Join-Path $menu $otherName) "$($link.Arguments) -SetupLanguage $otherLanguage" -Legacy $link.Arguments -Remove
     }
-    if ($guided) { Update-StudioShortcut (Join-Path $menu $previousRigLabel) 'Rig' -Remove }
+    if ($guided) {
+        Update-StudioShortcut (Join-Path $menu $previousRigLabel) 'Rig -SetupLanguage 1033' -Legacy 'Rig' -Remove
+        Update-StudioShortcut (Join-Path $menu 'Installer la génération et UniRig.lnk') 'Rig -SetupLanguage 1036' -Legacy 'Rig' -Remove
+    }
     if ($desktop) {
         if (-not $ServerMode -or $Action -eq 'Uninstall') {
             Update-StudioShortcut (Join-Path $desktop $desktopName) '--mode desktop --start' -Target $tray -Legacy '' -OnDesktop
