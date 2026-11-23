@@ -25,7 +25,7 @@ from hi3d_runtime import HI3D_TRIANGLE_CAP, hi3d_source_status, hi3d_status
 RETRY_STATES = {'error', 'cancelled'}
 RETRY_FIELDS = {'resolution', 'texture_size', 'triangles', 'height_m', 'priority',
                 'mesh_mode', 'pre_simplify', 'repair_holes', 'bake_normals', 'repair_surface', 'hd_reconstruction',
-                'wtivo_reconstruction', 'multiview_texture_refinement', 'texture_method', 'workflow_options'}
+                'wtivo_reconstruction', 'multiview_texture_refinement', 'texture_method', 'workflow_options', 'facial_head_enhancement'}
 RETRY_FINISHING_FIELDS = ('mesh_mode', 'pre_simplify', 'repair_holes')
 PREPARED_REFERENCES = (*PREPARED_VIEWS.values(), 'conditioning.png')
 PRESENTATION_FILES = dict(thumbnail='thumbnail.png', capture='capture.png', turntable='turntable.webm')
@@ -375,6 +375,7 @@ class StudioServices:
         variant.mkdir()
         settings = dict(record['settings'])
         settings.pop('keep_finishing_source', None)
+        settings.pop('facial_head_enhancement', None)
         settings.pop('adaptive_finishing', None)
         settings.pop('budget_preset', None)
         settings.pop('bake_normals', None)
@@ -412,6 +413,7 @@ class StudioServices:
             settings['retexture_after_refinement'] = True
         if isinstance(settings.get('profile_snapshot'), dict):
             snapshot = settings['profile_snapshot'].copy()
+            snapshot.pop('facial_head_enhancement', None)
             snapshot.pop('adaptive_finishing', None)
             snapshot.pop('repair_surface', None)
             snapshot.pop('hd_reconstruction', None)
@@ -515,7 +517,7 @@ class StudioServices:
         if 'workflow_options' in changes:
             raise ValueError('Choose a profile that uses workflow settings.')
         if saved.get('master_finishing') and set(changes) - {
-                'resolution', 'texture_size', 'height_m', 'priority', 'multiview_texture_refinement', 'texture_method'}:
+                'resolution', 'texture_size', 'height_m', 'priority', 'multiview_texture_refinement', 'texture_method', 'facial_head_enhancement'}:
             raise ValueError('HD Master Finishing fixes the reconstruction and triangle ceiling.')
 
         refinish = saved.get('source_kind') == 'refinish'
@@ -655,10 +657,25 @@ class StudioServices:
             if any(type(finishing[key]) is not bool for key in ('pre_simplify', 'repair_holes') if key in finishing):
                 raise ValueError('Choose valid options for pre-simplification and hole repair.')
             settings['generation_options'] = {**options_for_job(settings), **finishing}
+        enhanced = changes.get('facial_head_enhancement', saved.get('facial_head_enhancement', False))
+        if type(enhanced) is not bool:
+            raise ValueError('Invalid face enhancement setting.')
+        if enhanced:
+            self.g['require_facial_head'](engine=settings.get('engine', 'trellis2'), asset_type=settings.get('asset_type'),
+                                          resolution=resolution, texture_method=texture_method,
+                                          reconstructing=refinish or hd_reconstruction or wtivo or settings.get('repair_surface')
+                                          or settings.get('master_finishing') not in (None, 'none') or settings.get('retexture_after_refinement'))
+            settings['facial_head_enhancement'] = True
+        else:
+            settings.pop('facial_head_enhancement', None)
         profile = saved.get('profile_snapshot')
         if isinstance(profile, dict):
             settings['profile_snapshot'] = dict(profile, resolution=resolution, triangles=triangles,
                                                 texture_size=texture_size)
+            if enhanced:
+                settings['profile_snapshot']['facial_head_enhancement'] = True
+            else:
+                settings['profile_snapshot'].pop('facial_head_enhancement', None)
             if 'multiview_texture_refinement' in changes or 'texture_method' in changes:
                 snapshot = settings['profile_snapshot']
                 snapshot['texture_method'] = texture_method
@@ -840,7 +857,7 @@ class StudioServices:
                 allowed = {'name', 'profile_id', 'height_m', 'seed', 'priority', 'remove_bg', 'triangles',
                            'texture_size', 'resolution', 'advanced_settings', 'asset_type', 'reference_prompt',
                            'parent_id', 'keep_finishing_source', 'repair_surface', 'hd_reconstruction',
-                           'reference_edits', 'engine', 'master_finishing', 'reproject_face',
+                           'reference_edits', 'engine', 'master_finishing', 'reproject_face', 'facial_head_enhancement',
                            'retexture_after_refinement', 'multiview_texture_refinement', 'texture_method', 'workflow_options'}
                 if any(not isinstance(s,dict) or set(s)-allowed for s in specs):raise ValueError('Unknown queue settings.')
                 for spec in specs:
@@ -854,6 +871,8 @@ class StudioServices:
                     if 'repair_surface' in spec and type(spec['repair_surface']) is not bool:raise ValueError('Invalid surface repair setting.')
                     if 'hd_reconstruction' in spec and type(spec['hd_reconstruction']) is not bool:raise ValueError('Invalid HD Reconstruction setting.')
                     if 'reproject_face' in spec and type(spec['reproject_face']) is not bool:raise ValueError('Invalid face reprojection setting.')
+                    if 'facial_head_enhancement' in spec and type(spec['facial_head_enhancement']) is not bool:
+                        raise ValueError('Invalid face enhancement setting.')
                     if 'retexture_after_refinement' in spec and type(spec['retexture_after_refinement']) is not bool:
                         raise ValueError('Invalid post-refinement texturing setting.')
                     if 'multiview_texture_refinement' in spec and type(spec['multiview_texture_refinement']) is not bool:
@@ -894,6 +913,7 @@ class StudioServices:
                     if 'multiview_texture_refinement' in spec and 'texture_method' not in spec:
                         params['texture_method'] = None
                     params['reproject_face'] = spec.get('reproject_face', False)
+                    params['facial_head_enhancement'] = spec.get('facial_head_enhancement', False)
                     if params['engine'] == 'pixal3d_single':
                         params['resolution'] = spec.get('resolution', 1024)
                         params['advanced_settings'] = json.dumps(spec.get('advanced_settings', {}))

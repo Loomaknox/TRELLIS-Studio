@@ -58,6 +58,9 @@ def generate_source(torch):
             del session
             gc.collect()
         image.save(JOB / 'prepared.png')
+    if settings.get('facial_head_enhancement') is True:
+        from facial_head_generation import generate
+        return generate(ROOT, JOB, settings, image, reviewed, options, status)
     status('running', 'Loading model weights', 8)
     from api_spz.core.state_manage import _apply_patches
     _apply_patches()
@@ -628,6 +631,8 @@ def main():
     resolution = source['resolution']
     result = finish_mesh(torch, source, source_id)
     raw_triangles = len(source['faces'])
+    facial_eyes = source.get('facial_eye_nodes')
+    facial_report = source.get('facial_head_enhancement')
     del source
     material_report = (refine_materials(torch, result, source_id, resolution)
                        if settings.get('retexture_after_refinement') else None)
@@ -635,6 +640,10 @@ def main():
     face_report = project_requested_face()
     if source_id and settings.get('master_finishing'):
         preserve_master_generation_views(source_id, result)
+    if facial_eyes:
+        from facial_head_eyes import append_eyes
+        counts = append_eyes(JOB / 'model.glb', facial_eyes, result.metadata['finishing']['normalization'])
+        result.metadata['facial_head_enhancement'] = dict(facial_report, eye_geometry=counts)
     with (JOB / 'model.glb').open('rb') as model_file:
         result.metadata['finishing']['model_sha256'] = hashlib.file_digest(model_file, 'sha256').hexdigest()
     stats = dict(name=settings['name'], height_m=settings['height_m'], seed=settings['seed'],
@@ -650,6 +659,11 @@ def main():
                  seconds=round(time.time()-started, 1))
     if face_report is not None:
         stats['face_projection'] = face_report
+    if 'facial_head_enhancement' in result.metadata:
+        report = result.metadata['facial_head_enhancement']
+        stats['facial_head_enhancement'] = report
+        stats['triangles'] += report['eye_geometry']['triangles']
+        stats['vertices'] += report['eye_geometry']['vertices']
     if multiview_report is not None:
         method = resolve_texture_method(settings.get('texture_method'), settings.get('multiview_texture_refinement'))
         if method == 'multiview':

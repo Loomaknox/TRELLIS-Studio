@@ -169,7 +169,7 @@ def install(app,g):
         source,entry=upload(data.upload_id,'image');spec=dict(name=data.name,profile_id=data.profile_id,height_m=data.height_m,priority=data.priority,**data.overrides)
         if 'seed' in data.model_fields_set:
             spec['seed'] = data.seed
-        spec.update(data.model_dump(include={'reference_edits', 'engine', 'master_finishing', 'reproject_face',
+        spec.update(data.model_dump(include={'reference_edits', 'engine', 'master_finishing', 'reproject_face', 'facial_head_enhancement',
                                              'retexture_after_refinement', 'multiview_texture_refinement', 'texture_method'},
                                     exclude_none=True))
         with source.open('rb') as stream:

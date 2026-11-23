@@ -68,6 +68,8 @@ class Generation(Contract):
     engine: SingleImageEngine = 'trellis2'
     master_finishing: CreateMasterFinishing | None = None
     reproject_face: bool = False
+    facial_head_enhancement: bool = Field(default=False, strict=True,
+        description='Desktop humanoid face geometry enhancement before native PBR. Requires the optional runtime and TRELLIS.2 single image at 1024.')
     retexture_after_refinement: bool | None = None
     texture_method: TextureMethod | None = None
     multiview_texture_refinement: bool | None = Field(default=None, strict=True,
@@ -327,6 +329,7 @@ class QueueEdit(Contract):
 
 class JobRetry(Contract):
     workflow_options: dict | None = Field(default=None, description='Advanced options keyed by stage for a standalone profile.')
+    facial_head_enhancement: bool | None = Field(default=None, strict=True)
     resolution: Literal[512, 1024, 1536] | None = None
     texture_size: Literal[1024, 2048, 4096] | None = None
     triangles: int | None = Field(default=None, ge=TRIANGLE_MIN, le=TRIANGLE_MAX)

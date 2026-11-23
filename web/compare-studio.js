@@ -11,7 +11,7 @@ export function createComparison({api,getRecords,labelAnimation}){
  const variant=(j,level)=>({...j,id:j.id+':LOD'+level.level,metadata:{...j.metadata,display_name:nameOf(j)+' · LOD '+level.level},settings:{...j.settings,parent_id:j.id},result:{...j.result,triangles:level.triangles},preview_url:`/api/jobs/${j.id}/variants/${level.file}?v=${j.result?.revision||0}`});
  const records=()=>getRecords().flatMap(j=>[j,...(j.lods?.levels||[]).filter(l=>l.level>0).map(l=>variant(j,l))]);
  const dialog=document.createElement('dialog');dialog.id='compareDialog';dialog.className='studio-dialog compare-dialog';dialog.setAttribute('aria-labelledby','compareTitle');
- dialog.innerHTML=`<header class="studio-dialog-head"><div><span class="eyebrow">SIDE BY SIDE</span><h2 id="compareTitle">Compare models</h2><p>Orbit, pan and zoom either view. Both cameras stay in sync.</p></div><button type="button" class="dialog-x" aria-label="Close comparison" data-close></button></header><div class="compare-options"><label class="check"><input id="compareMatch" type="checkbox" checked><span>Match framing</span></label><label class="check"><input id="compareSkeleton" type="checkbox"><span>Show skeletons</span></label><label class="check"><input id="compareWire" type="checkbox"><span>Wireframe</span></label><button id="compareFrame" class="secondary" type="button">Frame both</button><span id="compareDelta" class="compare-delta"></span></div><div class="compare-panes"></div><footer class="compare-footer"><button id="comparePlay" class="secondary" type="button" aria-pressed="false">Play clips</button><label>Shared timeline<input id="compareTime" type="range" min="0" max="1" step=".001" value="0" aria-label="Comparison timeline"></label><span id="compareTimeValue">0%</span><small>Match framing normalises display height; source files stay unchanged.</small></footer>`;
+ dialog.innerHTML=`<header class="studio-dialog-head"><div><span class="eyebrow">SIDE BY SIDE</span><h2 id="compareTitle">Compare models</h2><p>Orbit, pan and zoom either view. Both cameras stay in sync.</p></div><button type="button" class="dialog-x" aria-label="Close comparison" data-close></button></header><div class="compare-options"><label class="check"><input id="compareMatch" type="checkbox" checked><span>Match framing</span></label><label class="check"><input id="compareSkeleton" type="checkbox"><span>Show skeletons</span></label><label class="check"><input id="compareWire" type="checkbox"><span>Wireframe</span></label><button id="compareFrame" class="secondary" type="button">Frame both</button><button id="compareFaces" class="secondary" type="button" hidden>Frame faces</button><span id="compareDelta" class="compare-delta"></span></div><div class="compare-panes"></div><footer class="compare-footer"><button id="comparePlay" class="secondary" type="button" aria-pressed="false">Play clips</button><label>Shared timeline<input id="compareTime" type="range" min="0" max="1" step=".001" value="0" aria-label="Comparison timeline"></label><span id="compareTimeValue">0%</span><small>Match framing normalises display height; source files stay unchanged.</small></footer>`;
  localizeStatic(dialog);document.body.append(dialog);const $=id=>dialog.querySelector('#'+id);let panes=[],syncing=false,playing=false,frame=0,last=0,phase=0,token=0;
  const back=document.createElement('button');back.type='button';back.className='secondary';back.textContent=t('Back to finishing board');back.hidden=true;
  const measure=document.createElement('button');measure.type='button';measure.className='secondary';measure.textContent=t('Measure open edges');
@@ -22,8 +22,32 @@ export function createComparison({api,getRecords,labelAnimation}){
  function cameraSync(from){if(syncing)return;syncing=true;for(const p of panes)if(p!==from){p.camera.position.copy(from.camera.position);p.camera.quaternion.copy(from.camera.quaternion);p.camera.up.copy(from.camera.up);p.camera.near=from.camera.near;p.camera.far=from.camera.far;p.camera.updateProjectionMatrix();p.controls.target.copy(from.controls.target);p.controls.update();}for(const p of panes)p.view.dataset.camera=JSON.stringify([...p.camera.position.toArray(),...p.camera.quaternion.toArray(),...p.controls.target.toArray()].map(x=>Number(x.toFixed(7))));syncing=false;}
  function frameBoth(){const box=new THREE.Box3();for(const p of panes)if(p.root)box.union(new THREE.Box3().setFromObject(p.root,true));if(box.isEmpty())return;const size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),d=Math.max(size.x,size.y,size.z,.01)*1.9;
   for(const p of panes){p.camera.position.copy(center).add(new THREE.Vector3(.8,.45,1).multiplyScalar(d));p.camera.near=Math.max(.00001,d/1000);p.camera.far=Math.max(100,d*100);p.camera.updateProjectionMatrix();p.controls.target.copy(center);p.controls.minDistance=d*.03;p.controls.maxDistance=d*20;p.controls.update();}}
+ function faceCameraPoints(){
+  const pane=panes.find(p=>p.root&&p.job.result?.facial_head_enhancement?.state==='applied');
+  if(!pane)return null;
+  const eyes={};
+  pane.root.traverse(node=>{
+   const side=node.isMesh&&/^Eye\.(L|R) iris$/.exec(node.material?.name)?.[1];
+   if(side)eyes[side]=node.getWorldPosition(new THREE.Vector3());
+  });
+  return eyes.L&&eyes.R?eyes:null;
+ }
+ function frameFaces(){
+  const eyes=faceCameraPoints();
+  if(!eyes)return;
+  const across=eyes.L.clone().sub(eyes.R),distance=across.length()*8;
+  if(distance<=0)return;
+  const front=across.cross(new THREE.Vector3(0,1,0)).normalize();
+  const center=eyes.L.clone().lerp(eyes.R,.5);
+  for(const p of panes){
+   p.controls.target.copy(center);
+   p.camera.position.copy(center).addScaledVector(front,distance);
+   p.controls.update();
+  }
+ }
  function normalise(reframe=true){for(const p of panes){if(!p.root)continue;p.root.position.set(0,0,0);p.root.scale.setScalar(1);p.root.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(p.root,true),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),factor=$('compareMatch').checked?1/Math.max(size.y,.00001):1;p.root.scale.setScalar(factor);p.root.position.set(-center.x*factor,-box.min.y*factor,-center.z*factor);p.root.updateMatrixWorld(true);p.rig.fit(p.root);}if(reframe)frameBoth();}
  function updateDelta(){
+  $('compareFaces').hidden=!panes.some(p=>p.root&&p.job?.result?.facial_head_enhancement?.state==='applied');
   const [left,right]=panes;
   const a=left?.job?.result?.triangles,b=right?.job?.result?.triangles;
   const delta=a&&b?[t('{delta}% triangles · B vs A',{delta:(b>a?'+':'')+((b/a-1)*100).toLocaleString(formatLocale,{minimumFractionDigits:1,maximumFractionDigits:1})})]:[];
@@ -77,10 +101,10 @@ export function createComparison({api,getRecords,labelAnimation}){
   select.onchange=()=>load(p,select.value);clip.onchange=()=>{p.mixer?.stopAllAction();p.action=null;if(clip.value!==''){p.action=p.mixer.clipAction(p.clips[Number(clip.value)]).play();updatePose();}else{p.root?.traverse(x=>{if(x.isSkinnedMesh)x.skeleton.pose();});p.root?.updateMatrixWorld(true);}updatePlayback();};return p;}
  function loop(now){if(!dialog.open)return;const delta=last?Math.min((now-last)/1000,.1):0;last=now;if(playing){phase=(phase+delta/Math.max(...panes.map(p=>p.action?.getClip().duration||0),1))%1;updatePose();$('compareTime').value=phase;$('compareTimeValue').textContent=Math.round(phase*100)+'%';}for(const p of panes)p.renderer.render(p.scene,p.camera);frame=requestAnimationFrame(loop);}
  function close(){cancelAnimationFrame(frame);++token;for(const p of panes){++p.version;p.observer.disconnect();p.controls.dispose();clear(p);p.rig.dispose();p.grid.geometry.dispose();p.grid.material.dispose();p.env.dispose();p.renderer.dispose();}panes=[];dialog.querySelector('.compare-panes').replaceChildren();playing=false;}
- dialog.addEventListener('close',()=>{if(!dialog.open)close();});dialog.querySelector('[data-close]').onclick=()=>dialog.close();$('compareFrame').onclick=frameBoth;$('compareMatch').onchange=()=>normalise();
+ dialog.addEventListener('close',()=>{if(!dialog.open)close();});dialog.querySelector('[data-close]').onclick=()=>dialog.close();$('compareFrame').onclick=frameBoth;$('compareFaces').onclick=frameFaces;$('compareMatch').onchange=()=>normalise();
  $('compareSkeleton').onchange=()=>{for(const p of panes)if(p.helper)p.helper.visible=$('compareSkeleton').checked;};$('compareWire').onchange=()=>{for(const p of panes)p.root?.traverse(x=>{if(x.isMesh)(Array.isArray(x.material)?x.material:[x.material]).forEach(m=>m.wireframe=$('compareWire').checked);});};
  $('comparePlay').onclick=()=>{playing=!playing;$('comparePlay').setAttribute('aria-pressed',playing);$('comparePlay').replaceChildren(icon(playing?'pause':'play'),document.createTextNode(playing?t('Pause'):t('Play clips')));};$('compareTime').oninput=()=>{phase=Number($('compareTime').value);$('compareTimeValue').textContent=Math.round(phase*100)+'%';updatePose();};
- return {openLOD(job,level){this.open(job,variant(job,job.lods.levels.find(l=>l.level===level)));},open(first,second,{candidates,backToBoard}={}){if(dialog.open){dialog.close();close();}const all=(candidates||records()).filter(j=>j.state==='done'&&j.media?.available!==false);if(!first)return;
+ return {openLOD(job,level){this.open(job,variant(job,job.lods.levels.find(l=>l.level===level)));},open(first,second,{candidates,backToBoard,focus}={}){if(dialog.open){dialog.close();close();}const all=(candidates||records()).filter(j=>j.state==='done'&&j.media?.available!==false);if(!first)return;
    if(!second){const parent=all.find(j=>j.id===first.settings.parent_id);if(parent){second=first;first=parent;}else second=all.find(j=>j.settings.parent_id===first.id);}
    if(candidates&&!boardMode)standardMatch=$('compareMatch').checked;
    if(candidates)$('compareMatch').checked=false;
@@ -88,6 +112,6 @@ export function createComparison({api,getRecords,labelAnimation}){
    boardMode=Boolean(candidates);boardFramed=false;
    back.hidden=!backToBoard;back.onclick=backToBoard?()=>{dialog.close();backToBoard();}:null;
    dialog.showModal();phase=0;last=0;playing=false;$('compareTime').value=0;$('compareTimeValue').textContent='0%';$('comparePlay').setAttribute('aria-pressed','false');$('comparePlay').replaceChildren(icon('play'),document.createTextNode(t('Play clips')));
-   try{panes=[makePane('A'),makePane('B')];for(const p of panes){const empty=document.createElement('option');empty.value='';empty.textContent=t('Choose a model…');p.select.append(empty);for(const j of all){const o=document.createElement('option');o.value=j.id;o.textContent=nameOf(j);p.select.append(o);}}const openToken=++token;Promise.all([load(panes[0],first.id),load(panes[1],second?.id||'')]).then(()=>{if(openToken===token&&dialog.open&&boardMode)boardFramed=true;});updatePlayback();frame=requestAnimationFrame(loop);}catch(error){dialog.querySelector('.compare-panes').textContent=t('3D comparison unavailable: {error}',{error:t(error.message)});}
+   try{panes=[makePane('A'),makePane('B')];for(const p of panes){const empty=document.createElement('option');empty.value='';empty.textContent=t('Choose a model…');p.select.append(empty);for(const j of all){const o=document.createElement('option');o.value=j.id;o.textContent=nameOf(j);p.select.append(o);}}const openToken=++token;Promise.all([load(panes[0],first.id),load(panes[1],second?.id||'')]).then(()=>{if(openToken!==token||!dialog.open)return;if(boardMode)boardFramed=true;if(focus==='face')frameFaces();});updatePlayback();frame=requestAnimationFrame(loop);}catch(error){dialog.querySelector('.compare-panes').textContent=t('3D comparison unavailable: {error}',{error:t(error.message)});}
   }};
 }
