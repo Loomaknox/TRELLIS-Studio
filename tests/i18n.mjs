@@ -14,6 +14,10 @@ test('browser language, preference and parameter substitution', async () => {
     const {language, t, localizeStatic} = await import('../web/i18n.js?fr-test');
     assert.equal(language, 'fr');
     assert.equal(t('Queued'), 'En attente');
+    assert.equal(t('Multiview refinement'), 'Affinage multivue');
+    assert.equal(t('Unavailable'), 'Indisponible');
+    assert.notEqual(t('Rig profile could not be applied'), 'Rig profile could not be applied');
+    assert.equal(t('{value} GiB VRAM free', {value:'10,5'}), 'VRAM libre 10,5 Gio');
     assert.equal(t('Reference for {name}', {name: '{unknown} <avatar>'}), 'Référence de {unknown} <avatar>');
     assert.equal(t('A server-specific diagnostic'), 'A server-specific diagnostic');
     assert.equal(t('Back', undefined, 'navigation'), 'Retour');
@@ -48,6 +52,7 @@ test('browser language, preference and parameter substitution', async () => {
     const {language: english, t: translateEnglish} = await import('../web/i18n.js?en-test');
     assert.equal(english, 'en');
     assert.equal(translateEnglish('Queued'), 'Queued');
+    assert.equal(translateEnglish('Multiview refinement'), 'Multiview refinement');
     assert.equal(translateEnglish('Reference for {name}', {name: 'Avatar'}), 'Reference for Avatar');
   } finally {
     delete globalThis.location;

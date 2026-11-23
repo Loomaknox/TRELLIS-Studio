@@ -146,6 +146,7 @@ class CollectionPreviews:
         self.pending = pending
         self.publish = publish
         self.task = None
+        self.rendering = False
         self.cancel = asyncio.Event()
 
     def start(self):
@@ -164,6 +165,7 @@ class CollectionPreviews:
 
         render_cancel = Event()
         render = asyncio.create_task(asyncio.to_thread(render_collection_preview, folder / 'model.glb', cancel=render_cancel))
+        self.rendering = True
         try:
             while not render.done():
                 await asyncio.wait({render}, timeout=0.25)
@@ -175,6 +177,7 @@ class CollectionPreviews:
             if render_cancel.is_set() or not render.done():
                 render_cancel.set()
                 await asyncio.gather(render, return_exceptions=True)
+            self.rendering = False
 
     async def run(self):
         failed = {}

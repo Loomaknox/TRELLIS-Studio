@@ -21,7 +21,9 @@ export function runtimeSummary(runtime, stage) {
   ];
   const metrics = fields.filter(([key]) => Number.isFinite(usage[key]))
     .map(([key, label]) => t(label, {value: usage[key].toLocaleString(formatLocale)}));
-  const activity = stage || (runtime.active ? 'Local job in progress'
-    : runtime.export_active ? 'Export in progress' : 'Idle');
-  return [t(activity), ...metrics].join(' · ');
+  const tasks = [];
+  if (runtime.active) tasks.push(t(stage || 'Local job in progress'));
+  if (runtime.export_active) tasks.push(t('Export in progress'));
+  if (runtime.preview_active) tasks.push(t('Rendering collection preview'));
+  return [...(tasks.length ? tasks : [t('Idle')]), ...metrics].join(' · ');
 }

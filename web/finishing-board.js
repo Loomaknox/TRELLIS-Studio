@@ -21,7 +21,7 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
     const summary = el('p', 'finishing-summary');
     const texture = el('section', 'finishing-refinement');
     const textureHead = el('div', 'finishing-refinement-head');
-    const textureTitle = el('h3', '', 'Texture refinement');
+    const textureTitle = el('h3', '', t('Texture refinement'));
     textureTitle.id = 'finishingBoardTexture';
     textureHead.append(textureTitle);
     texture.setAttribute('aria-labelledby', textureTitle.id);
@@ -138,8 +138,8 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         let hint = option?.reason || textureInfo?.reason || 'Texture refinement is unavailable for this model.';
         if (option?.ready === true) {
             const size = option.atlas;
-            const recipe = [Number.isFinite(option.triangles) ? `${number(option.triangles)} triangles` : '',
-                Array.isArray(size) && size.length === 2 ? `${size[0]} × ${size[1]} source atlas` : '']
+            const recipe = [Number.isFinite(option.triangles) ? t('{count} triangles',{count:number(option.triangles)}) : '',
+                Array.isArray(size) && size.length === 2 ? t('{width} × {height} source atlas',{width:size[0], height:size[1]}) : '']
                 .filter(Boolean).join(' · ');
             if (option.native) {
                 hint = 'Creates 2K color, metal and roughness maps from the original reference and keeps the existing mesh and UVs.';
@@ -148,11 +148,12 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
                     ? 'Generates color, metal and roughness from six views on the existing 2K UV atlas. Local non-commercial testing.'
                     : 'Refines the baked color from six generated views and keeps the existing UVs and material maps.';
             }
+            hint = t(hint);
             if (recipe) hint += ` ${recipe}.`;
         } else if (!textureInfo) {
             hint = 'Checking the saved model and reference…';
         }
-        if (textureHint.textContent !== hint) textureHint.textContent = hint;
+        if (textureHint.textContent !== t(hint)) textureHint.textContent = t(hint);
         textureRows.hidden = !variants.length;
         const revision = JSON.stringify(variants.map(job => [job.id, nameOf(job), job.state, job.stage,
             job.error, job.progress, canCompare(job)]));
@@ -162,8 +163,8 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
             const row = el('article', 'finishing-row');
             const copy = el('div');
             const running = variant.state === 'queued' || variant.state === 'running';
-            const stage = [labels[variant.state] || variant.state,
-                variant.error || (variant.state === 'done' ? '' : variant.stage)].filter(Boolean).join(' · ');
+            const stage = [t(labels[variant.state] || variant.state),
+                t(variant.error || (variant.state === 'done' ? '' : variant.stage))].filter(Boolean).join(' · ');
             copy.append(el('strong', '', nameOf(variant)), el('small', variant.state === 'error' ? 'finishing-failure' : '', stage));
             if (running) {
                 const progress = el('progress');

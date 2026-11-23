@@ -361,6 +361,7 @@ def status():
     usage = resources(ROOT, OUTPUT)
     multiview, ultratex = multiview_texture_capability(), ultratex_texture_capability()
     return dict(ready=ready, gpu=GPU_DESCRIPTION, ram_free_gib=usage['ram_free_gib'], resources=usage,
+                preview_active=COLLECTION_PREVIEWS.rendering,
                 active=ACTIVE if PROCESS is not None and PROCESS.poll() is None else TERRAIN_ACTIVE,
                 export_active=EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None,
                 resolution=DEFAULT_GENERATION['resolution'], default_profile=DEFAULT_PROFILE, local=True, studio_version=VERSION,source_revision=SOURCE_REVISION,ui_revision=UI_REVISION,multi_view=pixal3d['ready'],pixal3d=pixal3d,
