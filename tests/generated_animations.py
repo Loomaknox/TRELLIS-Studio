@@ -15,10 +15,17 @@ from generated_motion import SOMA30_JOINTS
 from studio_workspace import read,write
 
 def glb(path,names=()):
-    data=dict(asset={'version':'2.0'},meshes=[{'primitives':[]}],skins=[{'joints':[0]}],
-              animations=[dict(name=name) for name in names])
+    binary=struct.pack('<5f',0,0,0,0,1)
+    data=dict(asset={'version':'2.0'},meshes=[{'primitives':[]}],skins=[{'joints':[0]}],nodes=[{'name':'Hips'}],
+              buffers=[{'byteLength':len(binary)}],
+              bufferViews=[{'buffer':0,'byteLength':4},{'buffer':0,'byteOffset':4,'byteLength':16}],
+              accessors=[dict(bufferView=0,componentType=5126,type='SCALAR',count=1),
+                         dict(bufferView=1,componentType=5126,type='VEC4',count=1)],
+              animations=[dict(name=name,samplers=[dict(input=0,output=1)],
+                               channels=[dict(sampler=0,target=dict(node=0,path='rotation'))]) for name in names])
     raw=json.dumps(data).encode();raw+=b' '*(-len(raw)%4)
-    path.write_bytes(struct.pack('<4sIIII',b'glTF',2,20+len(raw),len(raw),0x4e4f534a)+raw)
+    path.write_bytes(struct.pack('<4sIIII',b'glTF',2,28+len(raw)+len(binary),len(raw),0x4e4f534a)
+                     +raw+struct.pack('<II',len(binary),0x004e4942)+binary)
 
 def preview(motion,skeleton,destination,**kwargs):
     glb(destination,[kwargs['clip_name']]);return dict(preview_root='Hips')

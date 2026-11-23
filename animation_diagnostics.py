@@ -74,6 +74,8 @@ def read_tracks(data, binary, clip):
     partial = False
     nodes = data.get('nodes', [])
     samplers = clip['samplers']
+    if not clip['channels'] or not samplers:
+        raise ValueError('The clip has no animation channels.')
     seen = set()
     errors = []
     inputs = {}
