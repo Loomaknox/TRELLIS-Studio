@@ -1,4 +1,4 @@
-"""Retarget humanoid library clips or author creature previews in Blender.
+"""Authored humanoid library retargeting in a private Blender process.
 
 Geometric bone mapping is deliberately conservative. A non-humanoid keeps its
 UniRig skeleton, without attaching inappropriate walk/run/crouch clips.
@@ -8,8 +8,8 @@ import bpy, json, math, sys
 from mathutils import Vector, Quaternion
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from retarget_motions import author as author_natural_motions
+from rig_landmarks import RIG_PROFILES
 from studio_import import blender_animation_source, rewrite_animation_names
-
 
 def export_result(job, arm, meshes, preserved_names, result):
     bpy.ops.object.select_all(action='DESELECT')
@@ -26,6 +26,9 @@ def export_result(job, arm, meshes, preserved_names, result):
     if 'FINISHED' not in bpy.ops.export_scene.gltf(**{k:v for k,v in args.items() if k in supported}):
         raise ValueError('Exporting the animated model failed.')
     rewrite_animation_names(output, output, preserved_names)
+    for action in bpy.data.actions:
+        if action.name in preserved_names:
+            action['studio_original_clip_name'] = preserved_names[action.name]
     bpy.ops.file.pack_all()
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=str(job / 'model.blend'))
@@ -51,8 +54,6 @@ arm=arms[0];bones=list(arm.data.bones)
 meshes=[o for o in scene.objects if o.type=='MESH']
 arm.data.pose_position='REST';bpy.context.view_layer.update()
 if creature:
-    # Older Blender versions may create preview objects during glTF import.
-    # Restrict the removal to objects assigned as armature display shapes.
     display_shapes = {bone.custom_shape for bone in arm.pose.bones if bone.custom_shape}
     for obj in display_shapes.intersection(meshes):
         meshes.remove(obj)
@@ -61,14 +62,15 @@ else:
     for obj in list(meshes):
         if obj.name.startswith('Icosphere') and len(obj.data.vertices)==42 and not any(m.type=='ARMATURE' for m in obj.modifiers):
             meshes.remove(obj);bpy.data.objects.remove(obj,do_unlink=True)
+if not meshes:
+    raise ValueError('The rig contains no skinned mesh.')
 points=[o.matrix_world@Vector(c) for o in meshes for c in o.bound_box]
 low=Vector(tuple(min(p[i] for p in points) for i in range(3)))
 high=Vector(tuple(max(p[i] for p in points) for i in range(3)));height=high.z-low.z
 arm.data.pose_position='POSE';bpy.context.view_layer.update()
-if height<=0 and not creature: raise ValueError('Hauteur du personnage invalide.')
+if height<=0 and not creature: raise ValueError('The character height is invalid.')
 if creature:
     from creature_motion import author_creature_motion
-
     recipe = json.loads((job / 'creature-edit.json').read_text(encoding='utf-8'))
     if recipe.get('motion') == 'swim':
         recipe['motion'] = 'none'  # The swim clip is added directly to the exported GLB.
@@ -143,26 +145,29 @@ except ValueError as error:
 profile = settings.get('existing_rig_profile')
 if profile is not None:
     from rig_profiles_blender import validate_profile_mapping
+    if not isinstance(profile, dict) or profile.get('profile') not in RIG_PROFILES:
+        raise ValueError('The stored rig profile is unsupported.')
     mapping = validate_profile_mapping(arm, settings.get('existing_humanoid_mapping'), profile['profile'])
     twists = {side: mapping[side + '_forearm_twist'] for side in ('left', 'right')
               if side + '_forearm_twist' in mapping}
     if profile['profile'] in ('expert', 'expressive'):
-        from rig_expert_blender import EXPERT_HELPER_SOURCES
-        sources = EXPERT_HELPER_SOURCES
-        if profile['profile'] == 'expressive':
-            from rig_expert_blender import EXPRESSIVE_HELPER_SOURCES
-            sources = {**sources, **EXPRESSIVE_HELPER_SOURCES}
+        from rig_expert_blender import EXPERT_HELPER_SOURCES, EXPRESSIVE_HELPER_SOURCES
+
+        sources = (EXPERT_HELPER_SOURCES if profile['profile'] == 'expert'
+                   else {**EXPERT_HELPER_SOURCES, **EXPRESSIVE_HELPER_SOURCES})
         body_helpers = {role: mapping[role] for role in sources}
         if profile.get('body_helpers') != body_helpers:
             raise ValueError('The stored body helpers do not match the selected skeleton profile.')
     if (profile.get('joint_count') != len(mapping) or profile.get('twists') != twists
-            or profile.get('articulated_fingers') != ('left_finger_0_0' in mapping)):
+            or type(profile.get('articulated_fingers')) is not bool
+            or profile['articulated_fingers'] != ('left_finger_0_0' in mapping)
+            or profile.get('max_influences') != 4):
         raise ValueError('The stored rig profile does not match the model skeleton.')
     warning = ''
 elif options.get('profile', 'auto') != 'auto':
     from rig_profiles_blender import apply_profile
     try:
-        mapping, profile = apply_profile(arm, meshes, mapping, options['profile'], options['articulated_fingers'])
+        mapping, profile = apply_profile(arm, meshes, mapping, options['profile'], options.get('articulated_fingers', False))
     except ValueError as error:
         (work/'rig-profile-error.json').write_text(json.dumps({'message': str(error)}), encoding='utf-8')
         raise

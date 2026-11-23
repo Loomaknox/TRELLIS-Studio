@@ -22,11 +22,15 @@ for name,recipe,checkpoint in [('skeleton','quick_inference_skeleton_articulatio
     (work/(name+'.yaml')).write_text(yaml.safe_dump(task))
 def extract(source,suffix):
     run('-m','src.data.extract','--config=configs/data/quick_inference.yaml','--input='+str(source),'--require_suffix='+suffix,'--output_dir='+str(work/'intermediate'),'--force_override=true','--num_runs=1','--id=0','--time=studio','--faces_target_count=50000')
-source=work/'input.glb' if (work/'input.glb').exists() else job/'source.glb'
 skeleton=work/'skeleton.fbx'
 settings=json.loads((job/'settings.json').read_text(encoding='utf-8'))
-phase=settings.get('creature_phase')
-landmarks=settings.get('rig_options',{}).get('landmarks')
+options = settings.get('rig_options') or {}
+creature = options.get('mode') == 'creature'
+phase = settings.get('creature_phase') if creature else None
+if creature and phase not in ('draft', 'final'):
+    raise ValueError('Invalid creature rig phase.')
+source=job/'source.glb' if creature else work/'input.glb' if (work/'input.glb').exists() else job/'source.glb'
+landmarks=options.get('landmarks')
 if phase == 'final':
     stage('Applying your creature skeleton',42)
     run(root/'apply-creature.py',job)
@@ -34,7 +38,7 @@ if phase == 'final':
 else:
     stage('Analysing character',8);extract(source,'glb')
     stage('UniRig · predicting skeleton',22)
-    run(root/'inference_entry.py','--task='+str(work/'skeleton.yaml'),'--seed=12345','--input='+str(source),'--output='+str(skeleton),'--npz_dir='+str(work/'intermediate'))
+    run('run.py','--task='+str(work/'skeleton.yaml'),'--seed=12345','--input='+str(source),'--output='+str(skeleton),'--npz_dir='+str(work/'intermediate'))
     if landmarks:
         stage('Applying your joint landmarks',42)
         run(root/'apply-landmarks.py',job)
@@ -44,7 +48,9 @@ else:
         sys.exit(0)
 stage('Preparing joints',45);extract(skeleton,'fbx')
 stage('UniRig · calculating skin weights',58)
-skin_entrypoint=root/'run-skin-inference.py' if os.environ.get('UNIRIG_COMPUTE_CAP')=='12.0' else root/'inference_entry.py'
+# Older packaged installations select Blackwell by environment directory.
+legacy_blackwell = Path(os.environ.get('UNIRIG_ENV', '')).name.endswith('-blackwell')
+skin_entrypoint = root/'run-skin-inference.py' if os.environ.get('UNIRIG_COMPUTE_CAP') == '12.0' or legacy_blackwell else 'run.py'
 run(skin_entrypoint,'--task='+str(work/'skin.yaml'),'--seed=12345','--input='+str(skeleton),'--output='+str(work/'skin.fbx'),'--npz_dir='+str(work/'intermediate'),'--data_name=raw_data.npz')
 skin=work/'skin.fbx'
 if landmarks or phase == 'final':

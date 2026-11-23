@@ -1,12 +1,13 @@
 import {t} from './i18n.js';
-import {isCreatureRigDraft} from './creature-rig-editor.js';
+import {isCreatureRigDraft} from './creature-rig-editor.js?v=rig-upgrades';
 export function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.classList.add('ui-icon');svg.setAttribute('aria-hidden','true');const use=document.createElementNS(svg.namespaceURI,'use');use.setAttribute('href',`/web/icons.svg#${name}`);svg.append(use);return svg;}
+export function canOpenFinishingBoard(job){return Boolean(job?.can_refinish)||(job?.state==='done'&&job.media?.available!==false);}
 export function createCardMenu({version,remove,details,print,compare,diagnostics,export:exportModel,history,folder,lod,game,refinish,finishingBoard}){
   const menu=document.getElementById('assetMenu');let trigger=null,job=null;
   const boardItem=document.createElement('button');
   boardItem.type='button';boardItem.setAttribute('role','menuitem');boardItem.hidden=true;
   const boardLabel=document.createElement('span'),boardHint=document.createElement('small');
-  boardLabel.textContent=t('Finishing board');boardHint.textContent=t('Queue and compare cached variants');
+  boardLabel.textContent=t('Finishing board');boardHint.textContent=t('Compare geometry and texture variants');
   boardLabel.append(boardHint);boardItem.append(icon('layers'),boardLabel);
   menu.querySelector('[data-action=refinish]').after(boardItem);
   boardItem.onclick=()=>{const selected=job;close();finishingBoard?.(selected);};
@@ -40,15 +41,15 @@ export function createCardMenu({version,remove,details,print,compare,diagnostics
   return {close,button(j,{busy,features,activeId}){
     const b=document.createElement('button');b.type='button';b.className='card-more';b.append(icon('more'));b.setAttribute('aria-label',t('Actions for {name}',{name:j.metadata?.display_name||j.settings.name}));b.setAttribute('aria-haspopup','menu');b.setAttribute('aria-controls','assetMenu');b.setAttribute('aria-expanded','false');
     b.onclick=e=>{e.stopPropagation();if(trigger===b&&menu.matches(':popover-open')){close();return;}close();trigger=b;job=j;
-      const draft=isCreatureRigDraft(j);
-      menu.querySelector('[data-action=version]').disabled=busy||draft;
-      menu.querySelector('[data-action=print]').disabled=busy||draft||j.state!=='done';
-      for(const action of ['compare','diagnostics','export','history','lod','game'])menu.querySelector(`[data-action=${action}]`).disabled=j.state!=='done';
-      if(draft)for(const action of ['compare','diagnostics','export','lod','game'])menu.querySelector(`[data-action=${action}]`).disabled=true;
+      menu.querySelector('[data-action=version]').disabled=busy||isCreatureRigDraft(j);
+      const done=j.state==='done'&&!isCreatureRigDraft(j);
+      menu.querySelector('[data-action=print]').disabled=busy||!done;
+      menu.querySelector('[data-action=history]').disabled=j.state!=='done';
+      for(const action of ['compare','diagnostics','export','lod','game'])menu.querySelector(`[data-action=${action}]`).disabled=!done;
       const refinishItem=menu.querySelector('[data-action=refinish]');
       refinishItem.hidden=!j.can_refinish;
       refinishItem.disabled=busy||!j.can_refinish;
-      boardItem.hidden=!finishingBoard||!j.can_refinish;
+      boardItem.hidden=!finishingBoard||!canOpenFinishingBoard(j);
       menu.querySelector('[data-action=remove]').disabled=!features||j.id===activeId;
       menu.showPopover({source:b});b.setAttribute('aria-expanded','true');placeMenu();
       menu.scrollTop=0;menu.querySelector('button:not([hidden]):not(:disabled)')?.focus({preventScroll:true});

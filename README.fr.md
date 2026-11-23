@@ -12,7 +12,7 @@ Les calculs s’exécutent sur la machine qui héberge Studio, où restent les i
 
 Le sélecteur de langue dans l’en-tête permet de choisir **Français** ou **English**. Studio démarre en français si c’est la langue préférée de ton navigateur. Il mémorise ensuite ton choix dans ce navigateur.
 
-Cette version du fork est basée sur **TRELLIS Studio 3.11.0**, qui réunit la création, la collection et le studio d’animation dans une interface remaniée. [Notes de version du projet d’origine](docs/RELEASE_3.11.0.md)
+Cette version du fork est basée sur **TRELLIS Studio 3.15.1**. Elle intègre le graphe de génération, la finition multivue, UltraTex 2K et les nouveaux outils de la collection et des créatures. [Notes de version](docs/RELEASE_3.15.1.md) · [Profils de génération autonomes](docs/NATIVE_PROFILES.md)
 
 ## Démo en 30 secondes
 
@@ -22,10 +22,10 @@ Une seule génération a produit deux variantes, toutes deux avec des textures P
 
 ## Installer la version française sur Windows
 
-Ce fork cible **Windows x64**. Pour obtenir l’interface française, télécharge [l’archive ZIP du fork Loomaknox](https://github.com/Loomaknox/TRELLIS-Studio/archive/refs/heads/main.zip) ou clone le dépôt avec Git. Les exécutables disponibles dans les [versions du projet d’origine](https://github.com/yoslo59/TRELLIS-Studio/releases) sont publiés par son mainteneur.
+Ce fork cible **Windows x64**. Pour installer cette version, télécharge [l’archive ZIP de la branche Créature](https://github.com/Loomaknox/TRELLIS-Studio/archive/refs/heads/feat/creature-rig.zip) ou clone cette branche avec Git. Les exécutables disponibles dans les [versions du projet d’origine](https://github.com/yoslo59/TRELLIS-Studio/releases) sont publiés par son mainteneur.
 
 ```powershell
-git clone https://github.com/Loomaknox/TRELLIS-Studio.git
+git clone --branch feat/creature-rig https://github.com/Loomaknox/TRELLIS-Studio.git
 cd TRELLIS-Studio
 ```
 
@@ -41,6 +41,7 @@ La configuration de référence du projet d’origine est Windows 11 avec une NV
 | **Pixal3D** | Générer depuis une image ou depuis une vue de face et jusqu’à trois vues complémentaires. | Lance **Install Pixal3D.cmd** pour la génération multivue. L’option `--single-image` ajoute les composants nécessaires à la génération avec une seule image. [Installation de Pixal3D](INSTALLATION.md#optional-pixal3d-generation) |
 | **Hi3D** | Affiner les détails d’une source compatible créée avec TRELLIS.2. | GPU NVIDIA compatible et environ **10,66 Go** de poids supplémentaires après acceptation de la licence. [Compatibilité et installation](docs/HI3D.md) |
 | **WTiVo 1024** | Reconstruire la surface d’un modèle HD à partir d’une source compatible. | Moteur WTiVo facultatif et Blender. Studio propose aussi sa reconstruction intégrée sur grille 768. [Guide WTiVo](docs/WTIVO.md) |
+| **UltraTex 2K Preview** | Calculer de nouvelles vues de texture et les projeter sur l’atlas 2K d’un modèle compatible. | Minimum 12 Gio de VRAM, environ 14 Go de poids et acceptation des conditions FLUX.2. [Guide UltraTex](docs/ULTRATEX.md) |
 | **Kimodo** | Générer des mouvements humanoïdes en décrivant une action. | Calcul sur CPU avec AVX2, FMA et F16C, WSL2 initialisé, **12 Gio libres dans WSL** et environ **9,3 Go** de poids supplémentaires. [Guide Kimodo](docs/MOTION_GENERATION.md) |
 
 Pour une installation empaquetée, le projet d’origine documente les modes Desktop et Server, les réparations et la désinstallation. [Programme d’installation Windows](docs/WINDOWS_SETUP.md) · [Configurer TRELLIS Server](docs/SERVER.md)

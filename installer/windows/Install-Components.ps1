@@ -32,7 +32,7 @@ function Invoke-GuidedSetupCommand([string]$Executable,[string[]]$Arguments) {
             if ($_ -is [Management.Automation.ErrorRecord] -and $_.FullyQualifiedErrorId -notmatch '^NativeCommandErrorMessage') {
                 $lastError=$line
             }
-            if ($line -match '^(INSTALLATION STOPPED|PIXAL3D SETUP STOPPED|HI3D SETUP STOPPED|Kimodo installation failed)\s*:') {
+            if ($line -match '^(INSTALLATION STOPPED|PIXAL3D SETUP STOPPED|HI3D SETUP STOPPED|MULTIVIEW TEXTURE SETUP STOPPED|ULTRATEX SETUP STOPPED|NATIVE WORKFLOWS SETUP STOPPED|Kimodo installation failed)\s*:') {
                 $lastError=$line
             }
             Write-Host $line
@@ -83,10 +83,18 @@ function Invoke-GuidedSetup {
         [switch]$WithKimodo,
         [switch]$AcceptKimodoModelLicenses,
         [switch]$AcceptHi3dModelLicenses,
-        [switch]$SkipHi3d
+        [switch]$SkipHi3d,
+        [switch]$AcceptMultiviewTextureModelLicenses,
+        [switch]$SkipMultiviewTexture,
+        [switch]$AcceptUltraTexModelLicenses,
+        [switch]$SkipUltraTex,
+        [switch]$AcceptNativeWorkflowModelLicenses,
+        [switch]$SkipNativeWorkflows
     )
+    $env:UV_LINK_MODE='copy'
+    $env:UV_NO_CACHE='1'
     . (Join-Path $PSScriptRoot 'Setup-Preflight.ps1')
-    $setupOrder=@('trellis','pixal3d','hi3d','unirig','kimodo')
+    $setupOrder=@('trellis','native-workflows','pixal3d','hi3d','multiview-texture','ultratex','unirig','kimodo')
     $setupStatePath=Join-Path $InstallRoot 'config\component-install.json'
     $setupState=Read-GuidedSetupJson $setupStatePath
     if ($setupState.Count -and $setupState.schema -ne 1) { throw 'Unsupported component setup receipt. Existing settings were preserved.' }
@@ -101,14 +109,26 @@ function Invoke-GuidedSetup {
     $requested=@($RequestedComponents -split ',' | ForEach-Object {$_.Trim().ToLowerInvariant()} | Where-Object {$_})
     if ($Retry -and -not $requested.Count) { $requested=@($setupState.requested | Where-Object {$_}) }
     if ($WithKimodo) { $requested+=@('kimodo') }
+    if ($SkipNativeWorkflows) {
+        $requested=@($requested | Where-Object { $_ -ne 'native-workflows' })
+        $setupState.requested=@($setupState.requested | Where-Object { $_ -ne 'native-workflows' })
+    }
     if ($SkipHi3d) {
         $requested=@($requested | Where-Object { $_ -ne 'hi3d' })
         $setupState.requested=@($setupState.requested | Where-Object { $_ -ne 'hi3d' })
     }
+    if ($SkipMultiviewTexture) {
+        $requested=@($requested | Where-Object { $_ -ne 'multiview-texture' })
+        $setupState.requested=@($setupState.requested | Where-Object { $_ -ne 'multiview-texture' })
+    }
+    if ($SkipUltraTex) {
+        $requested=@($requested | Where-Object { $_ -ne 'ultratex' })
+        $setupState.requested=@($setupState.requested | Where-Object { $_ -ne 'ultratex' })
+    }
     foreach ($name in $requested) {
         if ($name -notin $setupOrder) { throw "Unknown setup component: $name." }
     }
-    if ('pixal3d' -in $requested -or 'hi3d' -in $requested) { $requested+=@('trellis') }
+    if (@($requested | Where-Object { $_ -in @('native-workflows','pixal3d','hi3d','multiview-texture','ultratex') }).Count) { $requested+=@('trellis') }
     $selected=@($setupOrder | Where-Object {$_ -in $requested})
     $setupState.requested=@($setupOrder | Where-Object {$_ -in $selected -or $_ -in $setupState.requested})
     Save-GuidedSetupJson $setupStatePath $setupState
@@ -120,12 +140,39 @@ function Invoke-GuidedSetup {
     if ($BlenderPath) { $probeArgs.BlenderPath=$BlenderPath }
     if ($WslDistribution) { $probeArgs.WslDistribution=$WslDistribution }
     $probe=Get-SetupPreflight @probeArgs
+    $nativeWorkflowReason=''
+    if ('native-workflows' -in $selected) {
+        try {
+            $manifest=Read-SetupGpuManifest
+            $license=Join-Path $InstallRoot 'licenses\FLUX.2-klein-base-9B-LICENSE.md'
+            $licenseHash=(Get-FileHash -LiteralPath $license -Algorithm SHA256).Hash
+            if ($licenseHash -cne $manifest.ultratex.license_sha256) {
+                throw 'The packaged FLUX.2 [klein] 9B model terms could not be verified. Use the complete Setup package.'
+            }
+            $meshLibRevision=$manifest.native_workflows.meshlib_license_revision
+            if ($meshLibRevision -cnotmatch '^[0-9a-f]{40}$') {
+                throw 'The pinned MeshLib terms could not be verified. Use the complete Setup package.'
+            }
+            if ($AcceptNativeWorkflowModelLicenses) {
+                $setupState.licenses.native_workflows=$licenseHash
+                $setupState.licenses.meshlib=$meshLibRevision
+                Save-GuidedSetupJson $setupStatePath $setupState
+            }
+            if (-not $probe.NativeWorkflows.Supported) {
+                $nativeWorkflowReason=$probe.NativeWorkflows.Status
+            } elseif ($setupState.licenses.native_workflows -cne $licenseHash -and $setupState.licenses.ultratex -cne $licenseHash) {
+                $nativeWorkflowReason='The FLUX.2 [klein] 9B model terms have not been accepted. Run Setup again to select High Detail and Game Asset.'
+            } elseif ($setupState.licenses.meshlib -cne $meshLibRevision) {
+                $nativeWorkflowReason='The MeshLib terms have not been accepted. Run Setup again to select High Detail and Game Asset.'
+            }
+        } catch { $nativeWorkflowReason=$_.Exception.Message }
+    }
     if ($BlenderPath -and -not $probe.Blender.Ready) { throw $probe.Blender.Status }
     if ($probe.Blender.Ready) { $config.blender_path=$probe.Blender.Path }
     if ($probe.WSL.Ready) { $config.wsl_distribution=$probe.WSL.Distribution }
     if ($probe.Gpu.Supported -and @($selected | Where-Object {$_ -ne 'kimodo'}).Count) {
         if ($config.gpu_uuid -and $config.gpu_uuid -cne $probe.Gpu.Uuid) {
-            foreach ($name in @('trellis','pixal3d','hi3d','unirig')) {
+            foreach ($name in ($setupOrder | Where-Object {$_ -ne 'kimodo'})) {
                 if ($setupState.components.ContainsKey($name)) {
                     Set-GuidedComponentResult $name 'deferred' 'GPU selection changed. Run Repair or resume components to verify it on the new GPU.'
                 }
@@ -178,6 +225,18 @@ function Invoke-GuidedSetup {
         $nativeVerify={Invoke-GuidedSetupCommand $windowsPowerShell ($bootstrapArgs+@('-SkipRig','-VerifyOnly'))}
         Invoke-GuidedComponent 'trellis' $nativeInstall $nativeVerify $nativeReason
     }
+    if ('native-workflows' -in $selected) {
+        Write-Host 'Preparing the standalone High Detail and Game Asset workflows with native UltraTex. The optional six-view UltraTex preview is a separate component.'
+        if (-not $nativeWorkflowReason -and $setupState.components.trellis.status -ne 'ready') {
+            $nativeWorkflowReason='Verify TRELLIS.2 generation on the selected GPU first.'
+        }
+        $nativeWorkflowSetup=Join-Path $InstallRoot 'installer\install_native_workflows.py'
+        $nativeWorkflowArgs=@('-B','-u',$nativeWorkflowSetup,'--root',$InstallRoot,
+            '--accept-ultratex-license','--accept-meshlib-license')
+        $nativeWorkflowInstall={Invoke-GuidedSetupCommand $nativePython $nativeWorkflowArgs}
+        $nativeWorkflowVerify={Invoke-GuidedSetupCommand $nativePython ($nativeWorkflowArgs+@('--verify-only'))}
+        Invoke-GuidedComponent 'native-workflows' $nativeWorkflowInstall $nativeWorkflowVerify $nativeWorkflowReason
+    }
     if ('pixal3d' -in $selected) {
         $pixalReason=if ($setupState.components.trellis.status -ne 'ready') {'Verify TRELLIS generation on the selected GPU first.'} else {''}
         $pixalInstall={Invoke-GuidedSetupCommand $nativePython @('-u',$pixalSetup,'--accept-dinov3-license')}
@@ -201,9 +260,58 @@ function Invoke-GuidedSetup {
             $hi3dReason='The Hi3D, DINOv2 and CLIP terms have not been accepted. Run Setup and select Hi3D again.'
         }
         $hi3dSetup=Join-Path $InstallRoot 'installer\install_hi3d.py'
-        $hi3dInstall={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$hi3dSetup,'--accept-model-licenses')}
-        $hi3dVerify={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$hi3dSetup,'--verify-only')}
+        $hi3dInstall={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$hi3dSetup,'--accept-model-licenses','--migrate-default-storage')}
+        $hi3dVerify={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$hi3dSetup,'--verify-only','--migrate-default-storage')}
         Invoke-GuidedComponent 'hi3d' $hi3dInstall $hi3dVerify $hi3dReason
+    }
+
+    if ('multiview-texture' -in $selected) {
+        $textureReason=if ($probe.MultiviewTexture.Supported) {''} else {$probe.MultiviewTexture.Status}
+        if ($probe.MultiviewTexture.VramNotice) { Write-Host $probe.MultiviewTexture.VramNotice }
+        if (-not $textureReason -and $setupState.components.trellis.status -ne 'ready') {
+            $textureReason='Verify TRELLIS.2 generation on the selected GPU first.'
+        }
+        $textureLicense=Join-Path $InstallRoot 'licenses\Stable-Diffusion-2.1-OpenRAIL++-M.txt'
+        $textureHash=(Get-FileHash -LiteralPath $textureLicense -Algorithm SHA256).Hash
+        if ($AcceptMultiviewTextureModelLicenses) {
+            $setupState.licenses.multiview_texture=$textureHash
+            Save-GuidedSetupJson $setupStatePath $setupState
+        }
+        if (-not $textureReason -and $setupState.licenses.multiview_texture -cne $textureHash) {
+            $textureReason='The Stable Diffusion 2.1 and MV-Adapter terms have not been accepted. Run Setup and select multiview texture refinement.'
+        }
+        $textureSetup=Join-Path $InstallRoot 'installer\install_multiview_texture.py'
+        $textureInstall={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$textureSetup,'--accept-model-licenses')}
+        $textureVerify={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$textureSetup,'--verify-only')}
+        Invoke-GuidedComponent 'multiview-texture' $textureInstall $textureVerify $textureReason
+    }
+
+    if ('ultratex' -in $selected) {
+        $ultraTexReason=if ($probe.UltraTex.Supported) {''} else {$probe.UltraTex.Status}
+        Write-Host $probe.UltraTex.Guidance
+        if (-not $ultraTexReason -and $setupState.components.trellis.status -ne 'ready') {
+            $ultraTexReason='Verify TRELLIS.2 generation on the selected GPU first.'
+        }
+        if (-not $ultraTexReason) {
+            try {
+                $ultraTexLicense=Join-Path $InstallRoot 'licenses\FLUX.2-klein-base-9B-LICENSE.md'
+                $ultraTexHash=(Get-FileHash -LiteralPath $ultraTexLicense -Algorithm SHA256).Hash
+                if ($ultraTexHash -cne (Read-SetupGpuManifest).ultratex.license_sha256) {
+                    throw 'The packaged FLUX.2 [klein] 9B model terms could not be verified. Use the complete Setup package.'
+                }
+                if ($AcceptUltraTexModelLicenses) {
+                    $setupState.licenses.ultratex=$ultraTexHash
+                    Save-GuidedSetupJson $setupStatePath $setupState
+                }
+                if ($setupState.licenses.ultratex -cne $ultraTexHash) {
+                    $ultraTexReason='The FLUX.2 [klein] 9B model terms have not been accepted. Run Setup again to select UltraTex.'
+                }
+            } catch { $ultraTexReason=$_.Exception.Message }
+        }
+        $ultraTexSetup=Join-Path $InstallRoot 'installer\install_ultratex.py'
+        $ultraTexInstall={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$ultraTexSetup,'--accept-model-licenses')}
+        $ultraTexVerify={Invoke-GuidedSetupCommand $nativePython @('-B','-u',$ultraTexSetup,'--verify-only')}
+        Invoke-GuidedComponent 'ultratex' $ultraTexInstall $ultraTexVerify $ultraTexReason
     }
 
     if ('unirig' -in $selected) {

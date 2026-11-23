@@ -151,10 +151,11 @@ omitting `landmarks` preserves the previous rig workflow. Check the
 `rig_landmarks` feature in `/status` before submitting points to a running server.
 
 When `GET /status` advertises `rig_profiles`, `POST /models/{id}/rig` also
-accepts a `profile` of `simple`, `standard`, `advanced`, `expert` or
-`expressive`. An omitted profile and explicit `auto` use the existing route.
-Advanced, Expert and Expressive accept `articulated_fingers: false` for rigid
-hands and default to articulated hands. Expert has 25 body helpers. Expressive
+accepts the profiles listed in that field. Advanced is enabled by default. An
+omitted profile and explicit `auto` use the existing route. Advanced defaults
+to rigid hands, and Expert and Expressive default to articulated hands. Use
+`articulated_fingers` to choose the hand module for those profiles. Expert has
+25 body helpers. Expressive
 has 41 body helpers and produces 65 joints with rigid hands or 95 with articulated
 hands. Both profiles report the role-to-joint map in `result.rig_profile.body_helpers`.
 `GET /models/{id}/rig-source` returns the verified static source ID and its rig
@@ -163,7 +164,7 @@ workspace. The result records the effective profile, joint count and skipped
 clip names. Standard library clips with supported recipes are rebuilt for the
 new skeleton. The legacy UI routes expose the same profile validation.
 
-On Studio Desktop, look for `creature_rig` in `/status`. Start an editable
+Look for `creature_rig` in `/status`. Start an editable
 creature draft with `POST /models/{id}/rig` and `{"mode":"creature"}` on an
 unrigged mesh. This preserves the source orientation and scale. Poll the
 linked job's `status_url` until `state` is `done` and `rig_phase` is `draft`.
@@ -180,7 +181,8 @@ draft preview as `adapted_bones`. The proposal remains editable before skinning.
 
 Send the current `revision` and the full edited bone list to
 `POST /models/{draftId}/rig-complete`. Set `motion` to `test` (the default),
-`none`, `quadruped`, `serpentine`, `winged`, or `swim`. For `swim`, optionally
+`none`, `quadruped`, `serpentine`, or `winged`. Studio Desktop also accepts
+`swim`. For `swim`, optionally
 include a nested `swim` object with the controls below. Completion calculates the
 weights for that hierarchy and keeps the draft ID. The preview also returns
 `edited_bones` and `motion` once a completion has been submitted, so an
@@ -202,6 +204,14 @@ swim settings travel with the animation inside the GLB.
 | `tentacle_amplitude` | 12 | 0–22 degrees |
 | `phase_lag` | 0.45 | 0–1.2 seconds |
 | `body_travel_m` | 0.17 | 0–0.35 metres |
+
+On a completed skinned GLB, `GET /models/{id}/creature-motions` returns the
+available procedural motions, defaults and current GLB revision. Send this
+revision and a motion ID to `POST /models/{id}/creature-motions`. The request
+can set name, duration, amplitude and cycle count. Jellyfish swim also accepts
+`phase_lag` in seconds and `travel_m` in metres. Poll the returned
+`status_url`. The operation appends a clip to the same model and uses its
+existing skin and skeleton.
 
 Generation, LOD, game preparation, print preparation and rigging create linked
 versions as described in the reference. Metadata, standard animation updates and

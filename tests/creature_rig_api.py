@@ -117,11 +117,14 @@ def main():
                 assert call(base, 'GET', legacy+'/rig-source').json()['id'] == original.name
                 call(base, 'POST', legacy+'/rig-complete', 409, json=request)
                 with patch.object(app, 'WORKSPACE_CONFIG', {'outputs': app.OUTPUT}):
-                    assert 'creature_rig' not in call(base, 'GET', '/api/status').json()['features']
-                    assert 'creature_swim' not in call(base, 'GET', '/api/status').json()['features']
-                    call(base, 'POST', original_route, 409, json={'mode': 'creature'})
-                    call(base, 'GET', legacy+'/rig-preview', 404)
-                    call(base, 'POST', legacy+'/rig-complete', 404, json=request)
+                    features = call(base, 'GET', '/api/status').json()['features']
+                    assert 'creature_rig' in features
+                    assert not {'creature_tentacles', 'creature_swim'} & set(features)
+                    preview = call(base, 'GET', legacy+'/rig-preview').json()
+                    assert not {'adapted_bones', 'chains', 'swim'} & preview.keys()
+                    call(base, 'POST', legacy+'/rig-tentacles', 404, json={'revision': revision})
+                    call(base, 'GET', legacy+'/creature-swim', 404)
+                    call(base, 'POST', legacy+'/creature-swim', 404, json={'duration_s': 6})
     print('PASS: creature draft provenance, graph checks, revision, retry, publication and Desktop scope')
 
 

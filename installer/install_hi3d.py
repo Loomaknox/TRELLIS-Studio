@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -14,7 +15,8 @@ sys.path.insert(0, str(ROOT))
 
 from gpu_runtime import load_profiles, select_gpu
 from hi3d_runtime import (HI3D_PORT_REVISION, WEIGHT_FILES, Runtime,
-                          _compiler_workspace, _read_runtime, _verify_runtime, verify_port_source)
+                          _compiler_workspace, _read_json, _read_runtime, _verify_runtime,
+                          verify_port_source)
 from installer.setup import digest, extract, fetch
 from studio_workspace import write
 
@@ -132,23 +134,94 @@ def verify_gpu(runtime):
         subprocess.run(command, cwd=directory, env=env, check=True, timeout=180)
 
 
+def verify_weights(weights, manifest):
+    for entry in manifest['weights']:
+        path = weights / entry['path']
+        if not path.is_file() or path.stat().st_size != entry['bytes'] or digest(path) != entry['sha256']:
+            raise RuntimeError(f'Existing Hi3D asset differs from the pinned download: {entry["path"]}')
+
+
 def verify_existing(manifest):
     runtime = _read_runtime(ROOT)
-    for entry in manifest['weights']:
-        if digest(runtime.weights / entry['path']) != entry['sha256']:
-            raise RuntimeError(f'Existing Hi3D asset differs from the pinned download: {entry["path"]}')
+    verify_weights(runtime.weights, manifest)
     verify_gpu(runtime)
+
+
+def migrate_default_storage(manifest):
+    config = _read_json(ROOT / 'config' / 'hi3d-runtime.json', 16 * 1024)
+    legacy = ROOT / '.tools' / 'hi3d' / 'weights'
+    target = ROOT / 'models' / 'hi3d'
+    if Path(config['weights']) == legacy and not target.exists():
+        print(f'Hi3D weights are ready at {migrate_weights(ROOT, manifest).relative_to(ROOT)}.', flush=True)
+
+
+def check_migration_path(path):
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return
+    if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+        raise ValueError(f'Expected a regular path for Hi3D migration: {path}')
+
+
+def migrate_weights(root, manifest):
+    """Relocate the default Hi3D store while Desktop and Server are stopped."""
+    root = Path(root).resolve()
+    legacy = root / '.tools' / 'hi3d' / 'weights'
+    target = root / 'models' / 'hi3d'
+    config_path = root / 'config' / 'hi3d-runtime.json'
+    for path in (legacy.parent.parent, legacy.parent, legacy,
+                 target.parent, target, config_path.parent, config_path):
+        check_migration_path(path)
+    config = _read_json(config_path, 16 * 1024)
+    if set(config) != {'python', 'source', 'weights', 'dependencies'} or not isinstance(config['weights'], str):
+        raise ValueError('Expected a valid Hi3D runtime configuration.')
+    configured = Path(config['weights'])
+    if configured not in (legacy, target):
+        raise ValueError('This Hi3D runtime uses a custom weight directory. Its path was preserved.')
+    if legacy.exists() and target.exists():
+        raise ValueError('Both Hi3D weight directories exist. Their contents were preserved.')
+    source = target if target.exists() else legacy
+    if not source.is_dir() or (configured == target and source != target):
+        raise ValueError('The configured Hi3D model store is missing.')
+    for folder, directories, files in os.walk(source):
+        for name in (*directories, *files):
+            check_migration_path(Path(folder) / name)
+    verify_weights(source, manifest)
+    if configured == target:
+        return target
+    if _read_json(config_path, 16 * 1024) != config:
+        raise RuntimeError('The Hi3D runtime configuration changed during verification.')
+    moved = source == legacy
+    if moved:
+        target.parent.mkdir(exist_ok=True)
+        legacy.rename(target)
+    try:
+        write(config_path, {**config, 'weights': str(target)})
+    except Exception:
+        if moved:
+            target.rename(legacy)
+        raise
+    return target
+
+
+def default_weights_path(root):
+    target = root / 'models' / 'hi3d'
+    legacy = root / '.tools' / 'hi3d' / 'weights'
+    # Resume an older, unfinished download from the directory that already contains it.
+    return legacy if legacy.is_dir() and not target.exists() else target
 
 
 def install(manifest):
     # Test kernels before starting the larger weight downloads.
     source = install_source(manifest['source'])
     dependencies = install_dependencies()
-    weights = COMPONENT / 'weights'
+    weights = default_weights_path(ROOT)
     runtime = Runtime(Path(sys.executable).resolve(), source, weights, (dependencies,))
     verify_gpu(runtime)
+    weights.parent.mkdir(parents=True, exist_ok=True)
     missing = sum(entry['bytes'] for entry in manifest['weights'] if not (weights / entry['path']).is_file())
-    if shutil.disk_usage(COMPONENT).free < missing + 512 * 1024**2:
+    if shutil.disk_usage(weights if weights.is_dir() else weights.parent).free < missing + 512 * 1024**2:
         raise RuntimeError('Free about 11 GB for the optional Hi3D weights and rerun Setup.')
     for entry in manifest['weights']:
         fetch(entry, weights / entry['path'])
@@ -162,14 +235,23 @@ def install(manifest):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--verify-only', action='store_true')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--verify-only', action='store_true')
+    mode.add_argument('--migrate-weights', action='store_true',
+                      help='Move the verified default weight store while Studio and Server are stopped.')
     parser.add_argument('--accept-model-licenses', action='store_true')
-    parser.add_argument('--check-gpu', nargs='+', type=Path, help=argparse.SUPPRESS)
+    parser.add_argument('--migrate-default-storage', action='store_true',
+                        help='Move an existing default store after verification, once Studio and Server are stopped.')
+    mode.add_argument('--check-gpu', nargs='+', type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.check_gpu:
         gpu_smoke(args.check_gpu[0], args.check_gpu[1:])
         return
     manifest = load_manifest()
+    if args.migrate_weights:
+        weights = migrate_weights(ROOT, manifest)
+        print(f'Hi3D weights are ready at {weights.relative_to(ROOT)}.', flush=True)
+        return
     if args.verify_only:
         verify_existing(manifest)
     else:
@@ -179,6 +261,8 @@ def main():
             verify_existing(manifest)
         else:
             install(manifest)
+    if args.migrate_default_storage:
+        migrate_default_storage(manifest)
     print('Hi3D Detail Refinement is ready.', flush=True)
 
 

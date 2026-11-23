@@ -21,6 +21,10 @@ $taskDistro = 'Ubuntu-22.04'
 if (Test-Path -LiteralPath $taskConfigPath) {
     $taskConfig = Get-Content -LiteralPath $taskConfigPath -Raw | ConvertFrom-Json
     if ($taskConfig.wsl_distribution) { $taskDistro = $taskConfig.wsl_distribution }
+    if ($null -eq [Environment]::GetEnvironmentVariable('TRELLIS_RIG_PROFILES','Process') -and
+        $taskConfig.PSObject.Properties['desktop_rig_profiles']) {
+        $env:TRELLIS_RIG_PROFILES = ($taskConfig.desktop_rig_profiles -join ',')
+    }
 }
 New-Item -ItemType Directory -Path $taskLogs -Force | Out-Null
 if (-not (Test-Path -LiteralPath $taskPython)) { throw 'TRELLIS Python environment is missing. See README.md.' }

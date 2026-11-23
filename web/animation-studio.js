@@ -2,7 +2,20 @@ import {formatLocale, language, t} from './i18n.js';
 import {icon} from './card-menu.js?v=2.6.1';
 import {createMotionPreviews} from './authored-previews.js?v=3.4.0';
 import {createPersonalAnimationLibrary} from './personal-animation-library.js?v=3.4.0-motion2';
-import {createCreatureRigEditor, createSwimFields, isCreatureRig, isCreatureRigDraft} from './creature-rig-editor.js?v=creature-swim';
+import {createCreatureRigEditor, createSwimFields, isCreatureRig, isCreatureRigDraft} from './creature-rig-editor.js?v=3.15.1-rigs';
+import {createCreatureMotions} from './creature-motions.js?v=3.15.1-rigs?v=creature-motions';
+
+function creatureSkeletonIcon(){
+ const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+ svg.classList.add('ui-icon');
+ svg.setAttribute('aria-hidden','true');
+ svg.setAttribute('viewBox','0 0 24 24');
+ svg.innerHTML=`<path d="M12 6v3m-1.5 3.3-5 4.4m8-4.4 5 4.4M12 13v5"/>
+  <circle cx="12" cy="4" r="2"/><circle cx="12" cy="11" r="2"/>
+  <circle cx="4" cy="18" r="2"/><circle cx="12" cy="20" r="2"/><circle cx="20" cy="18" r="2"/>`;
+ return svg;
+}
+
 const rigProfileNames={auto:'Auto',simple:'Simple',standard:'Standard',advanced:'Advanced',expert:'Expert',expressive:'Expressive'};
 const rigProfileDescriptions={
  auto:'Use the skeleton detected by UniRig.',
@@ -29,7 +42,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  const $=id=>document.getElementById(id),data=await api('/api/animations');
  let tab='library';const catalog=data.animations,previews=createMotionPreviews();
  let batchAvailable=false,removeAvailable=false,creatureRigAvailable=false,creatureClipTarget=null,rigProfiles=[];
- let tentacleAvailable=false,swimAvailable=false;
+ let tentacleAvailable=false,swimAvailable=false,creatureMotionsAvailable=false;
  let rigSourceCheck=null,openingRig=null,rigSourcePreview=null;
  let selecting=false,selectionTarget=null,submitting=false;
  let clipNotice=null,removal=null;
@@ -56,6 +69,15 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
    document.body.classList.toggle('creature-rig-editing',visible);
    $('animationLibraryControls').hidden=visible||Boolean(rigJobId);
   }});
+ const creatureMotions=createCreatureMotions({api,canEdit,async apply(job,recipe){
+  const result=await editClips(job,'POST',recipe,t('Creature motion added.'),false,
+   `/api/jobs/${encodeURIComponent(job.id)}/creature-motions`);
+  if(result.ok&&getJob()?.id===job.id&&tab==='creature'){
+   setAnimationTab('Added');render();
+   if(!$('rigPanel').hidden)$('animationTabAdded').focus();
+  }
+  return result;
+ }});
 
  function authoredMotion(name){
   const match=/^TS_(.+)_([0-9.]+)s$/.exec(name||'');
@@ -98,7 +120,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  function updateSelectionControls(job){
   const enabled=canAdd(job),count=selectedClips.size;
   $('createRig').disabled=!canEdit(job)||!rigSetup?.ready||Boolean(openingRig);
-  $('animationSelection').hidden=tab!=='library'||!batchAvailable||!batchLimit;
+  $('animationSelection').hidden=tab!=='library'||isCreatureRig(job)||!batchAvailable||!batchLimit;
   $('selectAnimations').disabled=!enabled;
   $('selectAnimations').setAttribute('aria-pressed',String(selecting));
   $('selectAnimations').querySelector('span').textContent=selecting?t('Cancel selection'):t('Select clips');
@@ -312,7 +334,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   $('rigCreatureStep').hidden=!creature;
   $('resetRigSetup').hidden=creature;
   $('rigStepLabel').textContent=t(creature?'Skeleton prediction':step===0?'01 / Size & orientation':'02 / Joint placement');
-  $('confirmRigSetup').textContent=t(creature?'Predict skeleton':step===0?'Next · place joints':'Confirm & create rig');
+  $('confirmRigSetup').replaceChildren(creature?creatureSkeletonIcon():icon('skeleton'),t(creature?'Predict skeleton':step===0?'Next · place joints':'Confirm & create rig'));
   $('cancelRigSetup').textContent=step===0?t('Cancel'):t('Back',undefined,'navigation');
  }
  function closeRig(){
@@ -414,6 +436,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  $('confirmRigSetup').onclick=async()=>{
   const options=rigOptions(),j=getJob(),button=$('confirmRigSetup');
   if(!j||j.id!==rigJobId){closeRig();return;}
+  if(!canEdit(j)||button.disabled)return;
   if(rigStep===0&&$('rigMode').value==='creature'){
    if(!creatureRigAvailable||isBusy()||button.disabled)return;
    const source=rigSourcePreview?rigSourceId(j):j.id;
@@ -447,6 +470,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
    }
    if(getJob()?.id!==j.id||rigJobId!==j.id)return;
    const result=await api(`/api/jobs/${j.id}/rig`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(options)});
+   $('animationNotice').textContent='';
    closeRig();await startJob(result.id,{rig:true});
   }catch(error){$('animationNotice').textContent=t(error.message);}
   finally{button.disabled=false;render();}
@@ -489,7 +513,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  }
 
  function render(){
-  const job=getJob();
+  const job=getJob(),rigged=hasRig(job),done=job?.state==='done',creature=isCreatureRig(job);
   if(selectionTarget!==job?.id||!batchAvailable)resetSelection();
   selectionTarget=job?.id;
   $('animationModel').textContent=nameOf(job);
@@ -497,27 +521,45 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   renderRigTarget(job);
   const editing=creatureEditor.sync(job,creatureRigAvailable&&!$('rigPanel').hidden,{tentacles:tentacleAvailable,swim:swimAvailable});
   syncSwimEditor(job,editing);
-  if(editing)return;
+  if(editing){
+   previews.clear();
+   personal.setVisible(false,'');
+   creatureMotions.update(job,false);
+   return;
+  }
   if(isCreatureRig(job)&&!isCreatureRigDraft(job)&&creatureClipTarget!==job.id){
    creatureClipTarget=job.id;
    setAnimationTab('Added');
   }
-  const q=$('animationSearch').value.toLocaleLowerCase(),added=embeddedClips(job),addedTab=tab==='added',personalTab=tab==='personal';
+  const creatureMotionsEligible=creatureMotionsAvailable&&rigged&&job?.media?.available!==false
+   && !isCreatureRigDraft(job)&&(done||job?.operation==='animation');
+  $('animationTabCreature').hidden=!creatureMotionsEligible;
+  if(!creatureMotionsEligible&&tab==='creature')setAnimationTab('Library');
+  const q=$('animationSearch').value.toLocaleLowerCase(formatLocale),added=embeddedClips(job);
+  const addedTab=tab==='added',personalTab=tab==='personal',creatureTab=tab==='creature';
+  const compatibility=$('animationRigCompatibility');
+  compatibility.hidden=!creature||addedTab||creatureTab;
+  compatibility.textContent=personalTab
+   ? t('Text-to-motion creates humanoid animations. You can save them here and apply them to a humanoid rig.')
+   : t('These motions are for humanoid rigs. Preview them here or select a humanoid to apply them.');
   $('animationAddedCount').textContent=added.length;
-  $('animationDurationControl').hidden=tab!=='library';
+  $('animationDurationControl').hidden=tab!=='library'||creature;
   $('animationCategory').hidden=tab!=='library';
+  $('animationSearch').hidden=creatureTab;
   $('animationSearch').placeholder=addedTab?t('Search added clips…'):personalTab?t('Search my animations…'):t('Search standard animations…');
   $('personalAnimationComposer').hidden=!personalTab;
   $('personalAnimationLibraryHeading').hidden=!personalTab;
   $('personalAnimationCards').hidden=!personalTab;
   $('personalMotionNotice').hidden=!personalTab;
-  $('personalMotionApplyHint').hidden=!personalTab;
-  $('animationCards').hidden=personalTab;
+  $('personalMotionApplyHint').hidden=!personalTab||creature;
+  $('animationCards').hidden=personalTab||creatureTab;
   $('rigPanel').classList.toggle('personal-motion-mode',personalTab);
   personal.setVisible(personalTab,q);
+  creatureMotions.update(job,creatureTab&&!$('rigPanel').hidden);
   $('animationCards').classList.toggle('added-motion-list',addedTab);
   showClipNotice(job);
   previews.clear();$('animationCards').replaceChildren();
+  if(creatureTab){updateSelectionControls(job);return;}
   if(personalTab){updateSelectionControls(job);personal.updateTarget();return;}
   if(addedTab){
    renderAdded(job,added,q);
@@ -552,7 +594,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   if(!list.length){const p=document.createElement('p');p.className='hint';p.textContent=t('No motions match your search.');$('animationCards').append(p);}
   updateSelectionControls(job);
  }
- const tabs=['Library','Personal','Added'];
+ const tabs=['Library','Personal','Creature','Added'];
  function setAnimationTab(name){
   tab=name.toLowerCase();
   for(const candidate of tabs){
@@ -569,7 +611,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   const button=$('animationTab'+name);
   button.onclick=()=>{setAnimationTab(name);render();};
   button.tabIndex=index===0?0:-1;
-  button.onkeydown=event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;const target=$('animationTab'+tabs[next]);target.click();target.focus();};
+  button.onkeydown=event=>{const visible=tabs.filter(t=>!$('animationTab'+t).hidden);if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)||visible.length<2)return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?visible.length-1:(visible.indexOf(name)+(event.key==='ArrowRight'?1:-1)+visible.length)%visible.length;const target=$('animationTab'+visible[next]);target.click();target.focus();};
  }
  $('animationSearch').oninput=render;$('animationCategory').onchange=render;
  let signature='';
@@ -584,9 +626,10 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   setCapabilities(status){
    batchAvailable=status.features?.includes('animation_batch')===true;
    removeAvailable=status.features?.includes('animation_clip_removal')===true;
-   creatureRigAvailable=status.edition==='desktop'&&status.features?.includes('creature_rig')===true;
+   creatureRigAvailable=status.features?.includes('creature_rig')===true;
    tentacleAvailable=creatureRigAvailable&&status.features?.includes('creature_tentacles')===true;
    swimAvailable=creatureRigAvailable&&status.features?.includes('creature_swim')===true;
+   creatureMotionsAvailable=status.features?.includes('creature_motions')===true;
    rigProfiles=availableRigProfiles(status);
   },
   modelLoaded(){
@@ -596,9 +639,9 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   update(){
    const job=getJob();
    if((rigJobId&&rigJobId!==job?.id)||(openingRig&&openingRig.jobId!==job?.id))closeRig();
-   const key=JSON.stringify([job?.id,job?.state,job?.media?.available,job?.result?.creature_motion,job?.result?.bones,job?.result?.rigged,job?.result?.revision,
+   const key=JSON.stringify([job?.id,job?.state,job?.operation,job?.rig_phase,job?.media?.available,job?.result?.creature_motion,job?.result?.bones,job?.result?.rigged,job?.result?.revision,
     job?.result?.rig_profile,job?.result?.rig_skipped_clips,rigProfiles,job?.media?.bones,job?.media?.animation_items,
-    job?.media?.animation_names,job?.media?.animation_revision,isBusy(),rigSetup?.ready,batchAvailable,removeAvailable,creatureRigAvailable,tentacleAvailable,swimAvailable]);
+    job?.media?.animation_names,job?.media?.animation_revision,isBusy(),rigSetup?.ready,batchAvailable,removeAvailable,creatureRigAvailable,tentacleAvailable,swimAvailable,creatureMotionsAvailable]);
    if(signature!==key){signature=key;render();}
   },
   render,

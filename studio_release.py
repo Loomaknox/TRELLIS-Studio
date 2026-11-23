@@ -19,11 +19,13 @@ VERSION_PATTERN = re.compile(r'v?(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1
 SUCCESS_TTL = 24 * 60 * 60
 FAILURE_TTL = 60 * 60
 MAX_METADATA_BYTES = 512 * 1024
+UI_REVISION = VERSION
 
 
-def render_studio_version(page):
+def render_studio_version(page, *, ui_revision=None):
     version = escape(VERSION)
-    return page.replace('<!--studio-current-version-->', version, 1).replace('<!--studio-ui-revision-->', version, 1)
+    revision = escape(ui_revision) if ui_revision is not None else version
+    return page.replace('<!--studio-current-version-->', version, 1).replace('<!--studio-ui-revision-->', revision, 1)
 
 
 def _version(value):

@@ -15,7 +15,9 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from rig_joint_placement import skin_normalization_frame
 
 job=Path(sys.argv[1]);work=job/'rig-work'
-skeleton_name=sys.argv[2] if len(sys.argv)>2 else 'skeleton-landmarks'
+skeleton_name = sys.argv[2] if len(sys.argv) > 2 else 'skeleton-landmarks'
+if skeleton_name not in ('skeleton-landmarks', 'skeleton-creature'):
+    raise ValueError('Choose the prepared landmark or creature skeleton frame.')
 with np.load(work/skeleton_name/'raw_data.npz',allow_pickle=True) as data:
     vertices=data['vertices'].astype(float);joints=data['joints'].astype(float)
 center,scale=skin_normalization_frame(vertices,joints)
@@ -41,11 +43,10 @@ bpy.ops.object.mode_set(mode='OBJECT')
 bpy.ops.object.select_all(action='SELECT')
 bpy.ops.export_scene.fbx(filepath=str(work/'skin-model-frame.fbx'),use_selection=True,add_leaf_bones=False,
                          bake_anim=False,object_types={'ARMATURE','MESH'})
-report_path=work/'landmarks-report.json'
-if skeleton_name=='skeleton-landmarks':
-    report=json.loads(report_path.read_text())
+if skeleton_name == 'skeleton-landmarks':
+    report=json.loads((work/'landmarks-report.json').read_text())
     report['skin_frame_restoration']=dict(center_normalized=center.tolist(),scale_normalized=scale,
         reason='Undo upstream skin normalization of mesh vertices plus joint heads',skin_weights_unchanged=True,
         source='skin.fbx',output='skin-model-frame.fbx')
-    report_path.write_text(json.dumps(report,indent=2))
+    (work/'landmarks-report.json').write_text(json.dumps(report,indent=2))
 print('Restored skin to the original normalized mesh frame',center.tolist(),scale,flush=True)

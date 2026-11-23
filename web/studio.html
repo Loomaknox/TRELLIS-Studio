@@ -4,15 +4,15 @@
 <meta name="trellis-ui-revision" content="<!--studio-ui-revision-->">
 <title>TRELLIS Studio — Local 3D workspace</title>
 <link rel="icon" type="image/svg+xml" href="/web/trellis-mark.svg">
-<link rel="stylesheet" href="/web/studio.css?v=2.3">
+<link rel="stylesheet" href="/web/studio.css?v=option-help">
 <link rel="stylesheet" href="/web/reference-preview.css?v=3.4.0">
 <link rel="stylesheet" href="/web/generation-wait.css?v=studio-visual-refinement">
-<link rel="stylesheet" href="/web/workspace.css?v=studio-visual-refinement"><link rel="stylesheet" href="/web/polish.css?v=detail-refinement-native">
+<link rel="stylesheet" href="/web/workspace.css?v=collection-images"><link rel="stylesheet" href="/web/polish.css?v=detail-refinement-native">
 <link rel="stylesheet" href="/web/release-notification.css?v=1">
 <script type="importmap">{"imports":{"three":"/vendor/build/three.module.js","three/addons/":"/vendor/examples/jsm/"}}</script>
 <script type="module" src="/web/release-notification.js?v=3.11.0-i18n"></script>
-<link rel="stylesheet" href="/web/animation-studio.css?v=creature-swim"><link rel="stylesheet" href="/web/details.css?v=studio-visual-refresh"><link rel="stylesheet" href="/web/studio-tools.css?v=3.9.0"><link rel="stylesheet" href="/web/lighting.css?v=studio-visual-refinement"><link rel="stylesheet" href="/web/workbench.css?v=detail-refinement-native"><link rel="stylesheet" href="/web/personal-animation.css?v=3.4.0"><link rel="stylesheet" href="/web/texture-projection.css?v=3.9.0">
-<link rel="stylesheet" href="/web/studio-panels.css?v=studio-visual-refinement">
+<link rel="stylesheet" href="/web/animation-studio.css?v=merged-rigs-3151"><link rel="stylesheet" href="/web/details.css?v=studio-visual-refresh"><link rel="stylesheet" href="/web/studio-tools.css?v=3.9.0"><link rel="stylesheet" href="/web/lighting.css?v=studio-visual-refinement"><link rel="stylesheet" href="/web/workbench.css?v=board-retexture"><link rel="stylesheet" href="/web/personal-animation.css?v=3.4.0"><link rel="stylesheet" href="/web/texture-projection.css?v=3.9.0">
+<link rel="stylesheet" href="/web/studio-panels.css?v=native-options">
 <link rel="stylesheet" href="/web/studio-shell.css?v=studio-visual-refresh">
 <link rel="stylesheet" href="/web/language-selector.css?v=1">
 </head><body>
@@ -97,13 +97,16 @@
   <label for="profileChoice" class="generation-field-label">Generation profile</label>
   <div class="generation-select">
     <svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#layers"/></svg>
-    <select id="profileChoice" disabled><option>Loading profiles…</option></select>
+    <select id="profileChoice" aria-describedby="generationProfileStatus" disabled><option>Loading profiles…</option></select>
   </div>
+  <p id="generationProfileStatus" class="hint generation-method-notice" role="status" hidden></p>
   <div id="denseMasterRepairField" class="field master-choice" hidden>
     <label for="denseMasterFinishing">Master finishing</label>
     <div class="generation-select">
       <svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#wire"/></svg>
       <select id="denseMasterFinishing" aria-describedby="denseMasterFinishingHint" disabled>
+      <option value="">Use Profile Settings</option>
+      <option value="none" disabled>None</option>
       <option value="studio_768">Balanced Reconstruction</option>
       <option value="wtivo_1024">Surface Closure</option>
       <optgroup label="Hi3D detail refinement">
@@ -121,7 +124,7 @@
     </div>
     <small id="detailRefinementUnavailable" hidden></small>
   </div>
-<div class="generation-engine">
+<div id="generationEngine" class="generation-engine">
 <details id="generationMethod" class="generation-method">
   <summary aria-labelledby="generationMethodTitle generationMethodLabel">
     <span><small id="generationMethodTitle">Generation engine</small><strong id="generationMethodLabel">TRELLIS.2 · Single image</strong></span>
@@ -139,6 +142,16 @@
 <section class="quality-card creation-step" aria-labelledby="outputQualityTitle">
   <div class="creation-step-header"><h2 id="outputQualityTitle"><span class="creation-step-number" aria-hidden="true">3</span> Output Quality</h2></div>
   <div class="output-budget"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#layers"/></svg><p id="profileSummary" class="hint" role="status"></p></div>
+  <div class="texture-method-choice" id="textureMethodChoice">
+    <label class="field">
+      <span>Texture method</span>
+      <span class="generation-select">
+        <svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#layers"/></svg>
+        <select id="textureMethod" aria-describedby="textureMethodStatus" disabled><option value="trellis">Native PBR</option></select>
+      </span>
+    </label>
+    <p id="textureMethodStatus" class="hint" role="status" hidden></p>
+  </div>
 <div class="two-fields generation-identity">
   <label class="field">Name<input id="name" name="name" maxlength="80" value="New model" required></label>
   <label class="field">Height (m)<input id="height" name="height_m" type="number" value="1" min="0.01" max="100" step="0.01"></label>
@@ -149,30 +162,35 @@
   <label class="field">Asset type<select id="assetType" name="asset_type"><option value="object">Static prop</option></select></label>
   <p id="assetHint" class="hint"></p>
   <div class="reference-tools"><button id="copyReferencePrompt" type="button" class="text-button">Copy an image brief ↗</button></div>
-  <div class="two-fields">
+  <div class="two-fields" id="generationSizeFields">
     <label class="field">3D resolution<select id="resolution" name="resolution"><option value="512">512³ · Fast</option><option value="1024" selected>1024³ · Quality</option><option value="1536" disabled>1536³ · Fine detail</option></select></label>
-    <label class="field">Texture<select id="textureSize" name="texture_size"><option value="0">Use profile default</option><option value="1024">1K · 1 024 px</option><option value="2048" selected>2K · 2 048 px</option><option value="4096" disabled>4K · 4 096 px</option></select></label>
+    <label class="field">Texture size<select id="textureSize" name="texture_size"><option value="0">Use profile default</option><option value="1024">1K · 1 024 px</option><option value="2048" selected>2K · 2 048 px</option><option value="4096" disabled>4K · 4 096 px</option></select></label>
   </div>
   <p id="qualityHint" class="hint" hidden></p>
-  <div class="two-fields"><label class="field"><span id="monoTrianglesLabel">Target triangles</span><input id="triangles" name="triangles" type="number" min="0" max="8000000" step="1" value="28000"><small id="monoTrianglesHint">0 uses the profile budget.</small></label><label class="field">3D seed<input id="seed" name="seed" type="number" value="42" min="0" max="2147483647" step="1"></label></div>
+  <div class="two-fields" id="generationMeshFields"><label id="monoTrianglesField" class="field"><span id="monoTrianglesLabel">Target triangles</span><input id="triangles" name="triangles" type="number" min="0" max="8000000" step="1" value="28000"><small id="monoTrianglesHint">0 uses the profile budget.</small></label><label class="field">3D seed<input id="seed" name="seed" type="number" value="42" min="0" max="2147483647" step="1"></label></div>
   <label id="advancedMasterField" class="field" hidden>Finishing override<select id="advancedMasterFinishing" disabled><option value="">Use master finishing</option><option value="direct">Direct Export</option><option value="repair">Repair Holes</option></select></label>
   <label id="removeBgField" class="check"><input id="removeBg" name="remove_bg" type="checkbox" checked><span>Remove image background</span></label>
   <div id="faceProjectionField" hidden><label class="check"><input id="reprojectFace" type="checkbox" autocomplete="off" aria-describedby="reprojectFaceHelp" disabled><span>Reproject the reference face</span></label><p class="hint" id="reprojectFaceHelp"></p></div>
-  <label class="check"><input id="keepFinishingSource" name="keep_finishing_source" type="checkbox" value="true"><span>Keep source for finishing variants</span></label>
+  <label id="keepFinishingSourceField" class="check"><input id="keepFinishingSource" name="keep_finishing_source" type="checkbox" value="true"><span>Keep source for finishing variants</span></label>
   <p id="finishingSourceHelp" class="hint">Stores the decoded geometry and materials so finishing can be repeated.</p>
   <fieldset id="generationSampling" class="mode-fields">
-    <label class="field">Base preset<select id="profileBase"><option value="game_d">Game Asset</option><option value="high_detail">High Detail</option><option value="dense_master">HD Master</option><option value="humanoid_experimental">Humanoid · Experimental</option></select></label>
+    <label class="field">Base preset<select id="profileBase"><option value="high_detail">High Detail (Props)</option><option value="figure_master">Figure Master</option></select></label>
     <div id="advancedControls"></div>
+    <div id="detailTexturingField" class="detail-texturing-field" hidden>
+      <label class="check option-boolean"><input id="retextureAfterRefinement" type="checkbox" aria-describedby="detailTexturingStatus"><span>Retexture after Hi3D</span></label>
+      <p id="detailTexturingStatus" class="hint" role="status" hidden></p>
+    </div>
   </fieldset>
+  <div id="workflowAdvancedControls" hidden></div>
   <label class="field">Reference context / prompt<textarea id="referencePrompt" name="reference_prompt" rows="4" maxlength="6000" placeholder="Object function, setting, materials…"></textarea></label>
-  <div class="profile-actions"><button id="saveProfileAs" type="button" disabled>Save a copy</button><button id="updateProfile" type="button" hidden>Edit this profile</button><button id="useProfileAtStartup" type="button" aria-pressed="false" disabled>Use at startup</button><button id="resetAdvanced" type="button" class="quiet">Reset to Game Asset</button></div>
+  <div class="profile-actions"><button id="saveProfileAs" type="button" disabled>Save a copy</button><button id="updateProfile" type="button" hidden>Edit this profile</button><button id="deleteProfile" type="button" hidden><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#trash"/></svg>Delete profile</button><button id="useProfileAtStartup" type="button" aria-pressed="false" disabled>Use at startup</button><button id="resetAdvanced" type="button" class="quiet">Reset profile settings</button></div>
   <p id="profileNotice" role="status" aria-live="polite"></p>
 </details>
 <div class="generation-dock"><p id="generationSummary" class="sr-only">Local compute</p><button id="generate" class="primary generate-button" type="submit" aria-describedby="generationSummary" disabled><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#sparkles"/></svg><span>Add to Queue</span></button><button id="cancel" class="cancel" type="button" hidden><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#close"/></svg>Cancel generation</button></div>
 </form>
 <form id="terrainForm" hidden><p class="hint">Procedural terrain, independent of the image-to-3D engine.</p><label class="field">Name<input id="terrainName" value="Terrain-Blackwater" maxlength="50" required></label><label class="field">Terrain<select id="terrainStyle"><option value="hills">Hills</option><option value="mountains">Rocky terrain</option><option value="basin">Basin</option><option value="plateau">Plateaus</option></select></label><div class="two-fields"><label class="field">Side length<select id="terrainSize"><option value="64">64 m</option><option value="128">128 m</option><option value="256" selected>256 m</option><option value="512">512 m</option><option value="1024">1 024 m</option></select></label><label class="field">Maximum elevation<input id="terrainHeight" type="number" min="1" max="250" value="32"></label></div><label class="field">Palette<select id="terrainPalette"><option value="blackwater">Blackwater</option><option value="dry">Dry ground</option><option value="ash">Ash</option></select></label><label class="field">Detail <output id="roughnessValue">55 %</output><input id="roughness" type="range" min=".1" max=".9" step=".05" value=".55"></label><label class="field">Flat area <output id="flatValue">15 %</output><input id="flatZone" type="range" min="0" max=".4" step=".05" value=".15"></label><div class="two-fields"><label class="field">Heightmap<select id="terrainResolution"><option>129</option><option selected>257</option><option>513</option></select></label><label class="field">Seed<input id="terrainSeed" type="number" min="0" max="2147483647" value="42"></label></div><p class="hint">No caves, overhangs or roads are generated. Materials remain editable.</p><button id="createTerrain" class="primary generate-button">Create terrain <span>↗</span></button></form>
 <section id="rigPanel" hidden>
-<div class="animation-tabs" role="tablist" aria-label="Animation libraries"><button id="animationTabLibrary" type="button" role="tab" aria-selected="true" class="active">Standard</button><button id="animationTabPersonal" type="button" role="tab" aria-selected="false">My animations <b id="personalAnimationCount">0</b></button><button id="animationTabAdded" type="button" role="tab" aria-selected="false">Added <b id="animationAddedCount">0</b></button></div>
+<div class="animation-tabs" role="tablist" aria-label="Animation libraries"><button id="animationTabLibrary" type="button" role="tab" aria-selected="true" class="active">Standard</button><button id="animationTabPersonal" type="button" role="tab" aria-selected="false">My animations <b id="personalAnimationCount">0</b></button><button id="animationTabCreature" type="button" role="tab" aria-selected="false" aria-controls="creatureMotionPanel" hidden>Creature</button><button id="animationTabAdded" type="button" role="tab" aria-selected="false">Added <b id="animationAddedCount">0</b></button></div>
 <div class="animation-target"><strong id="animationModel">Choose a model</strong><p id="animationRigState"></p><p id="animationRigSkipped" hidden></p><p id="animationRigSourceNotice" role="status" hidden></p><button id="createRig" class="secondary" type="button"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#skeleton"/></svg><span>Add rig</span></button></div>
 <section id="rigSetup" hidden>
  <span id="rigStepLabel" class="eyebrow">01 / Size &amp; orientation</span><h2>Prepare character rig</h2>
@@ -201,6 +219,7 @@
 <section id="creatureRigEditor" hidden aria-labelledby="creatureRigHeading">
  <header><h2 id="creatureRigHeading">Creature skeleton</h2><output id="creatureBoneCount" aria-live="polite"></output></header>
  <p id="creatureRigStatus" class="hint" role="status"></p>
+ <button type="button" class="secondary" id="creatureReloadDraft" hidden>Reload saved skeleton</button>
   <details id="creatureTentacles" class="creature-chain" hidden>
    <summary>Tentacles</summary>
    <label class="field">Target bone spacing (m)<input id="creatureTentacleSpacing" type="number" min="0.05" max="0.50" step="0.01" value="0.19" required></label>
@@ -220,6 +239,11 @@
   <label class="field">Bone name<input id="creatureBoneName" type="text" maxlength="63" required></label>
   <fieldset id="creatureBoneHead" class="creature-bone-vector"><legend>Start</legend></fieldset>
   <fieldset id="creatureBoneTail" class="creature-bone-vector"><legend>End</legend></fieldset>
+  <div class="creature-rig-actions">
+   <button id="creaturePlaceStart" type="button" class="secondary" aria-pressed="false">Place start</button>
+   <button id="creaturePlaceEnd" type="button" class="secondary" aria-pressed="false">Place end</button>
+  </div>
+  <p id="creaturePlacementHint" class="hint" hidden>Click the model surface to place the endpoint. Press Escape to cancel.</p>
   <label class="rig-module"><input id="creatureMoveJoined" type="checkbox" checked> Move connected endpoints together</label>
   <details class="creature-chain">
    <summary>Edit branches</summary>
@@ -256,6 +280,7 @@
  </form>
 </details>
 <div id="animationLibraryControls">
+ <p id="animationRigCompatibility" class="personal-motion-apply-hint" hidden></p>
  <details id="personalAnimationComposer" class="personal-motion-composer" hidden aria-labelledby="personalMotionHeading">
   <summary class="personal-motion-summary"><span class="personal-motion-symbol"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#motion"/></svg></span><span class="personal-motion-heading"><span class="eyebrow">TEXT TO MOTION <span class="personal-motion-beta">EXPERIMENTAL</span></span><span id="personalMotionHeading">Generate a motion</span></span><span class="personal-composer-expand" aria-hidden="true">+</span></summary>
   <p class="personal-motion-intro">Describe a movement. Save it once, then reuse it on your rigged characters.</p>
@@ -280,6 +305,32 @@
   <div id="animationSelectionActions" class="animation-selection-actions" hidden><button id="clearAnimationSelection" class="quiet has-icon" type="button" aria-label="Clear selected clips"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#close"/></svg>Clear</button><button id="addAnimationSelection" class="primary has-icon" type="button"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#plus"/></svg><span>Add selected clips</span></button></div>
  </div>
  <p id="animationClipNotice" role="status" aria-live="polite"></p>
+ <section id="creatureMotionPanel" class="creature-motion-panel" role="tabpanel" aria-labelledby="animationTabCreature" hidden>
+  <p class="hint">Add a procedural animation to the selected rig.</p>
+  <p id="creatureMotionPanelNotice" class="hint" role="status"></p>
+  <button id="creatureMotionReload" class="quiet" type="button" hidden>Reload motion options</button>
+  <form id="creatureMotionForm" hidden>
+   <fieldset id="creatureMotionFields">
+    <label class="field">Motion<select id="creatureMotionKind" aria-describedby="creatureMotionDescription creatureMotionReason"></select></label>
+    <p id="creatureMotionDescription" class="hint"></p>
+    <p id="creatureMotionReason" class="hint creature-motion-reason" hidden></p>
+    <label class="field">Clip name<input id="creatureMotionName" name="name" maxlength="80" placeholder="Automatic name"></label>
+    <div class="two-fields">
+     <label class="field">Duration (s)<input name="duration_s" type="number" min="2" max="12" step="any" value="4" required></label>
+     <label class="field">Cycles<input name="cycles" type="number" min="1" max="4" step="1" value="2" required></label>
+    </div>
+    <label class="field">Amplitude (×)<input name="amplitude" type="number" min="0.1" max="2" step="any" value="1" required></label>
+    <fieldset id="creatureMotionSwimFields" class="creature-motion-swim" hidden disabled>
+     <legend>Swim settings</legend>
+     <div class="two-fields">
+      <label class="field">Phase lag<input name="phase_lag" type="number" min="0" max="1.2" step="any" value="0.45" required></label>
+      <label class="field">Travel (m)<input name="travel_m" type="number" min="0" max="0.35" step="any" value="0" required></label>
+     </div>
+    </fieldset>
+    <button id="creatureMotionAdd" class="primary has-icon" type="submit" disabled><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#plus"/></svg><span>Add motion</span></button>
+   </fieldset>
+  </form>
+ </section>
  <div id="animationCards" class="animation-cards"></div>
  <div id="personalAnimationCards" class="animation-cards personal-animation-cards" hidden></div>
  <p id="personalMotionApplyHint" class="personal-motion-apply-hint" hidden>Animations are added to the selected model. Review contacts and deformation on each character.</p>
@@ -311,10 +362,21 @@
 <div id="assetMenu" class="asset-menu" popover="auto" role="menu" aria-label="Model actions"><button type="button" role="menuitem" data-action="details"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#details"/></svg><span>Model details<small>Organise, review and inspect</small></span></button><button type="button" role="menuitem" data-action="version"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#version"/></svg><span>New version<small>Reuse the reference and settings</small></span></button><button type="button" role="menuitem" data-action="print"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#print"/></svg><span>3D print copy<small>Prepare a separate mesh and STL</small></span></button><button type="button" role="menuitem" data-action="compare"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#compare"/></svg><span>Compare<small>Synchronised side-by-side views</small></span></button><button type="button" role="menuitem" data-action="diagnostics"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#shield"/></svg><span>Diagnostics<small>Topology, UVs, textures and scale</small></span></button><button type="button" role="menuitem" data-action="export"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#download"/></svg><span>Export<small>Blender, Unity, Unreal or printing</small></span></button><button type="button" role="menuitem" data-action="history"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#version"/></svg><span>Version history<small>Lineage and saved checkpoints</small></span></button><button type="button" role="menuitem" data-action="folder"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#folder"/></svg><span>Move to folder<small>Organise in a collection</small></span></button><button type="button" role="menuitem" data-action="lod"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#layers"/></svg><span>Automatic LODs<small>Create a detail-level set</small></span></button><button type="button" role="menuitem" data-action="refinish" hidden><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#layers"/></svg><span>Refinish model<small>Reuse generated geometry and materials</small></span></button><button type="button" role="menuitem" data-action="game"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#cube"/></svg><span>Game preparation<small>Pivot, scale and collisions</small></span></button><div class="menu-divider"></div><button type="button" role="menuitem" class="menu-danger" data-action="remove"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#trash"/></svg><span>Delete<small>Move to trash</small></span></button></div>
 <dialog id="printDialog" aria-labelledby="printTitle"><form id="printForm"><span class="eyebrow">FABRICATION</span><h2 id="printTitle">Prepare a 3D print copy</h2><div class="print-intro"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#print"/></svg><div><strong id="printSourceName"></strong><small>A separate model in your collection</small></div></div><p>Rebuild a static surface, merge overlapping geometry and ground the copy. Rigged models use their rest pose.</p><div class="print-fields"><label class="field">Print height<input id="printHeight" type="number" min="20" max="500" step="1" value="120" required><small>millimetres</small></label><label class="field">Voxel detail<select id="printVoxel"><option value="0.2">Fine · 0.2 mm</option><option value="0.4" selected>Balanced · 0.4 mm</option><option value="0.8">Coarse · 0.8 mm</option><option value="1.2">Draft · 1.2 mm</option></select><small>Smaller voxels preserve finer shapes.</small></label></div><p class="print-note">Includes an STL in mm, a Blender source and a topology report. Reconstruction can soften details or remove thin parts. Check wall thickness and supports in your slicer.</p><p id="printNotice" role="status"></p><div class="dialog-actions"><button id="closePrint" type="button" class="secondary">Cancel</button><button id="confirmPrint" type="submit" class="primary">Create print copy</button></div></form></dialog><dialog id="importDialog" aria-labelledby="importTitle"><form id="importForm"><span class="eyebrow">COLLECTION</span><h2 id="importTitle">Import a model</h2><p>GLB, FBX, OBJ, STL or PLY · up to 500 MB.<br>Use a GLB with embedded images to keep all textures. File units are preserved.</p><div class="field"><span>3D file</span><label class="model-file-picker" for="importFile">Choose 3D file <span id="importFileName">No file selected</span></label><input id="importFile" class="file-picker-input" name="model" type="file" accept=".glb,.fbx,.obj,.stl,.ply" required></div><label class="field">Model name<input id="importName" name="name" maxlength="80" required></label><p id="importNotice" role="status"></p><div class="dialog-actions"><button id="closeImport" type="button" class="secondary">Cancel</button><button id="confirmImport" type="submit" class="primary">Import model</button></div></form></dialog><dialog id="profileDialog" aria-labelledby="profileDialogTitle"><form id="profileForm"><span class="eyebrow">CUSTOM PROFILE</span><h2 id="profileDialogTitle">Save your settings</h2><p>Profiles store quality, mesh, textures, UV and background removal settings. Image, model name, height and seeds remain specific to each model.</p><label class="field">Profile name<input id="profileName" maxlength="60" required autocomplete="off"></label><p id="profileDialogError" role="alert"></p><div class="dialog-actions"><button id="closeProfile" type="button" class="secondary">Cancel</button><button id="confirmProfile" type="submit" class="primary">Save profile</button></div></form></dialog>
 <dialog id="deleteDialog"><form method="dialog"><span class="eyebrow">TRASH</span><h2>Remove this model?</h2><p id="deleteName"></p><p>The model and its files will move to the local trash. You can restore them later.</p><div class="dialog-actions"><button value="cancel" class="secondary">Keep</button><button id="confirmDelete" type="button" class="danger">Move to trash</button></div></form></dialog>
+<dialog id="deleteProfileDialog" aria-labelledby="deleteProfileTitle" aria-describedby="deleteProfileDescription">
+  <form method="dialog">
+    <h2 id="deleteProfileTitle">Delete this profile?</h2>
+    <p id="deleteProfileDescription">Permanently removes <strong id="deleteProfileName"></strong> from My profiles.</p>
+    <p id="deleteProfileError" class="advanced-error" role="alert"></p>
+    <div class="dialog-actions">
+      <button id="cancelDeleteProfile" class="secondary" value="cancel" autofocus>Cancel</button>
+      <button id="confirmDeleteProfile" class="danger" type="button"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#trash"/></svg>Delete profile</button>
+    </div>
+  </form>
+</dialog>
 <dialog id="animationRemoveDialog" aria-labelledby="animationRemoveTitle" aria-describedby="animationRemoveDescription"><form method="dialog"><h2 id="animationRemoveTitle">Remove animation?</h2><p id="animationRemoveDescription">Remove <strong id="animationRemoveName"></strong> from this model?</p><div class="dialog-actions"><button value="cancel" class="secondary" autofocus>Keep clip</button><button value="remove" class="danger has-icon"><svg class="ui-icon" aria-hidden="true"><use href="/web/icons.svg#trash"/></svg>Remove clip</button></div></form></dialog>
 <dialog id="imageDialog"><button class="dialog-close" id="closeImage">Close ×</button><img id="largeImage" alt="Full-size texture or UV layout"></dialog>
 <footer><span>TRELLIS STUDIO</span><span>Reference → generation → review → Blender</span><span>UV & PBR · local compute</span></footer>
-<script type="module" src="/web/studio.js?v=creature-swim"></script><script type="module" src="/web/validation-en.js?v=3.11.0-i18n"></script>
+<script type="module" src="/web/studio.js?v=3.15.1-rigs"></script><script type="module" src="/web/validation-en.js?v=3.11.0-i18n"></script>
 <div id="refinishDialog" class="refinish-popover" popover="auto" role="dialog" aria-labelledby="refinishTitle">
 <form id="refinishForm">
   <header class="refinish-head">

@@ -14,7 +14,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from starlette.responses import JSONResponse
 from api_contract import (
-    Animation, AnimationBatch, AnimationRemoval, Assign, BakedGameCopy, Export, Folder, Game, Generation, Identifier, ImportModel,
+    Animation, AnimationBatch, AnimationRemoval, Assign, BakedGameCopy, CreatureMotion, CreatureRigCompletion,
+    Export, Folder, Game, Generation, Identifier, ImportModel,
     GeneratedAnimationCreate, GeneratedAnimationApply,
     JobRetry, LOD, Metadata, Motion, MultiViewGeneration, PrintCopy, Refinish, Rig,
     SavedView, TextureProjectionRequest, VERSION,
@@ -154,12 +155,12 @@ async def upload_source(file_path:str)->dict[str,Any]:
 
 @tool()
 async def queue_generation(recipe:Generation)->dict[str,Any]:
-    """Queue an uploaded image with TRELLIS.2 or engine='pixal3d_single' (MoGe camera estimation). With profile_id='dense_master', select studio_768, wtivo_1024 or optional hi3d_512/hi3d_1024 using master_finishing. Hi3D refines the chosen TRELLIS.2 single-image resolution using its prepared transparent cutout. The Hi3D output resolution is independent of the generation resolution. Check studio_status and poll get_model."""
-    return await api('POST','/generations',recipe.model_dump())
+    """Queue an uploaded image with TRELLIS.2, engine='pixal3d_single' or an available standalone profile. Standard profiles accept trellis, multiview or ultratex for texture_method. UltraTex requires its component and 2K. Use master_finishing='none' for decoded geometry. Standalone profiles accept stage settings under overrides.workflow_options. Check profiles and poll get_model."""
+    return await api('POST','/generations',recipe.model_dump(exclude_unset=True))
 
 @tool()
 async def queue_multiview_generation(recipe:MultiViewGeneration)->dict[str,Any]:
-    """Queue Pixal3D from a front image and at least one matching side or back image. Choose a generation profile, then optionally select master_finishing with dense_master. Upload images first and poll get_model."""
+    """Queue Pixal3D from a front image and at least one matching side or back image. Choose a generation profile and optionally select master_finishing='none' for the full decoded surface, or an available reconstruction. Upload images first and poll get_model."""
     return await api('POST','/generations/multiview',recipe.model_dump(exclude_none=True))
 
 @tool()
@@ -174,7 +175,7 @@ async def get_finishing_options(model_id: Identifier) -> dict[str, Any]:
 
 @tool()
 async def queue_refinish(model_id: Identifier, recipe: Refinish) -> dict[str, Any]:
-    """Create a linked variant from the saved cache. For a dense PBR master, pass master_finishing='wtivo_1024', 'studio_768', 'hi3d_512' or 'hi3d_1024' and optionally texture_size. Hi3D refines a saved TRELLIS.2 single-image source at its original resolution using the prepared cutout. Read get_finishing_options for eligibility and runtime availability, then poll get_model."""
+    """Create a linked variant from the saved cache. For a dense PBR master, pass master_finishing='wtivo_1024', 'studio_768', 'hi3d_512' or 'hi3d_1024' and optionally texture_size. With Hi3D, pass hi3d_options to override refinement settings or retexture_after_refinement=True to generate new materials at 12 steps using the chosen texture size. Read get_finishing_options for eligibility and runtime availability, then poll get_model."""
     return await api('POST', f'/models/{model_id}/refinish', recipe.model_dump(exclude_none=True))
 
 @tool(read=True)
@@ -246,8 +247,36 @@ async def prepare_print_copy(model_id:Identifier,settings:PrintCopy)->dict[str,A
 
 @tool()
 async def rig_model(model_id:Identifier,settings:Rig)->dict[str,Any]:
-    """Run UniRig on a linked copy with orientation, height, offset, landmarks and an optional enabled humanoid profile."""
-    return await api('POST','/models/'+model_id+'/rig',settings.model_dump(exclude_none=True, exclude_unset=True))
+    """Run UniRig on a linked copy with placement, landmarks and an optional humanoid profile or creature mode."""
+    return await api('POST', '/models/' + model_id + '/rig', settings.model_dump(exclude_none=True, exclude_unset=True))
+
+
+@tool(read=True)
+async def get_rig_preview(model_id: Identifier) -> dict[str, Any]:
+    """Read a predicted rig draft, including editable creature bones and the revision."""
+    return await api('GET', '/models/' + model_id + '/rig-preview')
+
+
+@tool()
+async def complete_creature_rig(model_id: Identifier, settings: CreatureRigCompletion) -> dict[str, Any]:
+    """Calculate creature skin weights for an edited skeleton and optionally add a preview loop."""
+    payload = settings.model_dump(mode='json')
+    if payload['swim'] is None:
+        payload.pop('swim')
+    return await api('POST', '/models/' + model_id + '/rig-complete', payload)
+
+
+@tool(read=True)
+async def get_creature_motion_options(model_id: Identifier) -> dict[str, Any]:
+    """Read the existing rig's compatible procedural motion recipes and revision."""
+    return await api('GET', '/models/' + model_id + '/creature-motions')
+
+
+@tool()
+async def add_creature_motion(model_id: Identifier, settings: CreatureMotion) -> dict[str, Any]:
+    """Queue a procedural clip on the existing rig; poll the returned status URL."""
+    return await api('POST', '/models/' + model_id + '/creature-motions', settings.model_dump(exclude_none=True))
+
 
 @tool()
 async def add_animation(model_id:Identifier,motion:Animation)->dict[str,Any]:

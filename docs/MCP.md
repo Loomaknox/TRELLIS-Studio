@@ -132,6 +132,13 @@ Sources: [MCP setup](https://learn.chatgpt.com/docs/extend/mcp?surface=cli),
    the returned status URL. Desktop also provides `edit_motion` for embedded clip edits.
 8. `export_models`, then `get_export`. Download the supplied URL when complete.
 
+## Procedural creature motion
+
+Use `get_creature_motion_options` with the completed model ID to inspect the
+compatible motions and its current revision. Pass that revision, a motion ID and
+any settings to `add_creature_motion`. Poll `get_animation_update` to follow the
+clip as it is added to the same model. [Parameters in the REST guide](API.md).
+
 ## My animations tools
 
 These five tools use the private generated-motion library, separate from

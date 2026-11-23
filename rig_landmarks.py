@@ -74,7 +74,7 @@ def validate_rig_options(value):
     if profile not in ('auto', *RIG_PROFILES):
         raise ValueError('Choose Auto, Simple, Standard, Advanced, Expert, or Expressive for the rig profile.')
     adjustable_hands = profile in ('advanced', 'expert', 'expressive')
-    default_fingers = adjustable_hands or profile == 'standard'
+    default_fingers = profile in ('standard', 'expert', 'expressive')
     fingers = value.get('articulated_fingers', default_fingers)
     if type(fingers) is not bool:
         raise ValueError('Articulated fingers must be true or false.')

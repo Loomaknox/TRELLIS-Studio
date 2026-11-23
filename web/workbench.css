@@ -42,6 +42,12 @@
 .finishing-refinement-actions .field{margin:0;min-width:100px}
 .finishing-refinement-actions button{min-height:36px}
 .finishing-refinement[hidden],.finishing-refinement-actions[hidden]{display:none}
+.finishing-hi3d-options{min-inline-size:0;margin:0;padding:0;border:0}
+.finishing-hi3d-options .option-group{margin:0}
+.finishing-hi3d-options .option-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.finishing-hi3d-options .option-help-heading{font-size:11px}
+.finishing-retexture .option-help-heading{margin:0}
+.finishing-retexture>.hint{margin:5px 0 0}
 .finishing-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .finishing-form h3,.finishing-form>.hint{grid-column:1/-1;margin:0}
 .finishing-recipe{display:grid;gap:12px;min-width:0;margin:0;padding:12px;border:1px solid #526346;border-radius:8px;background:#182119}
@@ -56,6 +62,10 @@
 .finishing-row strong{font-size:13px;font-weight:550;color:#dfebd6}
 .finishing-row p,.finishing-row small{display:block;font-size:12px;margin:5px 0;color:#adbf9f}
 .finishing-row small.finishing-failure{color:#ffb4a4}
+.finishing-variant-options{margin-top:7px;color:#adbf9f;font-size:11px;overflow-wrap:anywhere}
+.finishing-variant-options summary{color:#cce3b8;cursor:pointer}
+.finishing-variant-options dl{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 10px;width:min(100%,280px);margin:7px 0 0}
+.finishing-variant-options dd{margin:0;text-align:right;color:#e0edd6}
 .finishing-row progress{width:min(100%,260px);height:6px;accent-color:#c4f58a;display:block}
 .finishing-row-actions{display:flex;flex-wrap:wrap;justify-content:end;gap:7px}
 .finishing-row-actions button{font-size:11px}
@@ -66,6 +76,9 @@
   .finishing-row{grid-template-columns:1fr}
   .finishing-row-actions{justify-content:start}
   .finishing-board .studio-dialog-actions{flex-wrap:wrap}
+}
+@media(max-width:480px){
+  .finishing-hi3d-options .option-grid{grid-template-columns:minmax(0,1fr)}
 }
 
 .queue-failure {

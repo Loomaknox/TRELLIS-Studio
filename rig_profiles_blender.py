@@ -375,6 +375,8 @@ def apply_profile(arm, meshes, mapping, profile, articulated_fingers):
         raise ValueError('A rig profile needs a skinned humanoid mesh.')
     if arm.animation_data and (arm.animation_data.action or arm.animation_data.nla_tracks):
         raise ValueError('Create a new profile from an unanimated source mesh, then retarget its motions.')
+    if type(articulated_fingers) is not bool:
+        raise ValueError('The articulated fingers option must be boolean.')
     articulated = profile == 'standard' or (profile in _TWIST_PROFILES and articulated_fingers)
     expressive = profile == 'expressive'
     body = _body_mapping(arm, mapping)

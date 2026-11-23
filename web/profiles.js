@@ -1,50 +1,112 @@
 import {formatLocale,t} from './i18n.js';
 // Recipes are persisted by the local server, independently from object history.
 import {detailRefinements} from './hd-master-finishing.js?v=detail-refinement-native';
+import {createWorkflowFields, optionHelp} from './advanced-controls.js?v=standard-profiles';
+import {createStandardWorkflowGraph} from './standard-workflow-graph.js?v=1';
+import {textureMethodChoices,textureMethodHelp,textureMethodOf,textureMethodRestriction} from './texture-methods.js?v=figure-master-ultratex';
 
 const $=id=>document.getElementById(id);
 const steps={game_d:20,high_detail:20,humanoid_experimental:20,dense_master:20,fast:8,balanced:12,detail:20};
-const startupKey='trellis.studio.startup-profile';
-const profileNames={game_d:t('Game Asset'),dense_master:t('HD Master')};
+const figureSteps={structure_steps:30,shape_steps:35,texture_steps:12};
+const startupKey='trellis.studio.startup-profile.v2';
+const profileNames={game_d:'Game Asset (Standard)',dense_master:'HD Master'};
+const restoredWorkflows={game_asset_comfy:'game_asset_native',high_detail_comfy:'high_detail_native'};
 const finishingNames={
-  studio_768:t('Balanced Reconstruction'),
-  wtivo_1024:t('Surface Closure'),
-  direct:t('Direct Export'),
-  repair:t('Repair Holes'),
+  none:'None',
+  studio_768:'Balanced Reconstruction',
+  wtivo_1024:'Surface Closure',
+  direct:'Direct Export',
+  repair:'Repair Holes',
 };
 const finishingDetails={
-  studio_768:t('Studio 768 · Rebuilds the surface and retains fine details.'),
-  wtivo_1024:t('WTiVo 1024 · Prioritizes closing surface gaps.'),
-  direct:t('Adaptive reduction within the triangle ceiling.'),
-  repair:t('Fills small gaps while retaining the source for variants.'),
+  '':'Uses the profile’s standard mesh processing.',
+  none:'Exports the decoded mesh at its original triangle count and keeps the source for finishing later.',
+  studio_768:'Studio 768 · Rebuilds the surface and retains fine details.',
+  wtivo_1024:'WTiVo 1024 · Prioritizes closing surface gaps.',
+  direct:'Adaptive reduction within the triangle ceiling.',
+  repair:'Fills small gaps while retaining the source for variants.',
 };
 const finishingName=value=>t(detailRefinements[value]?.name||finishingNames[value]||'');
+const defaultFinishing=preset=>preset==='dense_master'?'studio_768':'';
+const isReconstruction=value=>Boolean(detailRefinements[value])||value==='studio_768'||value==='wtivo_1024';
 const number=new Intl.NumberFormat(formatLocale);
 const inlineFinishingLimit=3000000;
 const detailRefinementLimit=1000000;
 const detailSourceResolutions=[512,1024,1536];
-export async function createProfileControls(advanced,{changed=()=>{},usePixal=()=>false,describeMethod=()=>''}={}){
+const retextureHelp='Generates new PBR materials from the reference on the refined geometry. Uses the texture settings below and adds processing time.';
+export async function createProfileControls(advanced,{changed=()=>{},usePixal=()=>false,isMultiview=()=>false,describeMethod=()=>'',useNativeMethod=()=>{},setWorkflow=()=>{}}={}){
   let profiles=[],selected=null,saving=false,edit=false,sourceRequired=false,previousKeep=false;
+  let deletingProfile=null,deleting=false,serverStartup='';
   let repairSupported=false, hdSupported=false, masterSupport={};
-  let startupProfile='', refinementInputs=null, standardFinishing='studio_768';
-  const readFinishing=()=>$('preset').value==='dense_master'
-    ? $('advancedMasterFinishing').value || $('denseMasterFinishing').value : '';
+  let detailTexturing={};
+  let textureSupport={},preferredTextureMethod='trellis',ultraAtlas=null;
+  let startupProfile='', refinementInputs=null, standardFinishing='', pixalFallback=false, pixalAtlas=null;
+  let workflowFields, standardGraph, standardGraphKey;
+  const workflowBox=$('workflowAdvancedControls');
+  function removeStandardGraph() {
+    standardGraph?.remove();
+    standardGraph = standardGraphKey = undefined;
+  }
+  function showWorkflowFields(profile, values={}) {
+    removeStandardGraph();
+    workflowFields?.closeGraph();
+    workflowFields=createWorkflowFields(workflowBox,profile.workflow.advanced,values,
+      {workspace:$('workspace'),profileName:profile.name});
+  }
+  const retexture=$('retextureAfterRefinement');
+  const retextureField=$('detailTexturingField');
+  const retextureStatus=$('detailTexturingStatus');
+  optionHelp(retexture.closest('label'), 'Retexture after Hi3D', retextureHelp);
+  const textureMethod=$('textureMethod');
+  const textureMethodStatus=$('textureMethodStatus');
+  textureMethod.replaceChildren(...textureMethodChoices.map(([id,name])=>new Option(name,id)));
+  optionHelp(textureMethod.closest('label'),'Texture method',textureMethodHelp);
+  const textures=advanced.group('texture');
+  if(textures)textures.querySelector('.option-grid').prepend(retextureField);
+  const readFinishing=()=>$('preset').value==='dense_master'&&$('advancedMasterFinishing').value
+    || $('denseMasterFinishing').value;
+  const retextureEligible=()=>!usePixal()&&readFinishing()==='hi3d_1024'&&Number($('resolution').value)===1024;
+  const wantsRetexture=()=>retextureEligible()&&retexture.checked;
   function read(){
     const {texture_seed,...options}=advanced.read();
     const preset=$('preset').value;
-    const defaults=selected?.settings.preset===preset ? selected.settings : null;
+    const defaults=selected?.settings.preset===preset
+      ? selected.settings : profiles.find(profile=>profile.id===preset)?.settings;
+    const requestedTriangles=Number($('triangles').value);
+    const retainBudget=readFinishing()!=='none'||(Number.isInteger(requestedTriangles)&&requestedTriangles>=1000&&requestedTriangles<=8000000);
     return {
       preset,resolution:Number($('resolution').value),
-      triangles:Number($('triangles').value)||defaults?.triangles||
-        ({game_d:28000,high_detail:250000,humanoid_experimental:250000,dense_master:1200000,
+      triangles:(retainBudget&&requestedTriangles)||defaults?.triangles||
+        ({game_d:28000,high_detail:250000,figure_master:800000,humanoid_experimental:250000,dense_master:1200000,
           character_pixal:28000,fast:25000,balanced:50000,detail:100000}[preset]),
       texture_size:Number($('textureSize').value)||defaults?.texture_size||(preset==='fast'?1024:2048),
       remove_bg:$('removeBg').checked,advanced:options,
     };
   }
-  function budget(recipe=read()){
-    const triangles=detailRefinements[readFinishing()]?Math.min(recipe.triangles,detailRefinementLimit):recipe.triangles;
-    return {resolution:usePixal()?1024:recipe.resolution,triangles,texture_size:recipe.texture_size};
+  function budget(recipe){
+    const workflow=selected?.workflow;
+    if(!recipe&&workflow){
+      const values=workflowFields?.read();
+      if(selected.id==='high_detail_native'&&values)return {
+        resolution:parseInt(values['17'].pipeline_type,10)||workflow.resolution,
+        texture_size:values['25'].texture_method==='ultratex' ? values['25'].ultratex_size :
+          values['25'].bake_on_vertices ? 0 : (values['25'].texture_size||workflow.texture_size),
+        triangles:values['22'].target_face_num||workflow.target_faces,
+      };
+      if(selected.id==='game_asset_native'&&values)return {
+        resolution:Number(values['94'].target_resolution)||workflow.resolution,
+        texture_size:values['377'].texture_size||workflow.texture_size,
+        triangles:values['335'].target_tris||workflow.target_faces,
+      };
+      return {resolution:workflow.resolution,texture_size:workflow.texture_size,triangles:workflow.target_faces};
+    }
+    recipe??=read();
+    const finishing=readFinishing();
+    const result={resolution:usePixal()?1024:recipe.resolution,texture_size:recipe.texture_size};
+    if(finishing!=='none'){
+      result.triangles=detailRefinements[finishing]?Math.min(recipe.triangles,detailRefinementLimit):recipe.triangles;
+    }
+    return result;
   }
   function syncRefinementBudget(active){
     const triangles=$('triangles');
@@ -61,29 +123,138 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     triangles.placeholder=active?number.format(detailRefinementLimit):'';
   }
   function profileRecipe(recipe=read()){
-    return refinementInputs?.triangles==null?recipe:{...recipe,triangles:Number(refinementInputs.triangles)};
+    const finishing=readFinishing();
+    if(isReconstruction(finishing)&&(finishing!=='studio_768'||recipe.resolution>=1024)){
+      recipe={...recipe,triangles:budget(recipe).triangles,master_finishing:finishing};
+    }
+    if(finishing==='none')recipe={...recipe,master_finishing:finishing};
+    if(finishing==='hi3d_1024')recipe={...recipe,retexture_after_refinement:wantsRetexture()};
+    const method=preferredTextureMethod==='ultratex'&&recipe.texture_size!==2048?'trellis':preferredTextureMethod;
+    return {...recipe,texture_method:method};
   }
-  function resolved(s){const copy=structuredClone(s);for(const key of ['structure_steps','shape_steps','texture_steps'])if(copy.advanced[key]===0)copy.advanced[key]=steps[copy.preset];return copy;}
+  function resolved(s){
+    const copy=structuredClone(s);
+    for(const key of ['structure_steps','shape_steps','texture_steps']){
+      if(copy.advanced[key]===0)copy.advanced[key]=copy.preset==='figure_master'?figureSteps[key]:steps[copy.preset];
+    }
+    copy.master_finishing=copy.master_finishing||defaultFinishing(copy.preset);
+    if(detailRefinements[copy.master_finishing])copy.triangles=Math.min(copy.triangles,detailRefinementLimit);
+    copy.retexture_after_refinement=copy.retexture_after_refinement===true;
+    copy.texture_method=textureMethodOf(copy);
+    delete copy.multiview_texture_refinement;
+    return copy;
+  }
   const equal=(a,b)=>{const x=resolved(a),y=resolved(b);return Object.keys(x).every(k=>k==='advanced'?Object.keys(x[k]).every(f=>x[k][f]===y[k][f]):x[k]===y[k]);};
+  function syncProfileActions(dirty){
+    const workflow=selected.workflow;
+    $('saveProfileAs').hidden=!!workflow;
+    $('updateProfile').hidden=selected.builtin||!!workflow;
+    $('deleteProfile').hidden=selected.builtin||!selected.id;
+    const startup=$('useProfileAtStartup');
+    const isStartup=selected.id===startupProfile;
+    startup.disabled=!selected.id||dirty||isStartup||Boolean(workflow&&workflow.available!==true);
+    startup.setAttribute('aria-pressed',String(isStartup));
+    startup.textContent=isStartup?'Startup profile':'Use at startup';
+  }
+  function syncFixedWorkflow(workflow){
+    setWorkflow(workflow);
+    for(const id of ['textureMethodChoice','generationSizeFields','generationMeshFields','keepFinishingSourceField']){
+      $(id).hidden=!!workflow;
+    }
+    workflowBox.hidden=!workflow;
+    $('resetAdvanced').textContent=workflow?'Reset workflow settings':'Reset profile settings';
+    $('seed').disabled=!!workflow;
+    if(!workflow)return;
+    const method=workflowFields?.read()['25']?.texture_method || selected.settings.texture_method;
+    const texture=method==='ultratex'?'UltraTex':'TRELLIS.2 PBR';
+    const status=$('generationProfileStatus');
+    const message=workflow.available===true ? selected.description : workflow.reason;
+    status.classList.toggle('generation-method-notice',workflow.available!==true);
+    if(status.textContent!==message)status.textContent=message;
+    status.hidden=false;
+    $('denseMasterRepairField').hidden=true;
+    $('advancedMasterField').hidden=true;
+    $('finishingSourceHelp').hidden=true;
+    $('keepFinishingSource').disabled=true;
+    $('textureSize').disabled=true;
+    $('triangles').disabled=true;
+    $('profileId').value=selected.id;
+    $('profileState').hidden=true;
+    const {resolution,texture_size,triangles}=budget();
+    const meshSummary=triangles>0?`${number.format(triangles)} target triangles`:'Dense mesh';
+    $('profileSummary').textContent=`${resolution}³ · ${meshSummary} · ${texture_size ? `${texture} ${texture_size/1024}K` : 'Vertex colours'}`;
+    $('generationSummary').textContent=`${selected.name} · ${$('profileSummary').textContent}`;
+    syncProfileActions(false);
+  }
   function sync(){
     if(!selected)return;
+    syncFixedWorkflow(selected.workflow);
+    if(selected.workflow){changed();return;}
     const activePreset=$('preset').value;
     const experimental=activePreset==='humanoid_experimental', dense=activePreset==='dense_master';
-    const requiresSource=experimental||dense;
+    const figureUnsupported=activePreset==='figure_master'&&usePixal();
+    $('generationProfileStatus').classList.add('generation-method-notice');
+    $('generationProfileStatus').textContent=figureUnsupported?'Figure Master uses TRELLIS.2 · Single image. Choose that engine or another profile.':'';
+    $('generationProfileStatus').hidden=!figureUnsupported;
+    const finishing=$('denseMasterFinishing');
+    const override=$('advancedMasterFinishing');
+    if(!dense)override.value='';
+    if(dense&&!finishing.value)finishing.value=defaultFinishing(activePreset);
+    if(usePixal()&&detailRefinements[finishing.value]){
+      finishing.value=standardFinishing||defaultFinishing(activePreset);
+      pixalFallback=true;
+    }else if(!usePixal()){
+      pixalFallback=false;
+    }
+    const selectedFinish=readFinishing();
+    const detail=detailRefinements[selectedFinish];
+    const reconstruction=isReconstruction(selectedFinish);
+    const fullMesh=selectedFinish==='none';
+    const requiresSource=experimental||dense||reconstruction||fullMesh;
     if(requiresSource!==sourceRequired){
       if(requiresSource){previousKeep=$('keepFinishingSource').checked;$('keepFinishingSource').checked=true;}
       else $('keepFinishingSource').checked=previousKeep;
       sourceRequired=requiresSource;
     }
     $('keepFinishingSource').disabled=requiresSource;
-    $('denseMasterRepairField').hidden=!dense;
+    $('denseMasterRepairField').hidden=false;
     $('advancedMasterField').hidden=!dense;
-    const finishing = $('denseMasterFinishing');
-    const override = $('advancedMasterFinishing');
-    if((!dense||usePixal())&&detailRefinements[finishing.value])finishing.value=standardFinishing;
-    const selectedFinish=readFinishing();
-    const detail=detailRefinements[selectedFinish];
+    const detailGroup=advanced.group('hi3d');
+    if(detailGroup)detailGroup.hidden=!detail;
+    retextureField.hidden=selectedFinish!=='hi3d_1024';
+    retexture.disabled=!retextureEligible();
+    retextureStatus.textContent=retexture.disabled
+      ? 'Choose 1024³ for the 3D resolution to use this option.'
+      : detailTexturing.available!==true ? detailTexturing.reason||'The local texturing pipeline is unavailable.' : '';
+    retextureStatus.hidden=!retextureStatus.textContent;
+    const textureModeRestriction=method=>textureMethodRestriction(method,textureSupport,!isMultiview());
+    for(const option of textureMethod.options){
+      option.title=textureModeRestriction(option.value);
+      option.disabled=!!option.title;
+    }
+    const textureFallback=textureModeRestriction(preferredTextureMethod);
+    textureMethod.value=textureFallback?'trellis':preferredTextureMethod;
+    textureMethod.disabled=false;
+    textureMethodStatus.textContent=textureFallback?`${textureFallback} Using Native PBR for this generation.`:'';
+    textureMethodStatus.hidden=!textureMethodStatus.textContent;
     syncRefinementBudget(Boolean(detail));
+    const textureSize=$('textureSize');
+    const ultraSelected=textureMethod.value==='ultratex';
+    if(ultraSelected){
+      if(ultraAtlas===null)ultraAtlas=textureSize.value;
+      textureSize.value='2048';
+    }else if(ultraAtlas!==null){
+      textureSize.value=ultraAtlas;
+      ultraAtlas=null;
+    }
+    textureSize.disabled=ultraSelected;
+    if(usePixal()&&read().texture_size===4096){
+      pixalAtlas=textureSize.value;
+      textureSize.value='2048';
+    }else if(!usePixal()&&pixalAtlas!==null){
+      if(textureSize.value==='2048')textureSize.value=pixalAtlas;
+      pixalAtlas=null;
+    }
     const recipe=read();
     const actual = budget(recipe);
     const sourceOption=$('resolution').selectedOptions[0];
@@ -91,31 +262,41 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     const detailSourceReason=usePixal()?t('Choose TRELLIS.2 · Single image.')
       : detailSourceSupported?'':t('Choose a supported 3D resolution in Advanced.');
     finishing.hidden = !!override.value;
-    finishing.disabled = !dense||finishing.hidden;
+    finishing.disabled = finishing.hidden;
     override.disabled = !dense;
     $('masterFinishingOverride').hidden=!override.value;
     $('masterFinishingOverrideLabel').textContent=finishingName(override.value)||'';
     override.querySelector('[value="repair"]').disabled = !repairSupported;
     for (const option of finishing.options) {
+      if(!option.value){
+        option.disabled=option.hidden=dense;
+        continue;
+      }
       const info=masterSupport[option.value];
-      if(detailRefinements[option.value]){
+      if(option.value==='none'){
+        option.disabled=info?.available!==true;
+        option.title=option.disabled?info?.reason||'Requires server support for full mesh export.':'';
+      }else if(detailRefinements[option.value]){
         option.disabled=!!detailSourceReason||info?.available!==true;
         option.title=option.disabled
           ? detailSourceReason||info?.reason||t('Requires the Hi3D runtime.')
           : detailRefinements[option.value].detail;
       }else{
-        option.disabled=actual.resolution<1024||!(info?.available??(option.value==='studio_768'&&hdSupported));
+        option.disabled=actual.resolution<1024||!(info?.available??(dense&&option.value==='studio_768'&&hdSupported));
         option.textContent=finishingName(option.value)+(option.value==='wtivo_1024'&&option.disabled?' · '+t('Unavailable'):'');
         option.title=option.disabled ? info?.reason || t('Requires 1024 or higher generation resolution.') : '';
       }
     }
     const selectedSupport=masterSupport[selectedFinish];
-    const reconstruction=Boolean(detail)||selectedFinish==='studio_768'||selectedFinish==='wtivo_1024';
     const ceiling=detail?detailRefinementLimit:inlineFinishingLimit;
     const requestedTriangles=detail?Number($('triangles').value):recipe.triangles;
+    $('monoTrianglesField').hidden=fullMesh;
+    $('triangles').disabled=fullMesh;
     $('triangles').max=String(reconstruction?ceiling:8000000);
     let hint=t(detail?.detail||finishingDetails[selectedFinish]||'');
-    if (reconstruction&&finishing.selectedOptions[0]?.disabled) {
+    if (fullMesh&&finishing.selectedOptions[0]?.disabled) {
+      hint=finishing.selectedOptions[0].title;
+    } else if (reconstruction&&finishing.selectedOptions[0]?.disabled) {
       hint=detail ? finishing.selectedOptions[0].title
         : actual.resolution<1024
         ? t('Choose 1024 or higher generation resolution in Advanced.')
@@ -125,6 +306,11 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     } else if(detail&&!$('removeBg').checked){
       hint+=' '+t('Use a transparent reference or enable background removal.');
     }
+    if(wantsRetexture()){
+      hint+=' '+(retextureStatus.textContent||'A separate texture pass follows refinement.');
+    }
+    if(pixalFallback)hint+=' Hi3D requires TRELLIS.2 · Single image. This generation will use the finishing shown above.';
+    if(pixalAtlas!==null&&textureSize.value==='2048')hint+=' Pixal3D uses a 2K atlas for this recipe.';
     $('denseMasterFinishingHint').textContent=hint;
     $('detailRefinementSource').hidden=!detail;
     if(detail){
@@ -136,56 +322,101 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     unavailable.hidden=!!detail||finishing.hidden||!masterSupport.hi3d_512||!detailOptions.every(option=>option.disabled);
     unavailable.textContent=unavailable.hidden?'':detailOptions[0].title;
     $('finishingSourceHelp').hidden=requiresSource;
-    const dirty=!equal(profileRecipe(recipe),selected.settings);
+    const dirty=Boolean(override.value&&!selected.variant)||!equal(profileRecipe(recipe),selected.settings);
     $('profileId').value=recipe.preset===selected.settings.preset?selected.id||selected.sourceProfile||'':'';
     $('profileState').textContent=dirty?t('MODIFIED'):selected.variant?t('VARIANT'):selected.experimental?t('EXPERIMENTAL'):'';
     $('profileState').hidden=!$('profileState').textContent;
     $('profileState').classList.toggle('dirty',dirty);
-    $('profileSummary').textContent=t(dense?'{resolution}³ · Up to {triangles} triangles · {textures}K textures':'{resolution}³ · {triangles} triangles · {textures}K textures',{resolution:actual.resolution,triangles:number.format(actual.triangles),textures:actual.texture_size/1024});
-    $('monoTrianglesLabel').textContent=dense?t('Maximum triangles'):t('Target triangles');
+    const meshSummary=fullMesh?t('Full mesh'):t(dense||reconstruction?'Up to {triangles} triangles':'{count} triangles',{triangles:number.format(actual.triangles),count:number.format(actual.triangles)});
+    $('profileSummary').textContent=`${actual.resolution}³ · ${meshSummary} · ${actual.texture_size/1024}K textures`;
+    $('monoTrianglesLabel').textContent=dense||reconstruction?t('Maximum triangles'):t('Target triangles');
     $('monoTrianglesHint').textContent=detail?t('0 uses the profile ceiling, capped at 1,000,000.')
       : reconstruction?t('Up to 3,000,000. 0 uses the profile ceiling.')
       : dense?t('0 uses the profile ceiling.'):t('0 uses the profile target.');
-    const caption=selected.variant?t('Model settings'):profileNames[selected.id]||selected.name;
-    $('generationSummary').textContent=[caption,describeMethod(),detail?t('{resolution}³ source',{resolution:actual.resolution}):'',finishingName(selectedFinish)].filter(Boolean).join(' · ');
-    $('updateProfile').hidden=selected.builtin;
-    const startup=$('useProfileAtStartup');
-    const isStartup=selected.id===startupProfile;
-    startup.disabled=!selected.id||dirty||isStartup;
-    startup.setAttribute('aria-pressed',String(isStartup));
-    startup.textContent=isStartup?t('Startup profile'):t('Use at startup');
-    if(![...$('profileBase').options].some(o=>o.value===recipe.preset)){const option=document.createElement('option');option.value=recipe.preset;option.textContent=t('Historical settings');$('profileBase').append(option);}$('profileBase').value=recipe.preset;
+    const caption=selected.variant?t('Model settings'):t(profileNames[selected.id]||selected.name);
+    $('generationSummary').textContent=[caption,describeMethod(),detail?`${actual.resolution}³ source`:'',finishingName(selectedFinish),textureMethod.selectedOptions[0]?.textContent].filter(Boolean).join(' · ');
+    syncProfileActions(dirty);
+    const profileBase=$('profileBase');
+    for(const option of profileBase.querySelectorAll('[data-historical]'))if(option.value!==recipe.preset)option.remove();
+    if(![...profileBase.options].some(option=>option.value===recipe.preset)){
+      const option=document.createElement('option');
+      option.value=recipe.preset;
+      option.textContent=t('Historical settings');
+      option.dataset.historical='true';
+      profileBase.append(option);
+    }
+    profileBase.value=recipe.preset;
     changed();
+    if(advanced.ready&&['figure_master','high_detail'].includes(activePreset)){
+      const title=selected.variant?'This model’s settings':selected.name;
+      const key=`${activePreset}:${title}`;
+      if(key!==standardGraphKey){
+        removeStandardGraph();
+        standardGraph=createStandardWorkflowGraph($('workspace'),title,activePreset,advanced.fields);
+        standardGraphKey=key;
+        $('assetHint').after(standardGraph.opener);
+      }
+      standardGraph.sync(usePixal()?'pixal3d':'trellis2',textureMethod.value);
+    }else removeStandardGraph();
   }
   function apply(id){
     selected=profiles.find(p=>p.id===id);if(!selected)return;
     $('profileChoice').querySelector('[data-variant]')?.remove();
     const s=selected.settings;
+    if(selected.workflow){
+      showWorkflowFields(selected);
+      $('preset').value=s.preset;
+      $('profileChoice').value=id;
+      $('profileNotice').textContent='';
+      sync();
+      return;
+    }
+    workflowFields?.closeGraph();
+    workflowFields=null;
+    workflowBox.replaceChildren();
     refinementInputs=null;
-    standardFinishing='studio_768';
-    $('denseMasterFinishing').value='studio_768';
+    pixalFallback=false;
+    pixalAtlas=null;
+    ultraAtlas=null;
+    standardFinishing=detailRefinements[s.master_finishing]?defaultFinishing(s.preset):s.master_finishing||defaultFinishing(s.preset);
+    $('denseMasterFinishing').value=s.master_finishing||standardFinishing;
     $('advancedMasterFinishing').value='';
+    retexture.checked=s.retexture_after_refinement===true;
+    preferredTextureMethod=textureMethodOf(s);
+    sourceRequired=false;
+    $('keepFinishingSource').checked=selected.keep_finishing_source===true;
     for(const [key,value] of Object.entries({preset:s.preset,resolution:s.resolution,triangles:s.triangles,textureSize:s.texture_size}))$(key).value=String(value);
     const textureSeed=advanced.read().texture_seed;
     $('removeBg').checked=s.remove_bg;advanced.apply({...s.advanced,texture_seed:textureSeed});
     $('profileChoice').value=id;$('profileId').value=id;
     if(s.preset==='humanoid_experimental')$('assetType').value='humanoid';
+    if(!selected.workflow&&(detailRefinements[s.master_finishing]||s.preset==='figure_master')){setWorkflow(null);useNativeMethod();}
     $('profileNotice').textContent='';sync();
   }
   async function request(url,options){const r=await fetch(url,options),data=await r.json();if(!r.ok)throw Error(typeof data.detail==='string'?data.detail:t('Profiles unavailable.'));return data;}
+  const selectableProfiles=()=>profiles.filter(profile=>!profile.retired);
+  const availableProfile=(...ids)=>{
+    const selectable=selectableProfiles();
+    return ids.find(id=>selectable.some(profile=>
+      profile.id===id&&(!profile.workflow||profile.workflow.available===true)));
+  };
+  function loadCatalogue(data){
+    profiles=data.profiles;
+    serverStartup=availableProfile(data.startup_profile,data.default_profile,...selectableProfiles().map(profile=>profile.id));
+  }
   function options(){
     $('profileChoice').replaceChildren();
     for(const builtin of [true,false]){
       const group=document.createElement('optgroup');group.label=builtin?t('Built-in profiles'):t('My profiles');
-      for(const p of profiles.filter(x=>x.builtin===builtin)){const o=document.createElement('option');o.value=p.id;o.textContent=p.builtin?profileNames[p.id]||p.name:p.name;group.append(o);}
+      for(const p of selectableProfiles().filter(x=>x.builtin===builtin)){const o=document.createElement('option');o.value=p.id;o.textContent=p.builtin?t(profileNames[p.id]||p.name):p.name;group.append(o);}
       if(group.children.length)$('profileChoice').append(group);
     }
   }
   try{
-    const data=await request('/api/profiles');profiles=data.profiles;
+    loadCatalogue(await request('/api/profiles'));
     let saved='';
     try{saved=localStorage.getItem(startupKey);}catch{}
-    startupProfile=[saved,data.startup_profile,data.default_profile].find(id=>profiles.some(p=>p.id===id));
+    startupProfile=availableProfile(saved,serverStartup);
     options();apply(startupProfile);
     $('profileChoice').disabled=false;$('saveProfileAs').disabled=!advanced.ready;
   }catch(e){$('profileNotice').textContent=e.message+' '+t('Restart TRELLIS if needed.');}
@@ -201,8 +432,11 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     }
   };
   $('form').addEventListener('input',sync);$('form').addEventListener('change',sync);
+  textureMethod.addEventListener('input',()=>{preferredTextureMethod=textureMethod.value;});
+  textureMethod.addEventListener('change',()=>{preferredTextureMethod=textureMethod.value;});
   $('denseMasterFinishing').addEventListener('change',()=>{
     const method=$('denseMasterFinishing').value;
+    pixalFallback=false;
     if(!detailRefinements[method])standardFinishing=method;
     $('advancedMasterFinishing').value='';
     sync();
@@ -213,11 +447,46 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     $('denseMasterFinishing').focus();
   });
   $('profileBase').addEventListener('change',()=>{$('preset').value=$('profileBase').value;sync();});
-  function show(update){if(!selected)return;edit=update;$('profileName').value=update?selected.name:'';$('profileDialogTitle').textContent=update?t('Edit this profile'):t('Save a copy');$('profileDialogError').textContent='';$('profileDialog').showModal();$('profileName').focus();}
+  function show(update){if(!selected||selected.workflow)return;edit=update;$('profileName').value=update?selected.name:'';$('profileDialogTitle').textContent=update?t('Edit this profile'):t('Save a copy');$('profileDialogError').textContent='';$('profileDialog').showModal();$('profileName').focus();}
   $('saveProfileAs').onclick=()=>show(false);$('updateProfile').onclick=()=>show(true);
   $('closeProfile').onclick=()=>$('profileDialog').close();
+  const deleteDialog=$('deleteProfileDialog');
+  $('deleteProfile').onclick=()=>{
+    if(!selected?.id||selected.builtin)return;
+    deletingProfile=selected;
+    $('deleteProfileName').textContent=selected.name;
+    $('deleteProfileError').textContent='';
+    deleteDialog.showModal();
+  };
+  deleteDialog.addEventListener('cancel',event=>{if(deleting)event.preventDefault();});
+  $('confirmDeleteProfile').onclick=async()=>{
+    if(!deletingProfile||deleting)return;
+    const {id}=deletingProfile;
+    deleting=true;
+    $('deleteProfileError').textContent='';
+    $('confirmDeleteProfile').disabled=$('cancelDeleteProfile').disabled=true;
+    try{
+      await request(`/api/profiles/${encodeURIComponent(id)}`,{method:'DELETE'});
+      profiles=profiles.filter(profile=>profile.id!==id);
+      try{if(localStorage.getItem(startupKey)===id)localStorage.removeItem(startupKey);}catch{}
+      let notice='Profile deleted.';
+      try{loadCatalogue(await request('/api/profiles'));}
+      catch{notice='Profile deleted. Reload Studio to refresh the profile list.';}
+      startupProfile=availableProfile(startupProfile,serverStartup);
+      options();
+      apply(startupProfile);
+      deleteDialog.close();
+      $('profileChoice').focus();
+      $('profileNotice').textContent=notice;
+    }catch(error){
+      $('deleteProfileError').textContent=error.message;
+    }finally{
+      deleting=false;
+      $('confirmDeleteProfile').disabled=$('cancelDeleteProfile').disabled=false;
+    }
+  };
   $('profileForm').onsubmit=async e=>{
-    e.preventDefault();if(saving||!selected)return;
+    e.preventDefault();if(saving||!selected||selected.workflow)return;
     const invalid=[...$('form').querySelectorAll('input[type=number]')].find(x=>!x.checkValidity());
     if(invalid){$('profileDialogError').textContent=t('Correct the numeric fields before saving the profile.');return;}
     saving=true;$('confirmProfile').disabled=true;
@@ -225,47 +494,84 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       const profile=await request(edit?`/api/profiles/${selected.id}`:'/api/profiles',{
         method:edit?'PUT':'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({name:$('profileName').value,settings:profileRecipe()})});
-      const data=await request('/api/profiles');profiles=data.profiles;options();apply(profile.id);
+      loadCatalogue(await request('/api/profiles'));options();apply(profile.id);
       $('profileDialog').close();$('profileNotice').textContent=t('Profile saved on this computer.');
     }catch(e){$('profileDialogError').textContent=e.message;}
     finally{saving=false;$('confirmProfile').disabled=false;}
   };
-  return {sync,reset:()=>apply('game_d'),
-    setFinishingCapabilities(available, hdAvailable, methods){
+  return {sync,reset:()=>apply(selected?.id||startupProfile),
+    setFinishingCapabilities(available, hdAvailable, methods, texturing, textureMethods){
       const supported=methods||{};
-      if(repairSupported===available&&hdSupported===hdAvailable&&JSON.stringify(masterSupport)===JSON.stringify(supported))return;
+      const texturingSupport=texturing||{};
+      if(repairSupported===available&&hdSupported===hdAvailable&&JSON.stringify(masterSupport)===JSON.stringify(supported)
+        &&JSON.stringify(detailTexturing)===JSON.stringify(texturingSupport)
+        &&JSON.stringify(textureSupport)===JSON.stringify(textureMethods))return;
       repairSupported=available;
       hdSupported=hdAvailable;
       masterSupport=supported;
+      detailTexturing=texturingSupport;
+      textureSupport=textureMethods;
       sync();
     },
     appendFinishing(form){
       const value=readFinishing();
       if (value==='repair') form.set('repair_surface','true');
-      if (detailRefinements[value]||value==='wtivo_1024'||(value==='studio_768'&&masterSupport.studio_768?.available)) {
+      if (value==='none'||detailRefinements[value]||value==='wtivo_1024'||(value==='studio_768'&&masterSupport.studio_768?.available)) {
         form.set('master_finishing',value);
       } else if (value==='studio_768') form.set('hd_reconstruction','true');
+      if(!usePixal()&&(value==='hi3d_1024'||selected?.settings.retexture_after_refinement)){
+        form.set('retexture_after_refinement', String(wantsRetexture()));
+      }
+      form.set('texture_method',textureMethod.value);
     },
     restoreFinishing(settings){
       refinementInputs=null;
-      standardFinishing=settings.master_finishing==='wtivo_1024'?'wtivo_1024':'studio_768';
-      $('denseMasterFinishing').value=detailRefinements[settings.master_finishing]?settings.master_finishing:standardFinishing;
-      $('advancedMasterFinishing').value=settings.master_finishing||settings.hd_reconstruction
+      pixalFallback=false;
+      pixalAtlas=null;
+      ultraAtlas=null;
+      const method=settings.master_finishing||(settings.hd_reconstruction?'studio_768':defaultFinishing(settings.preset));
+      standardFinishing=detailRefinements[method]?defaultFinishing(settings.preset):method;
+      $('denseMasterFinishing').value=method;
+      $('advancedMasterFinishing').value=settings.preset!=='dense_master'||settings.master_finishing||settings.hd_reconstruction
         ? '' : settings.repair_surface ? 'repair' : 'direct';
+      retexture.checked=settings.retexture_after_refinement===true;
+      preferredTextureMethod=textureMethodOf(settings);
     },
     budget,
+    get workflow(){return selected?.workflow;},
+    appendWorkflow(form){
+      if(!workflowFields?.validate())return false;
+      form.set('workflow_options',JSON.stringify(workflowFields.read()));
+      workflowFields.closeGraph();
+      return true;
+    },
+    closeWorkflowGraph(){workflowFields?.closeGraph();standardGraph?.close();},
+    restoreWorkflow(settings){
+      const previous=settings.profile?.id||settings.workflow_id;
+      const id=restoredWorkflows[previous]||previous;
+      if(!profiles.some(profile=>profile.id===id&&profile.workflow))return false;
+      apply(id);
+      if(settings.workflow_options){
+        showWorkflowFields(selected,settings.workflow_options);
+        sync();
+      }
+      return true;
+    },
     get finishingReady(){
+      if(usePixal()&&$('preset').value==='figure_master')return false;
       const value=readFinishing();
       if (value==='repair') return repairSupported;
       if (!value||value==='direct') return true;
+      if (value==='none') return masterSupport.none?.available===true;
       const withinLimit=detailRefinements[value]?Number($('triangles').value)<=detailRefinementLimit
         : budget().triangles<=inlineFinishingLimit;
-      return !$('denseMasterFinishing').selectedOptions[0]?.disabled&&withinLimit;
+      return !$('denseMasterFinishing').selectedOptions[0]?.disabled&&withinLimit
+        &&(!wantsRetexture()||detailTexturing.available===true);
     },
     restoreSource(value){sourceRequired=false;previousKeep=!!value;$('keepFinishingSource').checked=!!value;sync();},
     detach(sourceProfile){
       const matchingProfile=profiles.find(profile=>profile.id===sourceProfile&&profile.settings.preset===$('preset').value);
-      selected={id:'',name:t('Variant'),builtin:true,variant:true,settings:read(),sourceProfile:matchingProfile?.id};
+      selected={id:'',name:t('Variant'),builtin:true,variant:true,settings:profileRecipe(),sourceProfile:matchingProfile?.id};
       $('profileChoice').querySelector('[data-variant]')?.remove();
       const option=document.createElement('option');option.value='';option.textContent=t('This model’s settings');option.disabled=true;option.dataset.variant='true';$('profileChoice').append(option);$('profileChoice').value='';
       sync();$('profileNotice').textContent=t('Model settings restored. Save a copy to create a profile.');

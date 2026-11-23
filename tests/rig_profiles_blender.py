@@ -346,8 +346,26 @@ def check_finger_transition():
     assert revised['middle']['rotation'] == legacy['middle']['rotation']
 
 
+def check_twist_continuity():
+    arm, mesh, mapping, _ = fixture()
+    mapping, profile = apply_profile(arm, [mesh], mapping, 'advanced', False)
+    rest = {b.name: (arm.matrix_world @ b.matrix_local).to_quaternion() for b in arm.data.bones}
+    heads = {b.name: arm.matrix_world @ b.head_local for b in arm.data.bones}
+    hand = arm.pose.bones[mapping['left_hand']]
+    helper = arm.pose.bones[profile['twists']['left']]
+    axis = (heads[hand.name] - heads[mapping['left_forearm']]).normalized()
+    for sign in (-1, 1):
+        previous = {}
+        for degrees in (170, 179, 181, 190):
+            hand.rotation_quaternion = Quaternion(rest[hand.name].inverted() @ axis, math.radians(sign*degrees))
+            drive_forearm_twists(arm, mapping, profile['twists'], rest, heads, previous=previous)
+            expected = Quaternion(rest[helper.name].inverted() @ axis, math.radians(sign*degrees*.5))
+            assert abs(helper.rotation_quaternion.dot(expected)) > 1-1e-6
+
+
 def main():
     check_finger_transition()
+    check_twist_continuity()
     check_profile('simple', False, 22, bridge=True)
     standard, bare, basic, hand = check_profile('standard', True, 52)
     baseline = {sign: pose_extension(standard, bare, basic, hand, sign) for sign in (-90, 90)}

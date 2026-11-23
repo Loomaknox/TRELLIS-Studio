@@ -2,7 +2,7 @@ import {createComparison} from './compare-studio.js?v=3.4.0';
 import {createDiagnostics} from './diagnostics.js?v=3.4.0';
 import {createExportStudio} from './export-studio.js?v=3.4.0';
 import {createLibrarySelection} from './library-selection.js?v=3.4.0';
-import {installButtonIcons} from './button-icons.js?v=3.4.0';
+import {installButtonIcons} from './button-icons.js?v=option-help';
 import {icon} from './card-menu.js?v=3.4.0';
 import {t} from './i18n.js';
 import {isCreatureRigDraft} from './creature-rig-editor.js';

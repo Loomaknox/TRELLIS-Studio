@@ -20,7 +20,7 @@ def source_map(pack):
         raise ValueError(f'Unknown animation source pack: {pack}')
     return result
 
-def drive_forearm_twists(target, mapping, twists, rest, rest_heads, *, fraction=0.5):
+def drive_forearm_twists(target, mapping, twists, rest, rest_heads, *, fraction=0.5, previous=None):
     """Bake the proximal forearm helpers' share of the wrist's axial rotation."""
     for side, name in twists.items():
         hand = mapping[side + '_hand']
@@ -31,8 +31,11 @@ def drive_forearm_twists(target, mapping, twists, rest, rest_heads, *, fraction=
         projected = Vector((rotation.x, rotation.y, rotation.z)).dot(axis)
         if rotation.w < 0:
             projected = -projected
-        angle = 2 * math.atan2(projected, abs(rotation.w)) * fraction
-        target.pose.bones[name].rotation_quaternion = Quaternion(rest[name].inverted() @ world_axis, angle)
+        angle = 2 * math.atan2(projected, abs(rotation.w))
+        if previous is not None:
+            angle += math.tau * round((previous.get(side, angle) - angle) / math.tau)
+            previous[side] = angle
+        target.pose.bones[name].rotation_quaternion = Quaternion(rest[name].inverted() @ world_axis, angle * fraction)
 
 
 def body_helper_drivers(target, mapping, helpers, rest, rest_heads, *, expressive=False):
@@ -180,6 +183,7 @@ def author(scene,target,target_mapping,requests,height,*,profile=None):
         for side in ('left','right'):
             ratios.append((rest_heads[mapping[side+'_leg']]-rest_heads[mapping[side+'_foot']]).length/(src_heads[side+'_leg']-src_heads[side+'_foot']).length)
         scale=sum(ratios)/len(ratios)
+        twist_angles = {}
         for frame in range(frames+1):
             u=frame/frames;phase=u*cycles
             source_frame=start+(end-start)*(phase%1 if u<1 and recipe['loop'] else 1 if recipe['loop'] else u)
@@ -231,7 +235,8 @@ def author(scene,target,target_mapping,requests,height,*,profile=None):
                     bone.rotation_quaternion=rest[bone.name].inverted()@parent_rest@parent_pose.inverted()@world;desired[bone.name]=world
                 # Keep the foot orientation from the authored clip after the leg solve.
                 world=desired[foot.name];foot.rotation_quaternion=rest[foot.name].inverted()@rest[foot.parent.name]@desired[foot.parent.name].inverted()@world
-            drive_forearm_twists(target, mapping, twists, rest, rest_heads, fraction=forearm_fraction)
+            drive_forearm_twists(target, mapping, twists, rest, rest_heads,
+                                 fraction=forearm_fraction, previous=twist_angles)
             drive_body_helpers(helper_drivers)
             for name in set(mapping.values()):
                 p=target.pose.bones[name];p.keyframe_insert('rotation_quaternion',frame=frame,group=p.name)

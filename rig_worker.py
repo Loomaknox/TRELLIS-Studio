@@ -1,4 +1,4 @@
-"""Studio rig worker: WSL inference, followed by local Blender export."""
+"""Studio rig worker: isolated UniRig inference, followed by local Blender export."""
 from pathlib import Path
 import hashlib, json, math, shutil, subprocess, sys, time, traceback
 from studio_import import find_blender, validate_glb
@@ -52,7 +52,7 @@ def failure_status(phase, error):
             error=message, error_code='rig_landmark_verification_failed', error_details=details)
     if phase == 'Preparing standard animations':
         try:
-            rejection = json.loads((work/'rig-profile-error.json').read_text(encoding='utf-8'))
+            rejection = json.loads((work / 'rig-profile-error.json').read_text(encoding='utf-8'))
             message = rejection.get('message')
             if isinstance(message, str) and message:
                 return 'Rig profile could not be applied', dict(error=message, error_code='rig_profile_incompatible')
@@ -76,18 +76,29 @@ try:
     settings=json.loads((JOB/'settings.json').read_text(encoding='utf-8'))
     if settings.get('rig_options'):
         settings['rig_options']=validate_rig_options(settings['rig_options'])
-    if settings.get('rig_options', {}).get('mode') == 'creature':
+    rig_options = settings.get('rig_options') or {}
+    if rig_options.get('mode') == 'creature':
         creature_phase = settings.get('creature_phase')
         if creature_phase not in ('draft', 'final'):
             raise ValueError('The creature rig phase is missing or invalid.')
-    source = JOB/'source.glb'
-    if expected := settings.get('rig_source_sha256'):
+    source = JOB / 'source.glb'
+    expected = settings.get('rig_source_sha256')
+    if creature_phase and (not isinstance(expected, str) or len(expected) != 64):
+        raise ValueError('The creature source fingerprint is missing. Create a new draft.')
+    if expected:
         with source.open('rb') as stream:
             if hashlib.file_digest(stream, 'sha256').hexdigest() != expected:
                 raise ValueError('The rig source changed. Create a new variant from the source model.')
     data=validate_glb(source);work.mkdir(exist_ok=True)
     if creature_phase and data.get('skins'):
-        raise ValueError('Creature skeleton prediction requires an unrigged mesh.')
+        raise ValueError('Creature skeleton prediction requires an unrigged source mesh.')
+    if creature_phase == 'final':
+        from creature_rig import validate_creature_edit
+        edit = validate_creature_edit(json.loads((JOB / 'creature-edit.json').read_text(encoding='utf-8')))
+        if hashlib.sha256((JOB / 'rig-preview.json').read_bytes()).hexdigest() != edit['revision']:
+            raise ValueError('The creature draft changed. Open the current preview and try again.')
+        if not (work / 'skeleton.fbx').is_file():
+            raise ValueError('The original creature prediction is unavailable. Create a new draft.')
     blender = find_blender()
     if not blender:
         raise RuntimeError('Blender is unavailable. Configure Blender before rigging a model.')
@@ -98,7 +109,7 @@ try:
         subprocess.run([str(blender),'--background','--factory-startup','--disable-autoexec','--python-exit-code','1','--python',str(ROOT/'prepare_rig.py'),'--',str(JOB)],stdout=sys.stdout,stderr=subprocess.STDOUT,check=True,timeout=180,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         rig_input=work/'input.glb'
     if data.get('skins'):
-        if settings.get('rig_options',{}).get('landmarks'):
+        if rig_options.get('landmarks'):
             raise ValueError('Landmark placement requires an unrigged model; existing skin weights cannot be silently reused.')
         status('running','Existing skeleton retained · preparing animations',80)
         shutil.copy2(rig_input,work/'rigged.glb')
@@ -107,16 +118,20 @@ try:
         phase = 'UniRig'
         status('running','Starting UniRig',5)
         (work / 'creature-error.json').unlink(missing_ok=True)
-        runtime_script = (ROOT/'UniRig'/'run-model.sh').resolve()
-        command=['wsl.exe','-d',distro,'--exec','setsid','--wait','bash',linux_path(runtime_script),linux_path(JOB)]
+        command=['wsl.exe','-d',distro,'--exec','setsid','--wait','bash',linux_path((ROOT/'UniRig'/'run-model.sh').resolve()),linux_path(JOB)]
         subprocess.run(command,stdout=sys.stdout,stderr=subprocess.STDOUT,check=True,timeout=2400,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         if creature_phase == 'draft':
+            from creature_rig import validate_creature_bones
             preview = json.loads((JOB / 'rig-preview.json').read_text(encoding='utf-8'))
-            if not preview.get('bones') or not (work / 'skeleton.fbx').is_file():
-                raise ValueError('UniRig did not produce a creature skeleton to edit.')
-            status('done', 'Creature skeleton ready to edit', 100, rig_phase='draft')
+            bones = validate_creature_bones(preview.get('bones'))
+            if preview.get('aligned_to_model') is not True or not (work / 'skeleton.fbx').is_file():
+                raise ValueError('UniRig did not produce an aligned creature skeleton to edit.')
+            result = dict(rigged=False, rig_phase='draft', bones=len(bones),
+                          creature_rig=dict(phase='draft', editable=True), rig_engine='UniRig')
+            write(JOB / 'result.json', result)
+            status('done', 'Creature skeleton ready to edit', 100, rig_phase='draft', result=result)
             sys.exit(0)
-        if settings.get('rig_options', {}).get('landmarks') and read_landmark_verification().get('passed') is not True:
+        if rig_options.get('landmarks') and read_landmark_verification().get('passed') is not True:
             raise RuntimeError('UniRig did not complete joint landmark verification.')
         rig_engine='UniRig'
     phase = 'Preparing standard animations'
@@ -130,7 +145,6 @@ try:
         from creature_verification import verify_creature
 
         phase = 'Checking the creature rig'
-        edit = json.loads((JOB / 'creature-edit.json').read_text(encoding='utf-8'))
         model = JOB / 'model.glb'
         if (JOB / 'creature-tentacles.json').is_file():
             from creature_swim import swim_compatible
@@ -140,6 +154,7 @@ try:
 
                 result['creature_swim_skin'] = stabilize_swim_skin(model, model)
         result['creature_verification'] = verify_creature(model, edit['bones'])
+        result.update(rig_phase='final', creature_rig=dict(phase='final', editable=False))
         if edit['motion'] == 'swim':
             from creature_api import swim_result
             from creature_swim import write_swim
@@ -151,8 +166,7 @@ try:
             result['animations'] = len(validate_glb(model).get('animations', []))
     profile = result.get('rig_profile')
     if profile:
-        skins = data['skins']
-        if len(skins) != 1 or len(skins[0]['joints']) != profile['joint_count']:
+        if len(data['skins']) != 1 or len(data['skins'][0]['joints']) != profile['joint_count']:
             raise ValueError('The exported skeleton does not match the selected profile.')
         exported_names = {clip.get('name') for clip in data.get('animations', [])}
         authored = result['animation_set']

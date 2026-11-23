@@ -70,7 +70,7 @@ def install(app,g):
             library=path(data.animation_id);motion=record(library)
             if motion['state']!='done':raise HTTPException(409,'Choose a completed generated animation.')
             source,previous=g['STUDIO'].available(identifier)
-            if is_creature_rig(previous['settings']):
+            if is_creature_rig(previous['settings']) or previous['settings'].get('creature_phase'):
                 raise HTTPException(422, 'Generated humanoid motions cannot be retargeted to Creature rigs.')
             model=validate_glb(source/'model.glb')
             if not model.get('skins'):raise HTTPException(409,'Add a humanoid rig to the model first.')

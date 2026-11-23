@@ -79,6 +79,22 @@ def reject(callback,match):
     else:raise AssertionError('Expected a validation error: '+match)
 
 
+# The CPU helper matches Blender's local delta in arbitrary rest orientations,
+# and unwraps the wrist across 180 degrees without making the helper snap.
+rest_rot={i:gm.Rotation.random(random_state=i+10).as_matrix() for i in range(3)}
+axis=gm.normalize(np.array([.75,.22,.44]));rest={i:np.eye(4) for i in range(3)}
+rest[1][:3,3]=axis;rest[2][:3,3]=axis*.5
+forearm_pose=gm.Rotation.random(random_state=42).as_matrix()
+for sign in (-1,1):
+    previous={}
+    for degrees in (170,179,181,190):
+        delta=gm.Rotation.from_rotvec(rest_rot[1].T@axis*np.deg2rad(sign*degrees)).as_matrix()
+        desired={0:forearm_pose,1:forearm_pose@rest_rot[0].T@rest_rot[1]@delta}
+        gm.drive_advanced_twists(desired,{'left':(2,0,1,.5)},rest,rest_rot,previous)
+        expected=forearm_pose@rest_rot[0].T@rest_rot[2]@gm.Rotation.from_rotvec(rest_rot[2].T@axis*np.deg2rad(sign*degrees*.5)).as_matrix()
+        assert np.max(abs(desired[2]-expected))<1e-8
+
+
 with TemporaryDirectory(prefix='trellis-generated-motion-') as directory:
     folder=Path(directory);skeleton=fixture_skeleton();motion=folder/'motion.npz'
     rotations=np.zeros((31,30,4));rotations[:,:,3]=1
@@ -124,6 +140,8 @@ with TemporaryDirectory(prefix='trellis-generated-motion-') as directory:
     reject(lambda:gm.gltf_rig({'nodes':[{'scale':[1.001,1,1]}]}),'Nonuniform')
     for scale,expected in [([-1,1,1],'Negative'),([0,0,0],'zero'),([1,2,1],'Nonuniform')]:
         reject(lambda scale=scale:gm.gltf_rig({'nodes':[{'scale':scale}]}),expected)
+    gm.gltf_rig({'nodes':[{'scale':[1.0000282526,.9999997616,1.0000082254]}]})
+    reject(lambda:gm.gltf_rig({'nodes':[{'scale':[1.001,1,1]}]}),'Nonuniform')
     shear=np.eye(4);shear[0,1]=shear[1,0]=.2;shear[2,2]=np.sqrt(1.04)
     reject(lambda:gm.gltf_rig({'nodes':[{'matrix':shear.T.reshape(-1).tolist()}]}),'sheared')
     reflection=np.diag([-1.,1.,1.,1.])
@@ -141,6 +159,77 @@ with TemporaryDirectory(prefix='trellis-generated-motion-') as directory:
     assert gm.sha(target)==source_hash
     assert not (folder/'bad-map.glb').exists() and not (folder/'bad-motion.glb').exists()
 
+    # Advanced helpers are driven for Kimodo as well as authored motions.
+    advanced=copy.deepcopy(before);advanced_binary=bytearray(old_binary)
+    mapping,_=gm.resolve_target_mapping(advanced,advanced_binary)
+    saved={gm.SOMA_TO_SEMANTIC[source]:advanced['nodes'][node]['name'] for source,node in mapping.items()}
+    helpers={}
+    for source,side in [('Left','left'),('Right','right')]:
+        forearm,hand=mapping[source+'ForeArm'],mapping[source+'Hand']
+        helper=len(advanced['nodes']);name=advanced['nodes'][forearm]['name']+'_StudioTwist'
+        advanced['nodes'].append({'name':name,'translation':(np.asarray(advanced['nodes'][hand]['translation'])*.5).tolist()})
+        advanced['nodes'][forearm]['children'].append(helper)
+        saved[side+'_forearm_twist']=name;helpers[side]=helper
+    _,_,world,_,_=gm.gltf_rig(advanced)
+    for skin in advanced['skins']:
+        skin['joints'].extend(helpers.values())
+        binds=np.array([np.linalg.inv(world[node]) for node in skin['joints']])
+        skin['inverseBindMatrices']=gm.append_access(advanced,advanced_binary,binds.transpose(0,2,1).reshape(-1,16),'MAT4')
+    advanced_path=folder/'advanced.glb';gm.write_glb(advanced_path,advanced,advanced_binary)
+    wrist=rotations.copy()
+    for side in ('Left','Right'):
+        wrist[:,skeleton['names'].index(side+'Hand')]=gm.Rotation.from_rotvec([np.pi/2,0,0]).as_quat()
+    wrist_path=folder/'wrist.npz';np.savez(wrist_path,root_positions=roots,local_rotations_xyzw=wrist)
+    for label,target_map in [('saved',saved),('imported',None)]:
+        driven_path=folder/('advanced-'+label+'.glb')
+        driven=gm.append_generated_motion(advanced_path,driven_path,motion_path=wrist_path,skeleton=skeleton,
+                                         clip_name='Advanced wrist',target_mapping=target_map)
+        assert set(driven['forearm_helpers']['nodes'])=={'left','right'}
+        descriptor,payload=gm.read(driven_path);clip=descriptor['animations'][-1]
+        gm.verify_preservation(advanced,advanced_binary,descriptor,payload)
+        for helper in helpers.values():
+            channel=next(c for c in clip['channels'] if c['target']=={'node':helper,'path':'rotation'})
+            values=gm.accessor(descriptor,payload,clip['samplers'][channel['sampler']]['output'])
+            expected=gm.Rotation.from_rotvec([np.pi/4,0,0]).as_quat()
+            assert np.min(abs(values@expected))>1-1e-6
+    invalid=copy.deepcopy(advanced);invalid['nodes'][helpers['left']]['translation']=[0,0,0]
+    gm.write_glb(folder/'invalid-helper.glb',invalid,advanced_binary)
+    reject(lambda:gm.append_generated_motion(folder/'invalid-helper.glb',folder/'bad-helper.glb',motion_path=wrist_path,
+           skeleton=skeleton,clip_name='Invalid helper',target_mapping=saved),'forearm helper')
+    assert not (folder/'bad-helper.glb').exists()
+
+    expressive = copy.deepcopy(advanced)
+    expressive_binary = bytearray(advanced_binary)
+    expressive_helpers = {}
+    for source, side in [('Left', 'left'), ('Right', 'right')]:
+        forearm, hand = mapping[source+'ForeArm'], mapping[source+'Hand']
+        span = np.asarray(expressive['nodes'][hand]['translation'])
+        proximal, distal = helpers[side], len(expressive['nodes'])
+        expressive['nodes'][proximal]['translation'] = (span/3).tolist()
+        expressive['nodes'].append({'name': f'Studio_Expressive_{side}_forearm_twist',
+                                    'translation': (span*2/3).tolist()})
+        expressive['nodes'][forearm]['children'].append(distal)
+        expressive_helpers[proximal] = 1/3
+        expressive_helpers[distal] = 2/3
+        for skin in expressive['skins']:
+            skin['joints'].append(distal)
+    _, _, world, _, _ = gm.gltf_rig(expressive)
+    for skin in expressive['skins']:
+        binds = np.array([np.linalg.inv(world[node]) for node in skin['joints']])
+        skin['inverseBindMatrices'] = gm.append_access(expressive, expressive_binary,
+                                                       binds.transpose(0,2,1).reshape(-1,16), 'MAT4')
+    expressive_path, driven_path = folder/'expressive.glb', folder/'expressive-driven.glb'
+    gm.write_glb(expressive_path, expressive, expressive_binary)
+    gm.append_generated_motion(expressive_path, driven_path, motion_path=wrist_path, skeleton=skeleton,
+                               clip_name='Expressive wrist')
+    descriptor, payload = gm.read(driven_path)
+    clip = descriptor['animations'][-1]
+    for node, fraction in expressive_helpers.items():
+        channel = next(c for c in clip['channels'] if c['target'] == {'node': node, 'path': 'rotation'})
+        values = gm.accessor(descriptor, payload, clip['samplers'][channel['sampler']]['output'])
+        expected = gm.Rotation.from_rotvec([np.pi/2*fraction, 0, 0]).as_quat()
+        assert np.min(abs(values @ expected)) > 1 - 1e-6
+
     preview=folder/'preview.glb'
     metadata=gm._procedural_preview(motion,skeleton,preview,'Generated preview')
     descriptor,payload=gm.read(preview)
@@ -153,4 +242,4 @@ with TemporaryDirectory(prefix='trellis-generated-motion-') as directory:
     assert gm.read(folder/'fallback.glb')[0]['animations'][0]['name']=='Fallback preview'
     assert not any(path.name.startswith('.generated-motion-') for path in folder.iterdir())
 
-print('Generated motion checks passed: reuse, shared skins, preservation, timing, provenance, canonical hierarchy, transform rejection and preview fallback.')
+print('Generated motion checks passed: reuse, shared skins, preservation, timing, provenance, canonical hierarchy, transform rejection, Advanced helpers/continuity and preview fallback.')

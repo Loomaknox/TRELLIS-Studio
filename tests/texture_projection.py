@@ -34,7 +34,7 @@ def write_glb(path, doc, binary):
                      + struct.pack('<I4s', len(binary), b'BIN\0') + binary)
 
 
-def fixture(path, *, occluder=True, overlap=False):
+def fixture(path, *, occluder=True, overlap=False, zero_normals=(), opposing_faces=False):
     vertices, normals, uv, faces = [], [], [], []
 
     def quad(x0, y0, x1, y1, z, rect, back=False):
@@ -50,6 +50,14 @@ def fixture(path, *, occluder=True, overlap=False):
     quad(-.4, -.4, .4, .4, -.1, (.05, .05, .45, .45) if overlap else (.55, .05, .95, .45), True)
     if occluder:
         quad(-.08, -.4, .08, .4, .2, (.55, .55, .95, .95))
+    if opposing_faces:
+        start = len(vertices)
+        vertices.extend([(-.15, -.15, -1), (.15, -.15, -1), (.15, .15, -1)])
+        normals.extend([(0, 0, 1)] * 3)
+        uv.extend([(.99, .99)] * 3)
+        faces.extend([(start, start + 1, start + 2), (start, start + 2, start + 1)])
+    for index in zero_normals:
+        normals[index] = (0, 0, 0)
     doc = {'asset': {'version': '2.0'}, 'scene': 0, 'scenes': [{'nodes': [0]}],
            'nodes': [{'mesh': 0}], 'meshes': [{'primitives': [{}]}], 'materials': [],
            'buffers': [{'byteLength': 0}], 'bufferViews': [], 'accessors': [],
@@ -147,6 +155,25 @@ class TextureProjectionTests(unittest.TestCase):
         self.assertEqual(int(new[64, 64, 0]), 0)  # The raised strip hides this panel location.
         self.assertFalse(np.any(new[15:110, 145:235, :3]))  # Separate back-face UV island.
         self.assertEqual(int(new[192, 192, 0]), 188)  # Visible strip itself receives the reference.
+
+    def test_missing_vertex_directions_are_derived_without_modifying_the_glb(self):
+        fixture(self.source, opposing_faces=True)
+        self.run_projection()
+        expected = color(self.output)
+        self.output.unlink()
+        fixture(self.source, zero_normals=(0, 4, 12, 13, 14), opposing_faces=True)
+        original = self.source.read_bytes()
+        before, binary = read(self.source)
+
+        self.assertTrue(projection.inspect_texture_projection(self.source)['supported'])
+        self.run_projection()
+
+        after, saved = read(self.output)
+        self.assertEqual(self.source.read_bytes(), original)
+        self.assertEqual(saved[:len(binary)], binary)
+        self.assertEqual(after['meshes'], before['meshes'])
+        self.assertEqual(after['accessors'], before['accessors'])
+        np.testing.assert_array_equal(color(self.output), expected)
 
     def test_saved_generation_projection_preserves_non_base_data_and_verifies_the_staged_references(self):
         model = self.root / 'model.glb'
@@ -426,6 +453,47 @@ class TextureProjectionTests(unittest.TestCase):
         doc['nodes'][0]['translation'] = [0, 0, 0]
         write_glb(self.source, doc, binary)
         self.assertIn('transforms', projection.inspect_texture_projection(self.source)['reason'])
+
+    def test_studio_placement_projects_in_world_coordinates_and_preserves_the_glb(self):
+        original, binary = read(self.source)
+        baseline = self.root / 'baseline.glb'
+        projection.project_texture(self.source, self.reference, baseline, options=options())
+        original['nodes'] += [{'children': [0]}, {'children': [1], 'translation': [2, 3, .5], 'scale': [2, 2, 2]}]
+        original['scenes'][0]['nodes'] = [2]
+        write_glb(self.source, original, binary)
+        source_bytes = self.source.read_bytes()
+        support = projection.inspect_texture_projection(self.source)
+        self.assertTrue(support['supported'])
+        np.testing.assert_allclose(support['bounds'], [[1.2, 2.2, .3], [2.8, 3.8, .9]])
+        preview = self.root / 'placed.png'
+        info = projection.render_projection_preview(self.source, preview, size=128)
+        np.testing.assert_allclose(info['camera']['frame'], support['default_camera']['frame'])
+
+        placed_camera = {'view': 'front', 'frame': [1, 2, 3, 4]}
+        report = projection.project_texture(self.source, self.reference, self.output,
+                                            options=options(camera=placed_camera))
+        doc, after = read(self.output)
+        self.assertTrue(report['geometry_binary_unchanged'])
+        self.assertEqual(self.source.read_bytes(), source_bytes)
+        self.assertEqual(doc['nodes'], original['nodes'])
+        self.assertEqual(doc['scenes'], original['scenes'])
+        self.assertEqual(after[:len(binary)], binary)
+        np.testing.assert_array_equal(color(self.output), color(baseline))
+
+    def test_placement_rejects_reflections_rotation_and_ambiguous_scenes(self):
+        original, binary = read(self.source)
+        original['nodes'].append({'children': [0], 'scale': [2, 2, 2]})
+        original['scenes'][0]['nodes'] = [1]
+        for update in ({'scale': [-2, -2, -2]}, {'scale': [2, 3, 2]}, {'rotation': [0, 0, 0, 1]},
+                       {'children': [0, 0]}, {'children': [1]}):
+            with self.subTest(update=update):
+                doc = deepcopy(original)
+                doc['nodes'][1].update(update)
+                write_glb(self.source, doc, binary)
+                self.assertFalse(projection.inspect_texture_projection(self.source)['supported'])
+        original['scenes'].append({'nodes': [0]})
+        write_glb(self.source, original, binary)
+        self.assertFalse(projection.inspect_texture_projection(self.source)['supported'])
 
     def test_transparent_reference_does_not_paint_and_nonopaque_material_is_rejected(self):
         Image.new('RGBA', (128, 128), (255, 0, 0, 0)).save(self.reference)

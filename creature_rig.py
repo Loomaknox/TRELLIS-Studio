@@ -33,8 +33,8 @@ def point(value):
         coordinates = [float(coordinate) for coordinate in value]
     except OverflowError as error:
         raise ValueError('Bone endpoints must have finite model-space coordinates.') from error
-    if not all(map(math.isfinite, coordinates)):
-        raise ValueError('Bone endpoints must have finite model-space coordinates.')
+    if not all(map(math.isfinite, coordinates)) or any(abs(axis) > 10000 for axis in coordinates):
+        raise ValueError('Bone endpoints must be finite model-space coordinates within 10,000 metres of the origin.')
     return coordinates
 
 

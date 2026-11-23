@@ -55,11 +55,25 @@ class Skeleton:
         return sum(self.vectors[bone].length for bone in chain)
 
     def longest_chain(self, start, eligible):
-        candidates = [
-            self.longest_chain(child, eligible)
-            for child in self.children[start] if eligible(child)
-        ]
-        return [start, *max(candidates, key=self.chain_length, default=[])]
+        # A valid edited rig may have 512 consecutive bones. Keep Python's call
+        # stack independent of chain length while retaining stable tie-breaking.
+        stack = [(start, False)]
+        lengths, next_bone = {}, {}
+        while stack:
+            bone, visited = stack.pop()
+            children = [child for child in self.children[bone] if eligible(child)]
+            if not visited:
+                stack.append((bone, True))
+                stack.extend((child, False) for child in reversed(children))
+                continue
+            child = max(children, key=lambda name: lengths[name], default=None)
+            next_bone[bone] = child
+            lengths[bone] = self.vectors[bone].length + (lengths[child] if child else 0.)
+        result = []
+        while start is not None:
+            result.append(start)
+            start = next_bone[start]
+        return result
 
 
 def deformation_check(rig):

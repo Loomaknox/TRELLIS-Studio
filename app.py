@@ -2,23 +2,28 @@
 from pathlib import Path
 from studio_workspace import ID, finishing_source, read as read_workspace_json
 from studio_version import VERSION
-from studio_release import release_status, render_studio_version
+from studio_release import UI_REVISION, release_status, render_studio_version
 from contextlib import asynccontextmanager
 from tempfile import TemporaryDirectory
 import asyncio, base64, hashlib, io, json, os, re, shutil, subprocess, sys, time, uuid
 from urllib.parse import urlparse
 from typing import Annotated
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
+from collection_preview import CollectionPreviews, preview_image, preview_record
 from generation_options import (normalize_options, options_for_job, schema as generation_schema,
                                 DEFAULT_PROFILE, DEFAULT_GENERATION, GENERATION_PRESETS, GAME_D_ADVANCED, PROFILE_ADVANCED,
-                                DENSE_MASTER, DENSE_MASTER_NAME, DENSE_MASTER_TRIANGLES, DENSE_MASTER_FINISHING,
+                                DENSE_MASTER, DENSE_MASTER_NAME, DENSE_MASTER_TRIANGLES, DENSE_MASTER_FINISHING, FIGURE_MASTER,
                                 HUMANOID_EXPERIMENTAL, TRIANGLE_MIN, TRIANGLE_MAX, validate_hd_reconstruction,
-                                HI3D_FINISHING_METHODS, master_finishing_options, validate_create_master_finishing)
+                                HI3D_FINISHING_METHODS, NO_MASTER_FINISHING, master_finishing_options,
+                                validate_create_master_finishing, resolve_texture_method, validate_texture_method,
+                                validate_post_refinement_texturing)
 from asset_taxonomy import ASSET_TYPES, SYSTEM_TYPES, schema as taxonomy_schema
-from generation_profiles import DENSE_MASTER_DESCRIPTION, ProfileStore, builtin_profiles
+from generation_profiles import (COMFY_INPUT_FILES, COMFY_PROFILES, STANDALONE_PROFILES, WORKFLOW_PROFILES,
+                                 DETAIL_STUDY, DENSE_MASTER_DESCRIPTION, PROPS_PROFILE, STARTUP_PROFILE, ProfileStore, builtin_profiles)
+from native_workflow_options import geometry_backend as workflow_geometry, settings as workflow_settings, summary as workflow_summary
 from gpu_runtime import guided_install
 from studio_import import FORMATS, MAX_BYTES, find_blender, validate_glb, copy_version, animation_recipe
 from rig_landmarks import RIG_PROFILES, validate_rig_options
@@ -52,7 +57,6 @@ REFERENCE_FILES = tuple(VIEW_FILES.values())
 _bundle = ROOT/'bundled-web.json'
 SOURCE_REVISION=(json.loads(_bundle.read_text(encoding='utf-8'))['source_revision'] if _bundle.is_file()
                  else hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
-UI_REVISION=VERSION
 def gpu_description():
     try:
         value=subprocess.check_output(['nvidia-smi','--query-gpu=name,memory.total','--format=csv,noheader,nounits'],text=True,timeout=5,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0)).splitlines()[0]
@@ -125,7 +129,11 @@ async def lifespan(app):
                 except (OSError, ValueError) as error:
                     print(f'Unable to recover the animation update for {folder.name}: {error}', file=sys.stderr)
     await STUDIO.start()
-    yield
+    COLLECTION_PREVIEWS.start()
+    try:
+        yield
+    finally:
+        await COLLECTION_PREVIEWS.close()
     await STUDIO.close()
     if PROCESS is not None and PROCESS.poll() is None:
         await asyncio.to_thread(stop_worker)
@@ -161,10 +169,14 @@ def job_path(identifier):
     if not folder.is_dir(): raise HTTPException(404)
     return folder
 
+PREPARED_OUTPUT_KINDS = ('unirig', 'animation_copy', 'texture_projection', 'baked_game_copy',
+                         'multiview_texture_refinement')
+
+
 def prepared_output_ready(settings, status):
-    if is_creature_rig(settings) and (settings.get('creature_phase') == 'draft' or status.get('rig_phase') == 'draft'):
+    if settings.get('creature_phase') == 'draft' or status.get('rig_phase') == 'draft':
         return False
-    return (settings.get('source_kind') not in ('unirig', 'animation_copy', 'texture_projection', 'baked_game_copy') or status.get('state') == 'done'
+    return (settings.get('source_kind') not in PREPARED_OUTPUT_KINDS or status.get('state') == 'done'
             or status.get('operation') == 'animation')
 
 
@@ -182,8 +194,10 @@ def job_record(folder):
         data.update(id=folder.name, settings=settings)
         data['media'] = (model_media(folder/'model.glb') if not finalizing and prepared_output_ready(settings, data)
                          else dict(available=False, animated=False, clips=0, bones=0))
+        if data['state'] == 'done' and data['media'].get('available'):
+            data['collection_preview'] = preview_record(COLLECTION_CACHE, folder)
         data['can_refinish'] = data['state'] == 'done' and bool(finishing_source(folder, settings))
-        if settings.get('asset_type') not in ('terrain_unity','imported','rigged','print'):
+        if not settings.get('workflow_id') and settings.get('asset_type') not in ('terrain_unity','imported','rigged','print'):
             try:data['generation_options']=options_for_job(settings)
             except (ValueError,TypeError):data['generation_options']=None
         metadata_path = folder / 'metadata.json'
@@ -241,7 +255,8 @@ def pixal3d_capabilities():
     if message := guided_install_failure('pixal3d'):
         runtime.update(ready=False, message=message, single_image=dict(ready=False, message=message))
     return {**runtime, 'profile': PIXAL_CHARACTER_PROFILE,
-            'default_profile': PIXAL_CHARACTER_PROFILE['id'], 'profiles': list(PIXAL_PROFILES),
+            'default_profile': PIXAL_CHARACTER_PROFILE['id'],
+            'profiles': [profile for profile in PIXAL_PROFILES if profile['id'] != HUMANOID_EXPERIMENTAL],
             'texture_sizes': PIXAL_TEXTURE_SIZES}
 
 
@@ -253,6 +268,7 @@ def create_master_finishing_capabilities():
     hi3d = hi3d_status(ROOT)
     return dict(studio_768=dict(available=True, reason=''),
                 wtivo_1024=dict(available=available, reason=reason),
+                **{NO_MASTER_FINISHING: dict(available=True, reason='')},
                 **{method: dict(available=hi3d['available'], reason=hi3d['reason']) for method in HI3D_FINISHING_METHODS})
 
 
@@ -261,6 +277,32 @@ def require_create_master_finishing(method):
         capability = create_master_finishing_capabilities()[method]
         if not capability['available']:
             raise HTTPException(503, capability['reason'])
+
+
+def multiview_texture_capability():
+    from multiview_texture_runtime import availability
+
+    return availability(ROOT)
+
+
+def ultratex_texture_capability():
+    try:
+        from ultratex_runtime import availability
+        return availability(ROOT)
+    except ImportError:
+        return dict(available=False, reason='Install the optional UltraTex texture component.')
+
+
+def require_texture_method(method):
+    capability = (multiview_texture_capability() if method == 'multiview'
+                  else ultratex_texture_capability() if method == 'ultratex' else None)
+    if capability and not capability['available']:
+        raise HTTPException(503, capability['reason'])
+
+
+def detail_texturing_capability():
+    from retexture_runtime import availability
+    return availability(ROOT)
 
 
 def assign_create_master_finishing(settings, method):
@@ -272,19 +314,16 @@ def assign_create_master_finishing(settings, method):
     flag = flags.get(method)
     if flag:
         settings[flag] = True
-    if method in HI3D_FINISHING_METHODS:
-        settings['keep_finishing_source'] = True
+    settings['keep_finishing_source'] = True
     if snapshot := settings.get('profile_snapshot'):
-        snapshot.update(master_finishing=method, generation_options=settings['generation_options'])
+        snapshot.update(master_finishing=method, generation_options=settings['generation_options'], keep_finishing_source=True)
         if flag:
             snapshot[flag] = True
-        if method in HI3D_FINISHING_METHODS:
-            snapshot['keep_finishing_source'] = True
 
 
 def enabled_rig_profiles():
     variable = 'TRELLIS_SERVER_RIG_PROFILES' if WORKSPACE_CONFIG else 'TRELLIS_RIG_PROFILES'
-    configured = {name.strip() for name in workspace_environment.get(variable, '').split(',')}
+    configured = {name.strip() for name in workspace_environment.get(variable, 'advanced').split(',')}
     return [profile for profile in RIG_PROFILES if profile in configured]
 
 
@@ -306,8 +345,13 @@ def status():
                 export_active=EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None,
                 resolution=DEFAULT_GENERATION['resolution'], default_profile=DEFAULT_PROFILE, local=True, studio_version=VERSION,source_revision=SOURCE_REVISION,ui_revision=UI_REVISION,multi_view=pixal3d['ready'],pixal3d=pixal3d,
                 generation_methods=generation_methods, create_master_finishing=create_master_finishing_capabilities(),
-                edition='server' if WORKSPACE_CONFIG else 'desktop', rig_profiles=enabled_rig_profiles(),
-                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','hd_reconstruction','hd_master_finishing','pixal3d_multiview','pixal3d_face_projection','texture_projection','baked_game_copy', *(['creature_rig','creature_tentacles','creature_swim'] if not WORKSPACE_CONFIG else [])], texture_sizes=textures,supported_resolutions=resolutions)
+                detail_texturing=detail_texturing_capability(),
+                multiview_texture_refinement=multiview_texture_capability(),
+                ultratex_texture_refinement=ultratex_texture_capability(),
+                texture_methods=dict(trellis=dict(available=True, reason=''),
+                                     multiview=multiview_texture_capability(), ultratex=ultratex_texture_capability()),
+                edition='server' if WORKSPACE_CONFIG else 'desktop',
+                features=['library','metadata','trash','blender_export','uv_preview','resolution_choice','advanced_controls','generation_profiles','model_import','unirig','rig_landmarks','rig_profiles','creature_rig','creature_motions','print_copy','asset_taxonomy','comparison','diagnostics','target_exports','batch_actions','generation_queue','collections','version_history','lods','game_preparation','motion_tools','animation_batch','animation_clip_removal','generated_animations','presentation','library_turntable','collection_transfer','rest_api_v1','mcp','refinish','repair_surface','hd_reconstruction','hd_master_finishing','pixal3d_multiview','pixal3d_face_projection','texture_projection','multiview_texture_refinement','baked_game_copy', *(['creature_tentacles','creature_swim'] if not WORKSPACE_CONFIG else [])], rig_profiles=enabled_rig_profiles(), texture_sizes=textures,supported_resolutions=resolutions)
 
 @app.get('/api/components')
 def components():
@@ -384,6 +428,25 @@ async def import_version(identifier: str):
         write_json(destination/'metadata.json',{**record['metadata'],'display_name':(record['metadata'].get('display_name',settings['name'])+' · version')[:80]})
         write_json(destination/'status.json',dict(state='done',stage='New version',progress=100,result=record.get('result')))
         return {'id':destination.name}
+
+def rig_input_file(folder, name):
+    path = folder / name
+    if not path.is_file() or path.resolve() != path:
+        raise HTTPException(409, 'The rig source is unavailable.')
+    return path
+
+
+async def rig_json(request, limit):
+    payload = bytearray()
+    async for chunk in request.stream():
+        if len(payload) + len(chunk) > limit:
+            raise HTTPException(413, 'Rig options are too large.')
+        payload.extend(chunk)
+    try:
+        return json.loads(payload) if payload else {}
+    except (ValueError, RecursionError) as error:
+        raise HTTPException(400, 'Invalid rig options.') from error
+
 
 def rig_source_model(folder):
     path = folder / 'model.glb'
@@ -489,8 +552,6 @@ async def get_rig_source(identifier: str):
 
 
 async def start_creature_draft(source, record):
-    if WORKSPACE_CONFIG:
-        raise HTTPException(409, 'Creature rigging is available in Studio Desktop.')
     mesh, model = rig_source_model(source)
     if model.get('skins') or model.get('animations'):
         raise HTTPException(409, 'Select the original unrigged, unanimated mesh to create a creature rig.')
@@ -532,15 +593,18 @@ async def start_creature_draft(source, record):
 
 
 @app.post('/api/jobs/{identifier}/rig',status_code=201)
-async def rig_model(identifier: str,request: Request):
+async def rig_model(identifier: str, request: Request):
     try:
-        body = await request.body()
-        raw = json.loads(body) if body else {}
+        raw = await rig_json(request, 16 * 1024)
         options = validate_rig_options(raw)
     except (ValueError,TypeError,KeyError) as error:raise HTTPException(400,str(error) or 'Invalid rig options.')
     async with LOCK:
-        require_idle();source=job_path(identifier);record=job_record(source)
-        if not record or record['state']!='done' or not (source/'model.glb').is_file(): raise HTTPException(409,'Choose a completed model.')
+        if not WORKSPACE_CONFIG:
+            require_idle()
+        source = job_path(identifier)
+        record = job_record(source)
+        if not record or record['state'] != 'done' or not prepared_output_ready(record['settings'], record):
+            raise HTTPException(409, 'Choose a completed model.')
         if record['settings'].get('asset_type')=='terrain_unity': raise HTTPException(400,'Choose a character or mesh object.')
         if options.get('mode') == 'creature':
             try:
@@ -590,18 +654,80 @@ async def rig_model(identifier: str,request: Request):
                 write_json(destination / 'status.json', dict(state='error', stage='Worker launch failed', progress=0))
                 raise HTTPException(503, 'Unable to start rig preparation.') from error
             return {'id':destination.name}
-        if options.get('landmarks') and validate_glb(source/'model.glb').get('skins'):
-            raise HTTPException(409,'This model already has a skeleton. Landmark placement requires an unrigged copy.')
-        if not components()['unirig'].get('ready') or not find_blender(): raise HTTPException(503,'UniRig or Blender is unavailable. Run Open TRELLIS.cmd and check its diagnostic log.')
-        destination=OUTPUT/uuid.uuid4().hex;destination.mkdir()
-        shutil.copy2(source/'model.glb',destination/'source.glb')
-        if (source/'input.png').exists(): shutil.copy2(source/'input.png',destination/'input.png')
-        write_json(destination/'settings.json',dict(name=record['settings']['name']+'-rig',asset_type='rigged',source_kind='unirig',animation_clips=[],rig_options=options,
-                   created=time.time(),parent_id=identifier,height_m=record['settings'].get('height_m',0),texture_size=record['settings'].get('texture_size',0)))
-        write_json(destination/'metadata.json',dict(display_name=(record['metadata'].get('display_name',record['settings']['name'])+' · rig')[:80],review_state='review',favorite=False,tags=['UniRig']))
-        write_json(destination/'status.json',dict(state='queued',stage='Preparing rig',progress=2))
-        launch_worker(destination,'rig_worker.py')
-        return {'id':destination.name}
+        model = rig_input_file(source, 'model.glb')
+        try:
+            skinned = bool((await asyncio.to_thread(validate_glb, model)).get('skins'))
+        except ValueError as error:
+            raise HTTPException(400, 'Choose a valid GLB model.') from error
+        if skinned and options.get('landmarks'):
+            raise HTTPException(409, 'This model already has a skeleton. Landmark placement requires an unrigged copy.')
+        if not components()['unirig'].get('ready') or not find_blender():
+            raise HTTPException(503, 'UniRig or Blender is unavailable. Run Open TRELLIS.cmd and check its diagnostic log.')
+        destination = OUTPUT / uuid.uuid4().hex
+        source_settings = record['settings']
+        label = record['metadata'].get('display_name') or source_settings['name']
+        suffix = ' · rig'
+        settings = dict(name=source_settings['name'] + '-rig', asset_type='rigged', source_kind='unirig',
+                        animation_clips=[], rig_options=options, created=time.time(), parent_id=identifier,
+                        height_m=source_settings.get('height_m', 0), texture_size=source_settings.get('texture_size', 0))
+        with TemporaryDirectory(prefix='.rig-', dir=OUTPUT) as temporary:
+            staged = Path(temporary)
+            await asyncio.to_thread(shutil.copy2, model, staged / 'source.glb')
+            reference = source / 'input.png'
+            if reference.is_file() and reference.resolve() == reference:
+                await asyncio.to_thread(shutil.copy2, reference, staged / 'input.png')
+            write_json(staged / 'settings.json', settings)
+            write_json(staged / 'metadata.json', dict(display_name=label[:80-len(suffix)] + suffix,
+                                                     review_state='review', favorite=False, tags=['UniRig']))
+            write_json(staged / 'status.json', dict(state='queued', stage='Preparing rig', progress=2))
+            staged.rename(destination)
+        try:
+            launch_worker(destination, 'rig_worker.py')
+        except OSError as error:
+            write_json(destination / 'status.json', dict(state='error', stage='Worker launch failed', progress=0))
+            raise HTTPException(503, 'Unable to start rig preparation.') from error
+        return {'id': destination.name}
+
+
+@app.post('/api/jobs/{identifier}/rig-complete', status_code=202)
+async def rig_complete(identifier: str, request: Request):
+    try:
+        data = validate_creature_edit(await rig_json(request, MAX_CREATURE_EDIT_BYTES))
+    except (ValueError, TypeError) as error:
+        raise HTTPException(400, str(error) or 'Invalid creature skeleton.') from error
+    if WORKSPACE_CONFIG and data['motion'] == 'swim':
+        raise HTTPException(404, 'Native creature swim is available in Studio Desktop.')
+    async with LOCK:
+        if not WORKSPACE_CONFIG:
+            require_idle()
+        folder = job_path(identifier)
+        record = job_record(folder)
+        if not record or not is_creature_rig(record['settings']) or active_job(identifier):
+            raise HTTPException(409, 'Choose an editable creature rig.')
+        state = record['state']
+        if not (state in ('error', 'cancelled') or state == 'done' and record.get('rig_phase') == 'draft'):
+            raise HTTPException(409, 'Wait for an editable creature skeleton.')
+        preview = rig_input_file(folder, 'rig-preview.json')
+        snapshot = rig_input_file(folder, 'source.glb')
+        if await asyncio.to_thread(rig_source_digest, preview) != data['revision']:
+            raise HTTPException(409, 'The creature skeleton changed. Reopen the current draft.')
+        if await asyncio.to_thread(rig_source_digest, snapshot) != record['settings'].get('rig_source_sha256'):
+            raise HTTPException(409, 'The creature source changed. Start a new rig from the original model.')
+        rig_input_file(folder, 'rig-work/skeleton.fbx')
+        if not components()['unirig'].get('ready') or not find_blender():
+            raise HTTPException(503, 'UniRig or Blender is unavailable. Run Open TRELLIS.cmd and check its diagnostic log.')
+        write_json(folder / 'creature-edit.json', data)
+        write_json(folder / 'settings.json', dict(record['settings'], creature_phase='final'))
+        write_json(folder / 'status.json', dict(state='queued', stage='Preparing creature skin weights', progress=2,
+                                                rig_phase='final'))
+        try:
+            launch_worker(folder, 'rig_worker.py')
+        except OSError as error:
+            write_json(folder / 'status.json', dict(state='error', stage='Worker launch failed', progress=0,
+                                                    rig_phase='draft'))
+            raise HTTPException(503, 'Unable to start the creature rig.') from error
+        return {'id': identifier}
+
 
 from retarget_catalogue import ANIMATIONS as ANIMATION_LIBRARY, BY_ID as ANIMATION_BY_ID
 
@@ -796,19 +922,84 @@ async def prepare_animations(identifier, request, linked=False, remove=False):
                 raise HTTPException(503, 'Unable to start animation preparation.') from error
             return {'id': destination.name}
         recipe = dict(settings=record['settings'], result=result, clips=clips, **extra)
-        if WORKSPACE_CONFIG:
-            operation = await asyncio.to_thread(stage_animation_operation, source, record, recipe, revision)
-            launch_worker(operation, 'animation_worker.py')
-            return {'id': identifier, 'operation_id': operation.name}
-        write_json(source/'animation-request.json', recipe)
-        write_json(source/'status.json', dict(state='queued', stage='Updating animations', progress=5,
-                                              operation='animation', result=result))
-        try:
-            launch_worker(source, 'animation_worker.py')
-        except OSError as error:
-            write_json(source/'status.json', dict(state='done', stage='Model preserved', progress=100, result=result))
-            raise HTTPException(503, 'Unable to start animation preparation.') from error
-        return {'id':identifier}
+        return await queue_animation_update(source, record, recipe, revision)
+
+
+async def queue_animation_update(source, record, recipe, revision):
+    if WORKSPACE_CONFIG:
+        operation = await asyncio.to_thread(stage_animation_operation, source, record, recipe, revision)
+        launch_worker(operation, 'animation_worker.py')
+        return {'id': source.name, 'operation_id': operation.name}
+    previous = read_workspace_json(source / 'status.json', {})
+    write_json(source / 'animation-request.json', recipe)
+    write_json(source / 'status.json', dict(state='queued', stage='Updating animations', progress=5,
+                                             operation='animation', result=recipe['result']))
+    try:
+        launch_worker(source, 'animation_worker.py')
+    except OSError as error:
+        write_json(source / 'status.json', previous)
+        raise HTTPException(503, 'Unable to start animation preparation.') from error
+    return {'id': source.name}
+
+
+def creature_motion_target(identifier):
+    source = job_path(identifier)
+    record = job_record(source)
+    if not record or record['state'] != 'done' or not record['media']['available']:
+        raise HTTPException(409, 'Choose a completed model to inspect its rig.')
+    model = rig_input_file(source, 'model.glb')
+    return source, record, model
+
+
+@app.get('/api/jobs/{identifier}/creature-motions')
+def creature_motion_options(identifier: str):
+    from creature_motion_edit import creature_motion_capabilities
+
+    _, _, model = creature_motion_target(identifier)
+    revision = str(model.stat().st_mtime_ns)
+    capabilities = creature_motion_capabilities(model)
+    if str(model.stat().st_mtime_ns) != revision:
+        raise HTTPException(409, 'The model changed. Refresh its motion options.')
+    blender_ready = bool(find_blender())
+    defaults = {key: value for key, value in capabilities.get('defaults', {}).items() if key != 'name'}
+    return {**capabilities, 'revision': revision, 'defaults': defaults,
+            'rig_supported': bool(capabilities['available']),
+            'creation_available': blender_ready,
+            'creation_reason': '' if blender_ready else 'Configure Blender to save new animations.'}
+
+
+@app.post('/api/jobs/{identifier}/creature-motions', status_code=202)
+async def add_creature_motion(identifier: str, request: Request):
+    from creature_motion_edit import validate_creature_motion_recipe
+
+    try:
+        payload = await rig_json(request, 16 * 1024)
+        if not isinstance(payload, dict):
+            raise ValueError('Choose valid creature motion settings.')
+        expected = payload.pop('revision', None)
+        if not isinstance(expected, str) or not re.fullmatch(r'[0-9]{1,24}', expected):
+            raise ValueError('Refresh the motion options before creating a clip.')
+        options = validate_creature_motion_recipe(payload)
+    except (ValueError, TypeError) as error:
+        raise HTTPException(400, str(error) or 'Invalid creature motion settings.') from error
+    async with LOCK:
+        if not WORKSPACE_CONFIG:
+            require_idle()
+        source, record, model = creature_motion_target(identifier)
+        refresh_export()
+        if identifier in EXPORTING:
+            raise HTTPException(409, 'Wait for this model’s export to finish.')
+        if str(model.stat().st_mtime_ns) != expected:
+            raise HTTPException(409, 'The model changed. Refresh its motion options.')
+        if not record['media'].get('bones'):
+            raise HTTPException(409, 'Add or import a rig before creating a creature motion.')
+        if not find_blender():
+            raise HTTPException(503, 'Configure Blender to save new animations.')
+        recipe = dict(settings=record['settings'], result=record.get('result') or {}, creature_motion=options)
+        queued = await queue_animation_update(source, record, recipe, expected)
+        operation = queued.get('operation_id')
+        return {**queued, 'state': 'queued', 'status_url': (
+            '/api/v1/animation-operations/' + operation if operation else '/api/v1/jobs/' + identifier)}
 
 
 @app.post('/api/jobs/{identifier}/animations',status_code=202)
@@ -870,11 +1061,94 @@ def generation_options_schema():
 
 @app.get('/api/profiles')
 def profiles_list():
-    try: return {'default_profile': DEFAULT_PROFILE, 'startup_profile': DENSE_MASTER, 'profiles': PROFILES.list()}
+    try:
+        available = [profile for profile in PROFILES.list() if profile['id'] != HUMANOID_EXPERIMENTAL]
+        for profile in available:
+            if 'workflow' in profile:
+                profile['workflow'].update(workflow_capability(profile['id']))
+                profile['workflow']['advanced'] = workflow_advanced_capabilities(profile)
+                if profile['id'] == 'high_detail_native':
+                    material = next(stage for stage in profile['workflow']['advanced'] if stage['id'] == '25')
+                    defaults = {field['name']: field['default'] for field in material['fields']}
+                    size = defaults['ultratex_size'] if defaults['texture_method'] == 'ultratex' else defaults['texture_size']
+                    profile['settings'].update(texture_method=defaults['texture_method'], texture_size=size)
+                    profile['workflow']['texture_size'] = size
+        startup = next(profile for profile in available if profile['id'] == STARTUP_PROFILE)
+        startup_id = STARTUP_PROFILE if startup['workflow']['available'] else PROPS_PROFILE
+        return {'default_profile': DEFAULT_PROFILE, 'startup_profile': startup_id, 'profiles': available}
     except ValueError as error: raise HTTPException(422, str(error))
 
+def workflow_capability(profile_id):
+    if profile_id == 'high_detail_native':
+        from native_high_detail import runtime_status
+        return runtime_status()
+    if profile_id == 'game_asset_native':
+        from native_game_profile import runtime_status
+        return runtime_status()
+    return dict(available=False, reason='Choose a current standalone profile.')
+
+def workflow_advanced_capabilities(profile):
+    from copy import deepcopy
+
+    stages = deepcopy(profile['workflow']['advanced'])
+    for stage in stages:
+        for field in stage['fields']:
+            for choice in field.get('choices', ()):
+                if backend := choice.get('requires_native_geometry'):
+                    from native_high_detail import runtime_status
+                    choice.update(runtime_status(geometry_backend=backend))
+                if choice.get('requires_native_ultratex'):
+                    from native_high_detail import ultratex_status
+                    choice.update(ultratex_status())
+                    if choice['available']:
+                        field['default'] = choice['value']
+                if profile['id'] == 'game_asset_native' and stage['id'] == '316' and field['name'] == 'value':
+                    from native_game_profile import runtime_status
+                    choice.update(runtime_status('trellis2' if choice['value'] else 'pixal3d'))
+    return stages
+
+
+def require_workflow(profile_id):
+    capability = workflow_capability(profile_id)
+    if not capability['available']:
+        raise HTTPException(503, capability['reason'])
+
+
+def require_workflow_options(profile_id, options):
+    backend = workflow_geometry(profile_id, options)
+    if profile_id == 'high_detail_native' and options['25']['texture_method'] == 'ultratex':
+        from native_high_detail import ultratex_status
+        capability = ultratex_status()
+        if not capability['available']:
+            raise HTTPException(503, capability['reason'])
+    if profile_id == 'high_detail_native' and backend == 'pixal3d':
+        from native_high_detail import DEFAULTS, runtime_status
+        capability = runtime_status(geometry_backend=backend)
+        if not capability['available']:
+            raise HTTPException(503, capability['reason'])
+        if options['17'] != DEFAULTS['17']:
+            raise HTTPException(422, 'First TRELLIS.2 pass settings apply to TRELLIS.2 GGUF geometry only.')
+    if profile_id == 'game_asset_native' and backend == 'trellis2':
+        from native_game_profile import runtime_status
+        capability = runtime_status(backend)
+        if not capability['available']:
+            raise HTTPException(503, capability['reason'])
+
+def new_workflow_options(profile_id, overrides):
+    """Select the local default for new submissions. Saved jobs carry their own recipe."""
+    options = workflow_settings(profile_id, overrides)
+    if profile_id == 'high_detail_native':
+        material = options['25']
+        if 'texture_method' not in (overrides or {}).get('25', {}) and not material['bake_on_vertices']:
+            from native_high_detail import ultratex_status
+            if ultratex_status()['available']:
+                material['texture_method'] = 'ultratex'
+    return options
+
+
 async def save_profile(request, identifier=None):
-    if identifier in GENERATION_PRESETS: raise HTTPException(403, 'This built-in profile is protected. Save a custom copy instead.')
+    if identifier in GENERATION_PRESETS or identifier in WORKFLOW_PROFILES or identifier == DETAIL_STUDY:
+        raise HTTPException(403, 'This built-in profile is protected. Save a custom copy instead.')
     async with LOCK:
         try:
             raw = await request.body()
@@ -890,6 +1164,21 @@ async def create_profile(request: Request):
 @app.put('/api/profiles/{identifier}')
 async def update_profile(identifier: str, request: Request):
     return await save_profile(request, identifier)
+
+@app.delete('/api/profiles/{identifier}')
+async def delete_profile(identifier: str):
+    if identifier in GENERATION_PRESETS or identifier in WORKFLOW_PROFILES or identifier == DETAIL_STUDY:
+        raise HTTPException(403, 'This built-in profile is protected.')
+    async with LOCK:
+        try:
+            PROFILES.delete(identifier)
+        except KeyError as error:
+            raise HTTPException(404, 'Profile not found.') from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        except OSError as error:
+            raise HTTPException(503, 'Unable to save the profile list.') from error
+    return dict(id=identifier, deleted=True)
 
 @app.get('/api/jobs')
 def jobs():
@@ -1204,8 +1493,6 @@ def rig_preview(identifier: str):
     folder = job_path(identifier)
     settings = read_workspace_json(folder / 'settings.json', {})
     is_creature = is_creature_rig(settings)
-    if is_creature and WORKSPACE_CONFIG:
-        raise HTTPException(404, 'Creature previews are available in Studio Desktop.')
     path = folder / 'rig-preview.json'
     if not path.is_file() or path.resolve() != path:
         return {'ready': False}
@@ -1216,7 +1503,7 @@ def rig_preview(identifier: str):
         data.update(revision=revision, max_bones=MAX_CREATURE_BONES)
         proposal_path = folder / 'creature-tentacles.json'
         edit_path = folder / 'creature-edit.json'
-        proposal = read_workspace_json(proposal_path, {})
+        proposal = {} if WORKSPACE_CONFIG else read_workspace_json(proposal_path, {})
         if proposal.get('revision') == revision:
             data.update(adapted_bones=proposal['bones'], chains=proposal['chains'],
                         spacing_m=proposal['spacing_m'], warnings=proposal['warnings'])
@@ -1224,64 +1511,23 @@ def rig_preview(identifier: str):
         if edit.get('revision') == revision and (proposal.get('revision') != revision
                 or edit_path.stat().st_mtime_ns >= proposal_path.stat().st_mtime_ns):
             data.update(edited_bones=edit['bones'], motion=edit['motion'])
-            if 'swim' in edit:
+            if not WORKSPACE_CONFIG and 'swim' in edit:
                 data['swim'] = edit['swim']
     return data
 
 
-@app.post('/api/jobs/{identifier}/rig-complete', status_code=202)
-async def complete_creature_rig(identifier: str, request: Request):
-    if WORKSPACE_CONFIG:
-        raise HTTPException(404, 'Creature rigging is available in Studio Desktop.')
-    body = bytearray()
-    try:
-        async for chunk in request.stream():
-            if len(body) + len(chunk) > MAX_CREATURE_EDIT_BYTES:
-                raise HTTPException(413, 'The creature rig edit is too large.')
-            body.extend(chunk)
-        edit = validate_creature_edit(json.loads(body))
-    except (ValueError, RecursionError) as error:
-        raise HTTPException(400, str(error)) from error
-    async with LOCK:
-        require_idle()
-        folder = job_path(identifier)
-        record = job_record(folder)
-        if not record or not is_creature_rig(record['settings']):
-            raise HTTPException(409, 'Select an editable creature rig draft.')
-        if not (record['state'] == 'done' and record.get('rig_phase') == 'draft'
-                or record['state'] in ('error', 'cancelled')):
-            raise HTTPException(409, 'Select an editable creature rig draft.')
-        preview_path = folder / 'rig-preview.json'
-        skeleton_path = folder / 'rig-work' / 'skeleton.fbx'
-        if any(not path.is_file() or path.resolve() != path for path in (preview_path, skeleton_path, folder / 'source.glb')):
-            raise HTTPException(409, 'The predicted skeleton is unavailable. Create a new creature draft.')
-        if rig_source_digest(preview_path) != edit['revision']:
-            raise HTTPException(409, 'The creature draft has changed. Open the current preview and try again.')
-        if not components()['unirig'].get('ready') or not find_blender():
-            raise HTTPException(503, 'UniRig or Blender is unavailable. Run Open TRELLIS.cmd and check its diagnostic log.')
-        try:
-            write_json(folder / 'creature-edit.json', edit)
-            write_json(folder / 'settings.json', dict(record['settings'], creature_phase='final'))
-            write_json(folder / 'status.json', dict(state='queued', rig_phase='final',
-                       stage='Preparing creature skin weights', progress=2))
-            launch_worker(folder, 'rig_worker.py')
-        except OSError as error:
-            write_json(folder / 'status.json', dict(state='error', rig_phase='draft',
-                       stage='Unable to start creature skinning', progress=0))
-            raise HTTPException(503, 'Unable to start creature skinning.') from error
-        return {'id': identifier}
-
 @app.get('/api/jobs/{identifier}/rig-preview-model')
 def rig_preview_model(identifier: str):
     folder=job_path(identifier)
-    if WORKSPACE_CONFIG and is_creature_rig(read_workspace_json(folder / 'settings.json', {})):
-        raise HTTPException(404, 'Creature previews are available in Studio Desktop.')
-    path=folder/'rig-work'/'input.glb'
-    if not path.is_file():path=folder/'source.glb'
-    if not path.is_file():raise HTTPException(404)
-    return FileResponse(path,media_type='model/gltf-binary')
+    settings = read_workspace_json(folder / 'settings.json', {})
+    path = folder / 'rig-work' / 'input.glb'
+    if settings.get('creature_phase') or not path.is_file():
+        path = folder / 'source.glb'
+    if not path.is_file() or path.resolve() != path:
+        raise HTTPException(404)
+    return FileResponse(path, media_type='model/gltf-binary')
 
-async def read_generation_image(upload, label='Image', restrict_formats=False):
+async def read_generation_image(upload, label='Image', restrict_formats=False, preserve_original=False):
     content = await upload.read(25 * 1024 * 1024 + 1)
     if len(content) > 25 * 1024 * 1024:
         raise HTTPException(413, f'{label} exceeds the 25 MB limit.')
@@ -1293,6 +1539,10 @@ async def read_generation_image(upload, label='Image', restrict_formats=False):
                 raise ValueError('Image too large (40 megapixels maximum).')
             source = ImageOps.exif_transpose(original).convert('RGBA')
             source.thumbnail((2048, 2048), Image.Resampling.LANCZOS)
+            if preserve_original:
+                if getattr(original, 'n_frames', 1) != 1:
+                    raise ValueError('Choose a still image.')
+                return source, content, {'PNG': '.png', 'JPEG': '.jpg', 'WEBP': '.webp'}[original.format]
             return source
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as error:
         raise HTTPException(400, f'{label} could not be read: {error}') from error
@@ -1387,7 +1637,7 @@ async def generate_multiview(
     texture_size: Annotated[int, Form()] = 0,
     parent_id: Annotated[str, Form()] = '',
     reference_prompt: Annotated[str, Form()] = '',
-    keep_finishing_source: Annotated[bool, Form()] = False,
+    keep_finishing_source: Annotated[bool | None, Form()] = None,
     repair_surface: Annotated[bool, Form()] = False,
     hd_reconstruction: Annotated[bool, Form()] = False,
     reproject_face: Annotated[bool, Form()] = False,
@@ -1396,6 +1646,7 @@ async def generate_multiview(
     preset: Annotated[str, Form()] = '',
     asset_type: Annotated[str, Form()] = 'humanoid',
     master_finishing: Annotated[str | None, Form()] = None,
+    texture_method: Annotated[str | None, Form()] = None,
 ):
     profile = next((p for p in PIXAL_PROFILES if p['id'] == profile_id), None)
     if profile is None:
@@ -1405,9 +1656,15 @@ async def generate_multiview(
             raise HTTPException(422, str(error)) from error
         if saved_profile is None:
             raise HTTPException(400, 'Unknown generation profile. Choose a profile advertised by Studio.')
+        if saved_profile['id'] in WORKFLOW_PROFILES:
+            raise HTTPException(400, 'This profile uses one reference image.')
         profile = dict(saved_profile['settings'], id=saved_profile['id'], name=saved_profile['name'],
                        keep_finishing_source=saved_profile.get('keep_finishing_source', False))
+        profile.pop('master_finishing', None)
+        profile.pop('retexture_after_refinement', None)
     preset = preset or profile.get('preset', profile['id'])
+    if preset == FIGURE_MASTER:
+        raise HTTPException(400, 'Figure Master uses TRELLIS.2 Single image. Choose another profile for Pixal3D.')
     if preset != 'character_pixal' and preset not in GENERATION_PRESETS:
         raise HTTPException(400, 'Unknown generation preset.')
     if repair_surface and preset != DENSE_MASTER:
@@ -1417,6 +1674,8 @@ async def generate_multiview(
     triangles = triangles or profile['triangles']
     texture_size = texture_size or profile['texture_size']
     try:
+        texture_method = resolve_texture_method(texture_method)
+        validate_texture_method(texture_method, engine='pixal3d', view_mode='multi', texture_size=texture_size)
         validate_hd_reconstruction(hd_reconstruction, preset=preset, resolution=1024,
                                    repair_surface=repair_surface)
         validate_create_master_finishing(master_finishing, preset=preset, resolution=1024,
@@ -1424,7 +1683,9 @@ async def generate_multiview(
                                          hd_reconstruction=hd_reconstruction, engine='pixal3d')
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
-    keep_finishing_source = keep_finishing_source or preset in (DENSE_MASTER, HUMANOID_EXPERIMENTAL) or profile.get('keep_finishing_source', False)
+    if keep_finishing_source is None:
+        keep_finishing_source = profile.get('keep_finishing_source', False)
+    keep_finishing_source = keep_finishing_source or preset in (DENSE_MASTER, HUMANOID_EXPERIMENTAL)
     if (side_angle not in (40, 90) or not 0.01 <= height_m <= 100
         or not 0 <= seed <= 2147483647 or not -2 <= queue_priority <= 2
         or not TRIANGLE_MIN <= triangles <= TRIANGLE_MAX
@@ -1453,6 +1714,7 @@ async def generate_multiview(
         generation_options.update(DENSE_MASTER_FINISHING)
     safe_name = re.sub(r'[^A-Za-z0-9_-]+', '-', name.strip()).strip('-')[:50] or 'Character'
     settings = dict(name=safe_name, engine='pixal3d', preset=preset, view_mode='multi',
+                    texture_method=texture_method,
                     profile=dict(id=profile['id'], name=profile['name']),
                     asset_type=asset_type, height_m=height_m, seed=seed,
                     triangles=triangles, texture_size=texture_size,
@@ -1506,11 +1768,59 @@ async def generate_multiview(
     return {'id': identifier, 'queued': True}
 
 
+async def generate_workflow(image, workflow_id, *, options, name, height_m, asset_type, reference_prompt,
+                            parent_id, queue_only, queue_priority, queue_hold):
+    if (not 0.01 <= height_m <= 100 or asset_type not in ASSET_TYPES or len(name) > 80
+            or len(reference_prompt) > 6000 or not -2 <= queue_priority <= 2):
+        raise HTTPException(400, 'Invalid generation settings.')
+    require_workflow(workflow_id)
+    require_workflow_options(workflow_id, options)
+    source, content, extension = await read_generation_image(image, restrict_formats=True, preserve_original=True)
+    if source.getchannel('A').getextrema()[1] == 0:
+        raise HTTPException(400, 'Image is fully transparent.')
+    recipe = STANDALONE_PROFILES[workflow_id]
+    safe_name = re.sub(r'[^A-Za-z0-9_-]+', '-', name.strip()).strip('-')[:50] or 'Object'
+    filename = 'workflow-input' + extension
+    settings = dict(name=safe_name, preset=workflow_id, workflow_id=workflow_id, workflow_input=filename,
+                    profile=dict(id=workflow_id, name=recipe['name']), engine='studio_workflow', view_mode='single',
+                    pipeline_type=workflow_id, height_m=height_m, asset_type=asset_type,
+                    workflow_options=options,
+                    settings_version=4, created=time.time(), **workflow_summary(workflow_id, options))
+    if parent_id:
+        settings['parent_id'] = parent_id
+    identifier = uuid.uuid4().hex
+    folder = OUTPUT / identifier
+    async with LOCK:
+        if parent_id:
+            job_path(parent_id)
+        if not queue_only and (TERRAIN_ACTIVE or (PROCESS is not None and PROCESS.poll() is None)):
+            raise HTTPException(409, 'A generation is already running; add the next image to the queue.')
+        with TemporaryDirectory(prefix='.workflow-generation-', dir=OUTPUT) as staging:
+            staged = Path(staging)
+            (staged / filename).write_bytes(content)
+            source.save(staged / 'input.png')
+            write_json(staged / 'settings.json', settings)
+            write_json(staged / 'metadata.json', dict(display_name=name.strip() or safe_name,
+                       reference_prompt=reference_prompt.strip(), review_state='review', favorite=False, tags=[]))
+            if queue_only:
+                write_json(staged / 'status.json', dict(state='queued', stage='Waiting in queue', progress=0))
+            staged.rename(folder)
+        if queue_only:
+            try:
+                STUDIO.workspace.enqueue(identifier, queue_priority, queue_hold)
+            except OSError as error:
+                write_json(folder / 'status.json', dict(state='error', stage='Unable to save queue', progress=0))
+                raise HTTPException(503, 'Unable to save the generation queue.') from error
+            return {'id': identifier, 'queued': True}
+        launch_worker(folder, 'worker.py')
+        return {'id': identifier}
+
+
 @app.post('/api/generate')
 async def generate(image: UploadFile = File(...), name: str = Form('Object'), preset: str = Form(DEFAULT_PROFILE),
-                   height_m: float = Form(1), seed: int = Form(42), remove_bg: bool = Form(True),
+                   height_m: float = Form(1), seed: int | None = Form(None), remove_bg: bool = Form(True),
                    triangles: int = Form(0), asset_type: str = Form('object'), texture_size: int = Form(0),
-                   reference_prompt: str = Form(''), resolution: int = Form(DEFAULT_GENERATION['resolution']), advanced_settings: str = Form(''),
+                   reference_prompt: str = Form(''), resolution: int | None = Form(None), advanced_settings: str = Form(''),
                    keep_finishing_source: Annotated[bool,Form()]=False,
                    repair_surface: Annotated[bool,Form()]=False,
                    hd_reconstruction: Annotated[bool,Form()]=False,
@@ -1518,12 +1828,44 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                    reference_edits: Annotated[str, Form()] = '',
                    engine: Annotated[str, Form()] = 'trellis2',
                    master_finishing: Annotated[str | None, Form()] = None,
-                   reproject_face: Annotated[bool, Form()] = False):
+                   reproject_face: Annotated[bool, Form()] = False,
+                   retexture_after_refinement: Annotated[bool, Form()] = False,
+                   multiview_texture_refinement: Annotated[bool | None, Form()] = None,
+                   texture_method: Annotated[str | None, Form()] = None,
+                   workflow_options: Annotated[str, Form()] = ''):
     if WORKSPACE_CONFIG:
         queue_only = True
+    workflow_id = profile_id if profile_id in WORKFLOW_PROFILES else preset if preset in WORKFLOW_PROFILES else None
+    if workflow_id:
+        if workflow_id in COMFY_PROFILES:
+            raise HTTPException(409, 'Choose a current generation profile in Studio.')
+        recipe = STANDALONE_PROFILES[workflow_id]
+        if (preset not in (DEFAULT_PROFILE, workflow_id) or profile_id not in ('', workflow_id)
+                or engine != 'trellis2' or seed not in (None, recipe['seed']) or not remove_bg
+                or triangles not in (0, recipe['target_faces']) or texture_size not in (0, recipe['texture_size'])
+                or resolution not in (None, recipe['resolution']) or texture_method not in (None, recipe['texture_method'])
+                or advanced_settings not in ('', '{}') or reference_edits not in ('', '{}') or master_finishing
+                or any((reproject_face, retexture_after_refinement, multiview_texture_refinement,
+                        keep_finishing_source, repair_surface, hd_reconstruction))):
+            raise HTTPException(400, 'Use the advanced settings for the selected generation profile.')
+        try:
+            if len(workflow_options) > 24000:
+                raise ValueError('Workflow settings are too large.')
+            options = new_workflow_options(workflow_id, json.loads(workflow_options) if workflow_options else {})
+        except (TypeError, ValueError, OverflowError) as error:
+            raise HTTPException(400, str(error)) from error
+        return await generate_workflow(image, workflow_id, options=options, name=name, height_m=height_m, asset_type=asset_type,
+                                       reference_prompt=reference_prompt, parent_id=parent_id, queue_only=queue_only,
+                                       queue_priority=queue_priority, queue_hold=queue_hold)
+    if workflow_options:
+        raise HTTPException(400, 'Choose a profile that uses workflow settings.')
+    seed = 42 if seed is None else seed
+    resolution = DEFAULT_GENERATION['resolution'] if resolution is None else resolution
     if engine not in ('trellis2', 'pixal3d_single'):
         raise HTTPException(400, 'Choose a supported single-image method.')
     pixal = engine == 'pixal3d_single'
+    if pixal and preset == FIGURE_MASTER:
+        raise HTTPException(400, 'Figure Master uses TRELLIS.2 Single image. Choose another profile for Pixal3D.')
     if pixal:
         if resolution != 1024 or (texture_size and texture_size not in PIXAL_TEXTURE_SIZES):
             raise HTTPException(400, 'Pixal3D Single image uses resolution 1024 and a 1K or 2K atlas.')
@@ -1532,7 +1874,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
         raise HTTPException(400, 'Face reprojection requires Pixal3D.')
     # Legacy multipart profile_id is provenance; an edited base preset wins.
     experimental = preset == HUMANOID_EXPERIMENTAL
-    cache_required = preset in (HUMANOID_EXPERIMENTAL, DENSE_MASTER)
+    cache_required = preset in (HUMANOID_EXPERIMENTAL, DENSE_MASTER, FIGURE_MASTER)
     if repair_surface and preset != DENSE_MASTER:
         raise HTTPException(400, 'Choose Dense Master to repair the surface during generation.')
     if cache_required:
@@ -1547,11 +1889,17 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
     triangles = triangles or default_triangles
     texture = texture_size or default_texture
     try:
+        texture_method = resolve_texture_method(texture_method, multiview_texture_refinement,
+                                                'multiview' if preset == FIGURE_MASTER else 'trellis')
+        validate_texture_method(texture_method, engine=engine, texture_size=texture)
+        multiview_texture_refinement = texture_method == 'multiview'
         validate_hd_reconstruction(hd_reconstruction, preset=preset, resolution=resolution,
                                    repair_surface=repair_surface)
         validate_create_master_finishing(master_finishing, preset=preset, resolution=resolution,
                                          triangles=triangles, repair_surface=repair_surface,
                                          hd_reconstruction=hd_reconstruction, engine=engine)
+        validate_post_refinement_texturing(retexture_after_refinement, preset=preset, resolution=resolution,
+                                           master_finishing=master_finishing, engine=engine)
         if len(advanced_settings)>12000:raise ValueError('Advanced settings are too large.')
         incoming=json.loads(advanced_settings) if advanced_settings else {}
         if not isinstance(incoming,dict):raise ValueError('Malformed advanced settings.')
@@ -1572,6 +1920,11 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
         except ValueError as error: raise HTTPException(422, str(error))
         if profile is None: raise HTTPException(400, 'Profile not found; reload profiles.')
     require_create_master_finishing(master_finishing)
+    require_texture_method(texture_method)
+    if retexture_after_refinement:
+        texture_runtime = detail_texturing_capability()
+        if not texture_runtime['available']:
+            raise HTTPException(503, texture_runtime['reason'])
     if pixal:
         runtime = pixal3d_capabilities()
         single_image = runtime.get('single_image', {})
@@ -1596,6 +1949,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
         folder = OUTPUT / identifier
         safe_name = re.sub(r'[^A-Za-z0-9_-]+', '-', name.strip()).strip('-')[:50] or 'Object'
         settings = dict(name=safe_name, preset=preset, height_m=height_m, seed=seed, remove_bg=remove_bg,
+                        texture_method=texture_method,
                         steps=steps, triangles=triangles, texture_size=texture, created=time.time(), asset_type=asset_type,
                         resolution=resolution,pipeline_type={512:'512',1024:'1024_cascade',1536:'1536_cascade'}[resolution],
                         generation_options=advanced,settings_version=2)
@@ -1616,6 +1970,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                 engine='pixal3d' if pixal else 'trellis2', asset_type=asset_type, keep_finishing_source=True,
                 preset=preset, resolution=resolution, triangles=triangles, texture_size=texture,
                 generation_options=advanced)
+            settings['profile_snapshot']['texture_method'] = texture_method
             if experimental:
                 settings['profile_snapshot']['experimental'] = True
             if preset == DENSE_MASTER and not (hd_reconstruction or master_finishing):
@@ -1625,6 +1980,14 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
             if hd_reconstruction:
                 settings['profile_snapshot']['hd_reconstruction'] = True
         assign_create_master_finishing(settings, master_finishing)
+        if retexture_after_refinement:
+            settings['retexture_after_refinement'] = True
+            if snapshot := settings.get('profile_snapshot'):
+                snapshot['retexture_after_refinement'] = True
+        if multiview_texture_refinement:
+            settings['multiview_texture_refinement'] = True
+            if snapshot := settings.get('profile_snapshot'):
+                snapshot['multiview_texture_refinement'] = True
         if parent_id:settings['parent_id']=parent_id
         with TemporaryDirectory(prefix='.trellis2-', dir=OUTPUT) as staging:
             staged = Path(staging)
@@ -1675,7 +2038,13 @@ async def cancel(identifier: str):
             (folder/'generated-animation-request.json').unlink(missing_ok=True)
             result=json.loads((folder/'result.json').read_text(encoding='utf-8'))
             write_json(folder/'status.json',dict(state='done',stage='Model preserved',progress=100,result=result,operation_error='Animation update cancelled.'))
-        else:(folder / 'status.json').write_text(json.dumps({'state':'cancelled','stage':'Generation cancelled','progress':0}), encoding='utf-8')
+        else:
+            if record['settings'].get('workflow_id') in WORKFLOW_PROFILES:
+                for child in folder.iterdir():
+                    if (re.fullmatch(r'\.workflow-result-[a-z0-9_]{8}', child.name)
+                            and child.is_dir() and child.resolve() == child):
+                        await asyncio.to_thread(shutil.rmtree, child, ignore_errors=True)
+            write_json(folder / 'status.json', dict(state='cancelled', stage='Generation cancelled', progress=0))
     return {'ok':True}
 
 @app.post('/api/terrain')
@@ -1725,6 +2094,17 @@ def logs(identifier: str):
     path = folder / 'generation.log'
     return {'text':path.read_text(encoding='utf-8', errors='replace')[-18000:] if path.exists() else ''}
 
+@app.get('/api/jobs/{identifier}/collection-preview/{revision}/{mode}.webp', include_in_schema=False)
+def collection_preview(identifier: str, revision: str, mode: str):
+    folder = job_path(identifier)
+    publication_pending = WORKSPACE_CONFIG.get('publication_pending')
+    if publication_pending and publication_pending(identifier):
+        raise HTTPException(404)
+    image = preview_image(COLLECTION_CACHE, folder, revision, mode)
+    if image is None:
+        raise HTTPException(404)
+    return Response(image, media_type='image/webp')
+
 @app.get('/api/jobs/{identifier}/files/{filename}')
 async def files(identifier: str, filename: str):
     folder = job_path(identifier)
@@ -1742,10 +2122,13 @@ async def files(identifier: str, filename: str):
         name=json.loads((folder/'settings.json').read_text(encoding='utf-8'))['name']
         return FileResponse(folder/'Blender.zip',filename='TRELLIS-'+name+'-Blender.zip',media_type='application/zip',
                             background=BackgroundTask(EXPORTING.discard,identifier))
-    if filename not in (*REFERENCE_FILES,*PREPARED_VIEWS.values(),'conditioning.png','model.glb','model.stl','print-report.json','Unity.zip','Blender.zip','settings.json','result.json','heightmap.png','heightmap.raw','original.glb','original.fbx','original.obj','original.stl','original.ply') or not (folder / filename).exists():
+    if filename not in (*REFERENCE_FILES,*PREPARED_VIEWS.values(),*COMFY_INPUT_FILES,'conditioning.png','model.glb','model.stl','print-report.json','Unity.zip','Blender.zip','settings.json','result.json','heightmap.png','heightmap.raw','original.glb','original.fbx','original.obj','original.stl','original.ply') or not (folder / filename).exists():
         raise HTTPException(404)
     settings = json.loads((folder/'settings.json').read_text(encoding='utf-8'))
-    if settings.get('source_kind') in ('unirig', 'animation_copy', 'texture_projection', 'baked_game_copy') and filename in ('model.glb', 'result.json'):
+    if filename in COMFY_INPUT_FILES and (settings.get('workflow_id') not in WORKFLOW_PROFILES
+            or settings.get('workflow_input') != filename or (folder / filename).is_symlink()):
+        raise HTTPException(404)
+    if settings.get('source_kind') in PREPARED_OUTPUT_KINDS and filename in ('model.glb', 'result.json'):
         status = read_workspace_json(folder / 'status.json', {})
         if not prepared_output_ready(settings, status):
             raise HTTPException(409, 'The model is available after preparation completes.')
@@ -1762,7 +2145,8 @@ async def files(identifier: str, filename: str):
 @app.get('/')
 def index():
     html = (ROOT / 'web' / 'studio.html').read_text(encoding='utf-8')
-    return HTMLResponse(render_studio_version(html), headers={'Cache-Control': 'no-cache, must-revalidate'})
+    return HTMLResponse(render_studio_version(html, ui_revision=UI_REVISION),
+                        headers={'Cache-Control': 'no-cache, must-revalidate'})
 
 
 @app.get('/api/release-status', include_in_schema=False)
@@ -1799,6 +2183,13 @@ async def shutdown(idle_only:bool=False):
 
 from studio_api import install
 STUDIO=install(app,globals())
+COLLECTION_CACHE = STUDIO.workspace.root.resolve() / 'collection-previews'
+COLLECTION_PREVIEWS = CollectionPreviews(
+    lambda: [(None, OUTPUT, TRASH, COLLECTION_CACHE)],
+    lambda: SHUTTING_DOWN or bool(TERRAIN_ACTIVE) or any(
+        process is not None and process.poll() is None for process in (PROCESS, EXPORT_PROCESS)),
+    lambda _owner, _identifier: False,
+)
 from generated_animation_api import install as install_generated_animations
 install_generated_animations(app,globals())
 from creature_api import install as install_creature_api

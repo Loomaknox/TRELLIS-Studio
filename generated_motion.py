@@ -78,7 +78,6 @@ def gltf_rig(data):
         scales=np.linalg.norm(matrix[:3,:3],axis=0)
         if np.min(scales)<1e-8:
             raise ValueError('Zero target scale is not supported.')
-        # Blender skin/export roundoff can introduce a few tens of ppm.
         if scales.max()-scales.min()>scales.max()*1e-4:
             raise ValueError('Nonuniform target scale is not supported. Apply the model transforms before transferring animation.')
         rotation=matrix[:3,:3]/scales
@@ -143,6 +142,64 @@ def load_motion(folder,skeleton):
     return roots,q/norms
 
 
+def advanced_twist_nodes(data, mapping, target_mapping, parents, rest):
+    """Recognize the validated wrist-helper layouts used by Studio profiles."""
+    from rig_expert_blender import EXPRESSIVE_TWIST_DISTAL, EXPRESSIVE_TWIST_PROXIMAL
+
+    joints = set(data['skins'][0]['joints'])
+    by_name = {data['nodes'][i]['name']: i for i in joints}
+    supplied = target_mapping if isinstance(target_mapping, dict) else {}
+    distal_names = {
+        side: supplied.get(f'{side}_expressive_forearm_twist', f'Studio_Expressive_{side}_forearm_twist')
+        for side in ('left', 'right')
+    }
+    expressive = any(f'{side}_expressive_forearm_twist' in supplied
+                     or distal_names[side] in by_name for side in distal_names)
+    helpers = {}
+    for source, side in (('Left', 'left'), ('Right', 'right')):
+        forearm, hand = mapping[source+'ForeArm'], mapping[source+'Hand']
+        name = supplied.get(side+'_forearm_twist')
+        if name is None:
+            candidates = (data['nodes'][forearm]['name']+'_StudioTwist', 'Studio_'+side+'_forearm_twist')
+            name = next((candidate for candidate in candidates if candidate in by_name), None)
+        if name is None and not expressive:
+            continue
+        span = rest[hand][:3,3] - rest[forearm][:3,3]
+        length = np.linalg.norm(span)
+        entries = [(side, name, EXPRESSIVE_TWIST_PROXIMAL if expressive else .5)]
+        if expressive:
+            entries.append((side + '_distal', distal_names[side], EXPRESSIVE_TWIST_DISTAL))
+        for key, label, fraction in entries:
+            if not isinstance(label, str) or label not in by_name:
+                raise ValueError('The saved forearm helper is missing from the skin.')
+            node = by_name[label]
+            if (parents.get(node) != forearm or length < 1e-8
+                    or np.linalg.norm(rest[node][:3,3] - rest[forearm][:3,3] - span*fraction) > length*.02
+                    or 'matrix' in data['nodes'][node]):
+                raise ValueError('The forearm helper does not match this skeleton.')
+            helpers[key] = (node, forearm, hand, fraction)
+    if helpers and len(helpers) != (4 if expressive else 2):
+        raise ValueError('Animation transfer requires a complete pair of forearm helpers.')
+    return helpers
+
+
+def drive_advanced_twists(desired, helpers, rest, rest_rot, previous=None):
+    """Share wrist axial rotation using each profile's validated fractions."""
+    for side, (node, forearm, hand, fraction) in helpers.items():
+        world_axis = normalize(rest[hand][:3,3] - rest[forearm][:3,3])
+        axis = rest_rot[hand].T @ world_axis
+        delta = rest_rot[hand].T @ rest_rot[forearm] @ desired[forearm].T @ desired[hand]
+        quat = Rotation.from_matrix(delta).as_quat()
+        if quat[3] < 0:
+            quat = -quat
+        angle = 2*math.atan2(float(quat[:3] @ axis), float(quat[3]))
+        if previous is not None:
+            angle += math.tau * round((previous.get(side, angle) - angle) / math.tau)
+            previous[side] = angle
+        correction = Rotation.from_rotvec((rest_rot[node].T @ world_axis)*angle*fraction).as_matrix()
+        desired[node] = desired[forearm] @ rest_rot[forearm].T @ rest_rot[node] @ correction
+
+
 def solve_clip(data,binary,skeleton,motion, *, fps=30, inplace=False, leg_ik=True, target_mapping=None):
     names=skeleton['names']; lookup={n:i for i,n in enumerate(names)}
     s_parents=skeleton['parents']; offsets=np.asarray(skeleton['offsets'],dtype=float)
@@ -151,6 +208,7 @@ def solve_clip(data,binary,skeleton,motion, *, fps=30, inplace=False, leg_ik=Tru
     src_rot,src_pos,neutral=source_fk(names,s_parents,offsets,q,roots)
     parents,local,rest,rest_rot,order=gltf_rig(data)
     mapping, mapping_method = resolve_target_mapping(data,binary,target_mapping)
+    twists = advanced_twist_nodes(data,mapping,target_mapping,parents,rest)
     for s in mapping:
         if s not in lookup:raise ValueError('Source joint missing: '+s)
     inverse={t:s for s,t in mapping.items()}
@@ -179,12 +237,13 @@ def solve_clip(data,binary,skeleton,motion, *, fps=30, inplace=False, leg_ik=Tru
     horizontal=roots[0].copy();horizontal[1]=0
     root_delta=(roots-horizontal-np.array([0,source_ground,0]))*scale
     if inplace:root_delta[:,[0,2]]=0
-    result_rot={i:[] for i in mapping.values()};result_trans=[]
+    result_rot={i:[] for i in [*mapping.values(), *(helper[0] for helper in twists.values())]};result_trans=[]
     foot_positions={side:[] for side in ('Left','Right')}
     toe_positions={side:[] for side in ('Left','Right')}
     target_head_positions=[]
     align={a:b for a,b in ALIGN_PAIRS}
     max_reach_error=0.
+    twist_angles={}
     for frame in range(len(roots)):
         desired={};positions={}
         for i in order:
@@ -226,6 +285,7 @@ def solve_clip(data,binary,skeleton,motion, *, fps=30, inplace=False, leg_ik=Tru
                     axis=rest_rot[bone].T@(rest[child][:3,3]-rest[bone][:3,3])
                     desired[bone]=swing(desired[bone]@axis,vector)@desired[bone]
                 positions[shin]=knee;positions[foot]=ankle
+        drive_advanced_twists(desired,twists,rest,rest_rot,twist_angles)
         # Re-evaluate positions from corrected parent rotations; these are the
         # transforms the GLB player will actually apply, including ankle/toes.
         for i in order:
@@ -233,7 +293,7 @@ def solve_clip(data,binary,skeleton,motion, *, fps=30, inplace=False, leg_ik=Tru
             if parent is None:positions[i]=rest[i][:3,3].copy()
             else:positions[i]=positions[parent]+desired[parent]@rest_rot[parent].T@(rest[i][:3,3]-rest[parent][:3,3])
             if i==troot:positions[i]=rest[i][:3,3]+root_delta[frame]
-        for i in mapping.values():
+        for i in result_rot:
             parent=parents.get(i);parent_rot=desired[parent] if parent is not None else np.eye(3)
             quat=Rotation.from_matrix(parent_rot.T@desired[i]).as_quat()
             if result_rot[i] and np.dot(quat,result_rot[i][-1])<0:quat=-quat
@@ -277,6 +337,9 @@ def solve_clip(data,binary,skeleton,motion, *, fps=30, inplace=False, leg_ik=Tru
             'limb_proportions':proportions,
             'leg_ik':leg_ik,'max_unreachable_ankle_m':max_reach_error,'foot_contacts':'no contact locking; source ankle trajectories preserved with two-bone IK',
             'fingers':'existing rest pose retained; SOMA30 does not generate articulated fingers',
+            'forearm_helpers':{'method':('one-third and two-thirds of wrist axial rotation' if len(twists) == 4
+                                         else 'half of wrist axial rotation' if twists else 'none'),
+                               'nodes':{side:data['nodes'][helper[0]]['name'] for side,helper in twists.items()}},
             'root_displacement_m':root_delta[-1].tolist(),'root_path_length_m':float(np.linalg.norm(np.diff(root_delta,axis=0),axis=1).sum()),
             'foot_bounds_m':{side:{'min':np.min(pos,axis=0).tolist(),'max':np.max(pos,axis=0).tolist()} for side,pos in foot_positions.items()},
             'foot_diagnostics':foot_diagnostics}

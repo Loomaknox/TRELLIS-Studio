@@ -286,6 +286,63 @@ function Get-SetupWsl([string]$RequestedDistribution) {
     return $result
 }
 
+function Get-SetupMultiviewTexture([psobject]$Gpu) {
+    $result=[pscustomobject][ordered]@{Supported=$false; Status=''; VramNotice=''}
+    if (-not $Gpu.Supported) {
+        $result.Status=$Gpu.Status
+        return $result
+    }
+    try { $policy=(Read-SetupGpuManifest).multiview_texture }
+    catch { $result.Status=$_.Exception.Message; return $result }
+    if (-not $policy -or -not $policy.compute_capabilities.Count -or
+        [int]$policy.minimum_vram_mib -le 0 -or [int]$policy.recommended_vram_mib -lt [int]$policy.minimum_vram_mib) {
+        $result.Status='The multiview texture hardware policy is missing or invalid. Use the complete Setup package.'
+        return $result
+    }
+    if ($Gpu.Compute -notin $policy.compute_capabilities) {
+        $result.Status='This multiview texture installer supports NVIDIA compute capabilities 8.6 and 8.9.'
+        return $result
+    }
+    if ($Gpu.MemoryMiB -lt [int]$policy.minimum_vram_mib) {
+        $result.Status='Multiview texture refinement requires at least 8 GB of detected VRAM.'
+        return $result
+    }
+    $result.Supported=$true
+    $result.Status='Setup will test FP16 CUDA on the selected GPU before downloading the model files.'
+    if ($Gpu.MemoryMiB -lt [int]$policy.recommended_vram_mib) {
+        $result.VramNotice='12 GB VRAM or more is recommended. Close other GPU-heavy applications if this pass runs out of memory.'
+    }
+    return $result
+}
+
+function Get-SetupUltraTex([psobject]$Gpu) {
+    $result=[pscustomobject][ordered]@{
+        Supported=$false; Status=''
+        Guidance='Tested on NVIDIA Ada. Allow 32 GB of system RAM and 16 GiB of disk space in addition to TRELLIS.2.'
+    }
+    if (-not $Gpu.Supported) {
+        $result.Status=$Gpu.Status
+        return $result
+    }
+    try { $policy=(Read-SetupGpuManifest).ultratex }
+    catch { $result.Status=$_.Exception.Message; return $result }
+    if (-not $policy -or -not $policy.compute_capabilities.Count -or [int]$policy.minimum_vram_mib -le 0) {
+        $result.Status='The UltraTex hardware policy is missing or invalid. Use the complete Setup package.'
+        return $result
+    }
+    if ($Gpu.Compute -notin $policy.compute_capabilities) {
+        $result.Status='UltraTex preview requires a supported NVIDIA Ampere, Ada or Blackwell GPU.'
+        return $result
+    }
+    if ($Gpu.MemoryMiB -lt [int]$policy.minimum_vram_mib) {
+        $result.Status='UltraTex preview requires a detected NVIDIA GPU with at least 12 GB of VRAM.'
+        return $result
+    }
+    $result.Supported=$true
+    $result.Status='NVIDIA GPU and 12 GB VRAM requirement met. Setup tests CUDA before downloading UltraTex.'
+    return $result
+}
+
 function Get-SetupDisk([string]$Root) {
     $result=[pscustomobject][ordered]@{FreeGiB=''; Status='Windows disk space could not be checked.'}
     try {
@@ -296,12 +353,40 @@ function Get-SetupDisk([string]$Root) {
     return $result
 }
 
+function Get-SetupNativeWorkflows([psobject]$Gpu) {
+    $result=[pscustomobject][ordered]@{
+        Supported=$false; Status=''; MeshLibLicenseUrl=''
+        Guidance='Allow 75 GiB of free disk space for a fresh installation.'
+    }
+    if (-not $Gpu.Supported) {
+        $result.Status=$Gpu.Status
+        return $result
+    }
+    try { $policy=(Read-SetupGpuManifest).native_workflows }
+    catch { $result.Status=$_.Exception.Message; return $result }
+    if (-not $policy -or -not $policy.compute_capabilities.Count -or [int]$policy.minimum_vram_mib -le 0 -or
+        $policy.meshlib_license_revision -cnotmatch '^[0-9a-f]{40}$') {
+        $result.Status='The native workflows hardware policy is missing or invalid. Use the complete Setup package.'
+        return $result
+    }
+    if ($Gpu.Compute -notin $policy.compute_capabilities -or $Gpu.MemoryMiB -lt [int]$policy.minimum_vram_mib) {
+        $capabilities=$policy.compute_capabilities -join ', '
+        $result.Status="The native workflows require a supported NVIDIA GPU (CUDA capability $capabilities) and at least $($policy.minimum_vram_mib) MiB of VRAM."
+        return $result
+    }
+    $result.MeshLibLicenseUrl="https://github.com/MeshInspector/MeshLib/blob/$($policy.meshlib_license_revision)/LICENSE"
+    $result.Supported=$true
+    $result.Status='The detected GPU meets the requirements. Setup checks the runtimes on this GPU.'
+    return $result
+}
+
 function Get-SetupInstallPlan([string]$Root) {
     $state=Read-SetupJson -Root $Root -RelativePath 'config\component-install.json'
     $saved=$state.schema -eq 1 -and $state.requested -is [array]
+    $existingInstallation=$Root -and (Read-SetupJson -Root $Root -RelativePath 'bundled-web.json')
     $requested=if ($saved) {
         $state.requested
-    } elseif ($Root -and (Read-SetupJson -Root $Root -RelativePath 'bundled-web.json')) {
+    } elseif ($existingInstallation) {
         # Earlier Windows installers did not record their component choices.
         if ((Test-Path -LiteralPath (Join-Path $Root 'models/trellis2/pipeline.json') -PathType Leaf) -and
             (Test-Path -LiteralPath (Join-Path $Root 'engine/MODELS/dinov3/model.safetensors') -PathType Leaf)) {
@@ -317,13 +402,37 @@ function Get-SetupInstallPlan([string]$Root) {
     if ($state.licenses.hi3d) {
         try { $hi3dAccepted=$state.licenses.hi3d -ceq (Read-SetupGpuManifest).hi3d.license_sha256 } catch { }
     }
+    $multiviewAccepted=$false
+    if ($state.licenses.multiview_texture) {
+        try { $multiviewAccepted=$state.licenses.multiview_texture -ceq (Read-SetupGpuManifest).multiview_texture.license_sha256 } catch { }
+    }
+    $ultraTexAccepted=$false
+    if ($state.licenses.ultratex) {
+        try { $ultraTexAccepted=$state.licenses.ultratex -ceq (Read-SetupGpuManifest).ultratex.license_sha256 } catch { }
+    }
+    $nativeWorkflowsAccepted=$false
+    if ($state.licenses.meshlib) {
+        try {
+            $manifest=Read-SetupGpuManifest
+            $nativeWorkflowsAccepted=($ultraTexAccepted -or
+                $state.licenses.native_workflows -ceq $manifest.ultratex.license_sha256) -and
+                $state.licenses.meshlib -ceq $manifest.native_workflows.meshlib_license_revision
+        } catch { }
+    }
     return [pscustomobject][ordered]@{
         Saved=$saved
+        NativeWorkflowsDefault=(-not $saved -and -not $existingInstallation)
+        NativeWorkflows='native-workflows' -in $requested
+        NativeWorkflowsLicenseAccepted=$nativeWorkflowsAccepted
         Trellis='trellis' -in $requested
         Pixal3D='pixal3d' -in $requested
         UniRig='unirig' -in $requested
         Hi3D='hi3d' -in $requested
         Hi3DLicenseAccepted=$hi3dAccepted
+        MultiviewTexture='multiview-texture' -in $requested
+        MultiviewTextureLicenseAccepted=$multiviewAccepted
+        UltraTex='ultratex' -in $requested
+        UltraTexLicenseAccepted=$ultraTexAccepted
         Kimodo='kimodo' -in $requested
     }
 }
@@ -339,7 +448,10 @@ function Get-SetupPreflight {
     $gpu=Get-SetupGpu -RequestedUuid $GpuUuid -AllowReselect:$automaticGpu
     return [pscustomobject][ordered]@{
         GPU=$gpu
+        NativeWorkflows=(Get-SetupNativeWorkflows -Gpu $gpu)
         Hi3D=(Get-SetupHi3d -Gpu $gpu)
+        MultiviewTexture=(Get-SetupMultiviewTexture -Gpu $gpu)
+        UltraTex=(Get-SetupUltraTex -Gpu $gpu)
         Blender=$blender
         WSL=(Get-SetupWsl -RequestedDistribution $WslDistribution)
         Disk=(Get-SetupDisk -Root $InstallRoot)

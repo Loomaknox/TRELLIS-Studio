@@ -41,11 +41,13 @@ export function createSwimFields(container) {
 }
 
 export function isCreatureRig(job) {
-  return job?.settings?.rig_options?.mode === 'creature';
+  return job?.settings?.rig_options?.mode === 'creature' || Boolean(job?.result?.creature_rig);
 }
 
 export function isCreatureRigDraft(job) {
-  return isCreatureRig(job) && !job.media?.available;
+  return isCreatureRig(job) && (job.rig_phase === 'draft'
+    || (job.settings?.creature_phase === 'final' && ['error', 'cancelled'].includes(job.state))
+    || (!job.rig_phase && !job.media?.available));
 }
 
 export function hasTentacleRig(bones) {
@@ -139,6 +141,8 @@ export function createCreatureRigEditor({api, viewer, startJob, getJob, isBusy, 
   const segments = $('creatureChainSegments');
   const motion = $('creatureMotion');
   const status = $('creatureRigStatus');
+  const retry = $('creatureReloadDraft');
+  const places = {head: $('creaturePlaceStart'), tail: $('creaturePlaceEnd')};
   const tentacles = $('creatureTentacles');
   const adapt = $('creatureAdaptTentacles');
   const spacing = $('creatureTentacleSpacing');
@@ -179,6 +183,7 @@ export function createCreatureRigEditor({api, viewer, startJob, getJob, isBusy, 
   let adapting = null;
   let tentacleAvailable = false;
   let swimAvailable = false;
+  let placement = null;
   const currentBone = () => draft?.bones.find(bone => bone.name === draft.selection);
 
   function option(value) {
@@ -186,6 +191,15 @@ export function createCreatureRigEditor({api, viewer, startJob, getJob, isBusy, 
     element.value = value;
     element.textContent = value;
     return element;
+  }
+
+  function setPlacement(endpoint) {
+    placement = endpoint;
+    for (const [point, button] of Object.entries(places)) {
+      button.setAttribute('aria-pressed', String(point === endpoint));
+    }
+    viewer?.place(endpoint);
+    $('creaturePlacementHint').hidden = !endpoint;
   }
 
   function updatePoints() {
@@ -197,13 +211,17 @@ export function createCreatureRigEditor({api, viewer, startJob, getJob, isBusy, 
       });
     }
     if (active && target === getJob()?.id) {
-      viewer?.show(draft.bones, bone.name, (endpoint, position) => movePoint(endpoint, position, true));
+      viewer?.show(draft.bones, bone.name, (endpoint, position) => movePoint(endpoint, position, true),
+        () => setPlacement(null));
     }
+    const canPlace = Boolean(viewer?.active) && !isBusy() && !adapting && !saving;
+    if (placement && !canPlace) setPlacement(null);
+    for (const button of Object.values(places)) button.disabled = !canPlace;
   }
 
   function movePoint(endpoint, position, fromViewer = false) {
     const bone = currentBone();
-    if (!bone || adapting || saving) return;
+    if (!bone || isBusy() || adapting || saving) return;
     if (!fromViewer && !position.every(Number.isFinite)) return;
     moveBonePoint(draft.bones, bone, endpoint, position, joins.checked);
     updatePoints();
@@ -212,6 +230,7 @@ export function createCreatureRigEditor({api, viewer, startJob, getJob, isBusy, 
   function updateForm(rebuild = false) {
     const bone = currentBone();
     if (!bone) return;
+    setPlacement(null);
     if (rebuild) boneSelect.replaceChildren(...draft.bones.map(item => option(item.name)));
     boneSelect.value = bone.name;
     const excluded = descendants(draft.bones, bone.name);
@@ -230,12 +249,15 @@ export function createCreatureRigEditor({api, viewer, startJob, getJob, isBusy, 
 
   function updateControls() {
     const localBusy = Boolean(adapting || saving);
+    retry.disabled = localBusy;
+    if (placement && (isBusy() || localBusy)) setPlacement(null);
     tentacles.hidden = !tentacleAvailable || !draft || draft.id !== target;
     adapt.disabled = isBusy() || localBusy;
     spacing.disabled = localBusy;
     $('creatureSkeletonEditFields').disabled = localBusy;
     $('creatureResetDraft').disabled = localBusy;
     $('creatureCompleteRig').disabled = isBusy() || localBusy;
+    for (const button of Object.values(places)) button.disabled = isBusy() || localBusy || !viewer?.active;
     motion.disabled = localBusy;
     const canSwim = swimAvailable && hasTentacleRig(draft?.bones);
     swimOption.disabled = !canSwim;
@@ -276,6 +298,18 @@ export function createCreatureRigEditor({api, viewer, startJob, getJob, isBusy, 
     draft.selection = draft.bones.find(bone => bone.parent === null)?.name ?? draft.bones[0].name;
   }
 
+  for (const [point, button] of Object.entries(places)) {
+    button.onclick = () => setPlacement(placement === point ? null : point);
+  }
+  retry.onclick = () => {
+    if (!active || !target) return;
+    draft = null;
+    loading = null;
+    retry.hidden = true;
+    setPlacement(null);
+    viewer?.close();
+    sync(getJob(), true, {tentacles: tentacleAvailable, swim: swimAvailable});
+  };
   motion.onchange = updateControls;
   adapt.onclick = async () => {
     if (!active || !draft || draft.id !== target || adapt.disabled || !spacing.reportValidity()) return;
@@ -324,7 +358,7 @@ export function createCreatureRigEditor({api, viewer, startJob, getJob, isBusy, 
     if (!bone) return;
     const next = name.value.trim();
     if (next === bone.name) {name.value = bone.name; return;}
-    if (!next || new TextEncoder().encode(next).length > 63 || /[\u0000-\u001f\u007f]/.test(next)
+    if (!next || new TextEncoder().encode(next).length > 63 || /\p{C}/u.test(next)
         || draft.bones.some(item => item.name === next)) {
       name.setCustomValidity(t('Enter a unique bone name within 63 UTF-8 bytes.'));
       name.reportValidity();
@@ -389,8 +423,9 @@ export function createCreatureRigEditor({api, viewer, startJob, getJob, isBusy, 
       if (!body.swim) return;
     }
     saving = true;
+    retry.hidden = true;
     updateControls();
-    status.textContent = '';
+    status.textContent = t('Queuing skin weights…');
     try {
       const result = await api(`/api/jobs/${encodeURIComponent(job.id)}/rig-complete`, {
         method: 'POST',
@@ -403,6 +438,7 @@ export function createCreatureRigEditor({api, viewer, startJob, getJob, isBusy, 
       await startJob(result.id, {rig: true});
     } catch (error) {
       status.textContent = t(error.message);
+      retry.hidden = false;
     } finally {
       saving = false;
       updateControls();
@@ -410,6 +446,7 @@ export function createCreatureRigEditor({api, viewer, startJob, getJob, isBusy, 
   };
 
   function close() {
+    setPlacement(null);
     if (active) onVisibility(false);
     active = false;
     target = null;
@@ -428,7 +465,9 @@ export function createCreatureRigEditor({api, viewer, startJob, getJob, isBusy, 
       return false;
     }
     if (target !== job.id) {
+      if (target) close();
       target = job.id;
+      retry.hidden = true;
       status.textContent = '';
       panel.hidden = false;
       active = true;
@@ -438,32 +477,36 @@ export function createCreatureRigEditor({api, viewer, startJob, getJob, isBusy, 
     if (draft?.id === target) {
       form.hidden = false;
       updatePoints();
-    } else if (!loading) {
+    } else if (!loading && retry.hidden) {
       form.hidden = true;
       const request = {id: target};
       loading = request;
       status.textContent = t('Loading the proposed skeleton…');
       api(`/api/jobs/${encodeURIComponent(request.id)}/rig-preview`, {cache: 'no-store'}).then(data => {
         if (request !== loading || target !== request.id) return;
-        if (!data.ready || !data.revision || !data.bones?.length) {
-          close();
-          return;
+        if (!data.ready || data.aligned_to_model !== true || !data.revision || !data.bones?.length) {
+          throw Error('The editable skeleton is unavailable.');
         }
         const bones = structuredClone(data.edited_bones ?? data.adapted_bones ?? data.bones);
         draft = {id: request.id, revision: data.revision, bones, predicted: data.bones,
-          limit: data.max_bones, chains: data.chains ?? [], warnings: data.warnings ?? []};
+          limit: data.max_bones ?? 512, chains: data.chains ?? [], warnings: data.warnings ?? []};
         selectRoot();
         spacing.value = data.spacing_m ?? .19;
+        joins.checked = true;
+        segments.value = 3;
         swimOption.disabled = !swimAvailable || !hasTentacleRig(bones);
         motion.value = data.motion ?? (draft.chains.length && !swimOption.disabled ? 'swim' : 'test');
         swim.set(data.swim);
         form.hidden = false;
-        status.textContent = '';
+        status.textContent = t('Check joint placement before calculating skin weights.');
         renderTentacleCounts();
         reportTentacles();
         updateForm(true);
       }).catch(error => {
-        if (loading === request) status.textContent = t(error.message);
+        if (loading === request) {
+          status.textContent = t(error.message);
+          retry.hidden = false;
+        }
       }).finally(() => {
         if (loading === request) loading = null;
       });

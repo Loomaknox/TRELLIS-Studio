@@ -277,8 +277,8 @@ def check_runtime(single_image=False):
 
 def run_job():
     # Shared finishing writes the normal Studio GLB and uses standard job telemetry.
-    from worker import (JOB, finish_mesh, options, project_requested_face, save_finishing_source,
-                        settings, started, status)
+    from worker import (JOB, finish_mesh, options, project_requested_face, refine_multiview_texture,
+                        save_finishing_source, settings, started, status)
     import time
 
     single_image = settings.get('view_mode') == 'single'
@@ -315,8 +315,15 @@ def run_job():
         if settings.get('keep_finishing_source'):
             save_finishing_source(torch, source)
         result = finish_mesh(torch, source)
+        resolution, raw_triangles = source['resolution'], len(source['faces'])
+        del source
+        multiview_report = refine_multiview_texture(torch, result, pixal=True)
         face_report = project_requested_face()
         finishing = result.metadata['finishing']
+        from generation_options import resolve_texture_method
+        texture_method = resolve_texture_method(settings.get('texture_method'), settings.get('multiview_texture_refinement'))
+        if multiview_report is not None and texture_method == 'multiview':
+            finishing['multiview_texture_refinement'] = multiview_report
         with (JOB / 'model.glb').open('rb') as model_file:
             finishing['model_sha256'] = hashlib.file_digest(model_file, 'sha256').hexdigest()
         from generation_view_projection import save_generation_views
@@ -330,10 +337,11 @@ def run_job():
         stats = dict(
             name=settings['name'], height_m=settings['height_m'], seed=settings['seed'],
             triangles=len(result.faces), vertices=len(result.vertices), engine='Pixal3D',
-            dimensions_m=result.extents.tolist(), resolution=source['resolution'],
+            dimensions_m=result.extents.tolist(), resolution=resolution,
             requested_resolution=1024, pipeline_type='pixal3d_1024_monoview' if single_image else 'pixal3d_1024_multiview',
             texture_size=settings['texture_size'], generation_options=options, sampler_options=sampling,
-            settings_version=settings_version, neural_inferences=1, raw_triangles=len(source['faces']),
+            texture_method=texture_method,
+            settings_version=settings_version, neural_inferences=1, raw_triangles=raw_triangles,
             view_count=len(views), views=views, view_mode='single' if single_image else 'multi',
             peak_vram_gib=round(torch.cuda.max_memory_allocated()/1024**3, 2),
             peak_reserved_gib=round(torch.cuda.max_memory_reserved()/1024**3, 2),
@@ -351,7 +359,10 @@ def run_job():
         if 'surface_repair' in result.metadata:
             stats['surface_repair'] = result.metadata['surface_repair']
         write(JOB / 'result.json', stats)
-        status('done', 'Pixal3D model ready', 100, result=stats)
+        ready = 'Pixal3D model ready'
+        if multiview_report and multiview_report['state'] == 'skipped':
+            ready += ' · multiview texture pass skipped'
+        status('done', ready, 100, result=stats)
     except Exception as error:
         traceback.print_exc()
         message = str(error)

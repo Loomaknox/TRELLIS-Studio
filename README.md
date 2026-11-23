@@ -2,12 +2,12 @@
 <h1 align="center">TRELLIS Studio</h1>
 <p align="center">A local workspace for creating, preparing, rigging and animating 3D assets.</p>
 <p align="center"><strong>English</strong> · <a href="README.fr.md" lang="fr">Français</a></p>
-<p align="center"><a href="LICENSE">MIT · Studio code</a> · <a href="INSTALLATION.md">Installation</a> · <a href="docs/API.md">REST API</a> · <a href="docs/MCP.md">MCP</a> · <a href="THIRD_PARTY_NOTICES.md">Credits & licenses</a></p>
+<p align="center"><a href="https://github.com/yoslo59/TRELLIS-Studio/releases/latest">Download Windows Setup</a> · <a href="docs/WINDOWS_SETUP.md">Setup guide</a> · <a href="docs/API.md">REST API</a> · <a href="docs/MCP.md">MCP</a> · <a href="LICENSE">MIT · Studio code</a></p>
 <p align="center"><a href="https://github.com/sponsors/yoslo59"><img src="https://img.shields.io/badge/GitHub%20Sponsors-Support%20TRELLIS%20Studio-ea4aaa?logo=githubsponsors&amp;logoColor=white" alt="Support TRELLIS Studio on GitHub Sponsors"></a></p>
 
 TRELLIS Studio is an independent community application built around **Microsoft TRELLIS.2** and **UniRig**. Generate textured meshes from an image, import existing models, organise a collection, prepare game or printing derivatives, add a skeleton and combine authored or generated humanoid motions. Inspect everything in a browser-based PBR viewer and export for your workflow.
 
-Inference runs on the computer hosting TRELLIS. **Desktop** is for single-user use, and **Server** gives each approved user their own library in a browser. Server can use your local network or an optional domain with automatic HTTPS. References and generated models stay on the host. Studio generation does not require a paid service.
+**Desktop** is for single-user use. **Server** gives each approved user their own library in a browser, with options for local access, LAN HTTPS and Internet HTTPS. The host runs inference and stores references and generated models. No paid inference service is required. [Server setup](docs/SERVER.md)
 
 > **Windows x64 preview.** The maintainer tested Full Studio installation, generation and uninstallation on Windows 11 with an RTX 4070 Ti (12 GB VRAM). Installation verifies components, but output quality, deformation and target-engine suitability still need visual review. The Studio code is MIT; model and dependency licenses are separate, particularly DINOv3.
 
@@ -21,18 +21,19 @@ One local generation produced two finishes from the same saved source. The high-
 
 ## Get started
 
-1. Download the x64 Setup from [GitHub Releases](https://github.com/yoslo59/TRELLIS-Studio/releases). This preview is unsigned; the release also includes its SHA-256 checksum.
-2. Choose **TRELLIS Desktop (single user)** or **TRELLIS Server (multi-user)**. Setup detects the GPU and VRAM, helps locate Blender, and offers optional generation and rigging components. The Workshop includes the library, 3D viewer and standard animation files. Allow about **29 GiB** of model downloads plus packages and **100 GiB** of free space for the main AI components.
-3. Optionally select **Kimodo text-to-motion** and accept its separate model licences. This CPU engine needs initialized WSL2 Linux x64, AVX2/FMA/F16C, and at least **12 GiB free inside WSL**. Its approximately **9.3 GB** of weights are additional. [Details and limits](docs/MOTION_GENERATION.md)
-4. Open **TRELLIS Studio** or **TRELLIS Server** from the Start menu. Setup can add a desktop shortcut. A new Server installation guides you through creating the first administrator. See the [Server setup guide](docs/SERVER.md) for network access, account approval, quotas and personal API keys.
+1. Download the latest Windows Setup executable and `SHA256SUMS.txt`. Verify the unsigned executable against the published checksum. [Latest release](https://github.com/yoslo59/TRELLIS-Studio/releases/latest)
+2. Choose **TRELLIS Desktop (single user)** or **TRELLIS Server (multi-user)**. Both include the CPU Workshop for GLB import, viewing, library management and standard animation files. Install Blender separately for features such as additional import formats, FBX export and baked game copies. [Windows Setup guide](docs/WINDOWS_SETUP.md)
+3. Select **TRELLIS.2 image-to-3D** for local generation. On a supported GPU, Setup offers **High Detail and Game Asset**, including the geometry engines, mesh finishing and native UltraTex. Review the FLUX.2 and MeshLib terms before installing those profiles. **Check this PC** shows the NVIDIA GPU, driver, VRAM and free disk space. [Setup requirements](docs/WINDOWS_SETUP.md#standalone-generation-profiles)
+4. Open **TRELLIS Studio** or **TRELLIS Server** from the Start menu. A new Server installation guides you through creating the first administrator. [Server setup guide](docs/SERVER.md)
 
-Read the [Windows Setup guide](docs/WINDOWS_SETUP.md) for component installation, repair and uninstall. Downloads are resumable and verified with SHA-256. The uninstaller can stop its own idle local services and keeps the library.
+**Kimodo text-to-motion** is an optional CPU component. It needs initialized WSL2 Linux x64, AVX2/FMA/F16C, and at least **12 GiB free inside WSL**. Its approximately **9.3 GB** of weights are additional. [Model terms and setup](docs/MOTION_GENERATION.md)
 
-**New in 3.11.0** — The redesigned workspace brings together Create, Collection
-and Animation Studio. Windows Setup checks the GPU and offers optional
-**Hi3D detail refinement** on eligible hardware. The component downloads
-approximately 10.66 GB of additional model weights after license acceptance.
-[Release notes](docs/RELEASE_3.11.0.md) · [Hi3D guide](docs/HI3D.md)
+Use **Repair or resume components** after an interrupted download. Setup verifies downloads with SHA-256. The uninstaller can stop its own idle local services and keeps the library. [Repair and uninstall](docs/WINDOWS_SETUP.md)
+
+**New in 3.14.0** — Choose **Advanced** for humanoid rigs with twist bones
+and optional articulated fingers. Use **Creature** to edit a predicted
+skeleton before skinning and add procedural clips to compatible rigs.
+[Release notes](docs/RELEASE_3.14.0.md)
 
 ### Install from source
 
@@ -57,26 +58,30 @@ Use the language selector in the Studio header to switch between **English** and
 
 | Workspace | Features |
 | --- | --- |
-| **Create** | Local TRELLIS.2 and Pixal3D generation with shared profiles and master finishing. Preview the cutout and the model's framing, then crop or correct the mask while keeping the original. |
+| **Create** | Local TRELLIS.2 and Pixal3D generation with shared profiles, selectable texture methods and master finishing. Preview the cutout and framing, then crop or correct the mask while keeping the original. |
 | **Queue** | Schedule batches of up to 30 images. Correct the recipe of a failed job and create a linked retry with the same references and seed. The original failure remains available for review. |
-| **Collection** | Search, category/type/review filters, favourites, tags, notes, nested folders, saved views, multiple selection, restorable trash and per-card action menus. |
+| **Collection** | Textured and clay card previews, search, category/type/review filters, favourites, tags, notes, nested folders, saved views, multiple selection and restorable trash. |
 | **Review** | PBR/clay/normals/wireframe views, camera presets, adjustable preview lighting, synchronised before/after comparison, topology/UV/material/dimension diagnostics. |
-| **Animate** | UniRig skeleton and skin-weight prediction, editable frontal joint markers, visible skeleton inspection, 84 authored humanoid motions and a separate persistent library of generated motions. |
+| **Animate** | UniRig skeleton and skin-weight prediction, editable frontal joint markers, visible skeleton inspection, 84 authored humanoid motions, a library of generated motions and procedural motion on compatible creature rigs. |
 | **Prepare** | Reference-based color projection, HD-to-game reduction and material baking, linked LOD copies, pivot and collision tools, and dedicated printing copies. |
 | **History** | Parent/child lineage, recipes, comments, recoverable checkpoints and restoration as a new card. |
 | **Present** | Custom thumbnails, transparent PNGs, downloadable turntables and optional lightweight turntables on individual library cards. |
 | **Transfer** | Collection ZIP backup with models, sources, profiles, clips, metadata and prepared resources; optional checkpoints; verified restoration with new IDs. |
 | **Automate** | Typed REST API v1, interactive OpenAPI reference and MCP tools over STDIO. Desktop also provides a local Streamable HTTP bridge. |
 
-In **Present your model**, **Save card turntable** records a compact six-second preview for the selected model. Use a previous recording if it fits the 6 MiB limit, or remove the preview from the card at any time. Cards keep their still thumbnails and load one preview at a time on hover or explicit playback.
+### Collection previews
+
+Move the pointer across a model card to compare its textured and clay renders at the same angle. When the card has keyboard focus, use the left and right arrow keys. Studio saves two WebP images per model revision. It builds missing pairs for existing models while compute jobs are idle, using Edge, Chrome or Chromium on the host. The card displays its reference image while the renders are pending or unavailable. Opening the model loads the GLB in the 3D viewer. [Browser requirements](docs/WINDOWS_SETUP.md)
+
+In **Present your model**, **Save card turntable** records a compact six-second video for the selected model. A previous recording can be used if it fits the 6 MiB limit. Use the card's play control to watch a saved turntable.
 
 ### Try another finish
 
-Select **Dense Master** in single-image or multi-view mode to retain the full decoded geometry and material volume. Its working GLB has a default ceiling of 1.2 million triangles. Studio measures surface deviation after simplification and keeps a lighter mesh when it meets the tolerance. Increase the ceiling in the generation settings to allow more geometry when needed. Use **Keep source for finishing variants** with other profiles and **Preview reference** to check how thin parts, hands and feet survive the cutout.
+Select **HD Master** in single-image or multi-view mode to retain the full decoded geometry and material volume. Its working GLB has a default ceiling of 1.2 million triangles. Studio measures surface deviation after simplification and keeps a lighter mesh when it meets the tolerance. Increase the ceiling in the generation settings to allow more geometry when needed. Use **Keep source for finishing variants** with other profiles and **Preview reference** to check how thin parts, hands and feet survive the cutout.
 
-Choose **Repair holes** under **Master finishing** with Dense Master to rebuild the surface before the first GLB export. The decoded cache is retained for later variants. Remesh displays the triangle counts of the current GLB and the cached source when known. Each variant is generated from that cache, which can contain many more triangles than the working GLB.
+Choose **Repair Holes** under **Advanced Settings → Finishing override** with HD Master to rebuild the surface before the first GLB export. Remesh displays the triangle counts of the current GLB and the cached source when known. Each variant is generated from that cache, which can contain many more triangles than the working GLB.
 
-Choose **HD Reconstruction (768)** with Dense Master, or in **Remesh** for a compatible saved source, to rebuild a cracked surface at the HD budget. The recipe uses a 768 reconstruction grid, band 1, surface projection 0, small-hole filling, and no pre-decimation. Check close-ups of seams, fingers and openings because reconstruction can soften fine geometry.
+Choose **Balanced Reconstruction** with HD Master, or **HD Reconstruction (768)** in **Remesh** for a compatible saved source, to rebuild a cracked surface at the HD budget. The recipe uses a 768 reconstruction grid, band 1, surface projection 0, small-hole filling, and no pre-decimation. Check close-ups of seams, fingers and openings because reconstruction can soften fine geometry.
 
 Open **Prepare → HD Master Finishing** on a model with a 1024 or 1536 cached source to create a linked dense PBR master. Choose **WTiVo 1024** with the external runtime and Blender, or **Studio 768** with the built-in reconstruction. Both methods cap the master at 3 million triangles and default to 4K textures where enabled. Studio unwraps the finished geometry and samples the cached material volume without rerunning generation. Use **Texture Projection** for further color work or **Game Copy from HD** to build a separate low-poly copy. [Workflow and engine details](docs/WTIVO.md)
 
@@ -95,37 +100,58 @@ In **Fixed**, the value is a target. In **Adaptive**, it is a ceiling for the sa
 
 Use **Prepare → Game Copy from HD** to place protected regions on a compatible static model. Set their radius and priority before creating a reduced copy with newly baked textures. The **Humanoid** profile already prioritizes the face and hands on an upright, front-facing T-pose. Add regions for details such as buckles, cables, handles or grille openings. Regions influence where triangles are spent within the selected budget.
 
-Open **Finishing board** from the same card or from **Prepare** to queue several editable finishing recipes from one cache. Compare the measured results at their original scale with the camera held in place, then mark the preferred version. That choice is recorded separately from the asset's visual review.
+Open **Finishing board** from a model card or from **Prepare**. Queue geometry variants from a saved generation cache or choose **Queue texture refinement** for a compatible textured GLB with a saved cutout. The texture copy keeps the mesh, UVs and texture size. UltraTex requires a 2K atlas. **Compare** shows the results at the same scale and camera angle.
 
 The source cache can take hundreds of megabytes per model. Studio stores it once per source and keeps it local to this installation. Collection ZIPs preserve the finished models and recipes. The cache is optional and leaves generation profiles intact.
 
 ### Generation profiles
 
-Create opens with **HD Master** (`dense_master`). The default ceiling is 1.2
+**HD Master** (`dense_master`) has a default ceiling of 1.2
 million triangles with 2K materials. **Balanced Reconstruction** uses Studio 768
 in the same job. **Surface Closure** uses WTiVo 1024 when its optional runtime and
 Blender are installed. Both methods follow the displayed generation budget and
-retain the decoded cache for further finishing from Prepare. **Direct Export**
-and **Repair Holes** are under Advanced. Choose a recipe and click **Use at
-startup** to remember it in this browser.
+retain the decoded cache for further finishing from Prepare.
 
 **Detail Refinement (512)** and **Detail Refinement (1024)** use an optional
 Hi3D runtime to refine a native TRELLIS.2 single-image source and bake the
 resulting master. The generation profile keeps its source resolution. Both
 options are also available from **Finishing board**
-on a compatible saved source. [Powered by Hi3D 1.0](http://hi3d.ai/) · [Runtime setup](docs/HI3D.md)
+on a compatible saved source. [Runtime setup](docs/HI3D.md)
 
-**Game Asset** (`game_d`) uses the 1024 TRELLIS.2 cascade with 20 steps per phase,
-guidance 7.5 / 7.5 / 2, approximately 28,000 target triangles and 2K textures.
-It uses 2M pre-simplification, initial small-hole repair and DC remeshing capped at
-512. This remains the API default and the recipe used by **Reset to Game Asset**.
-Dimensions and seeds belong to individual models.
+**High Detail** and **Game Asset** offer editable workflow graphs and a choice of
+geometry engine. High Detail builds a dense mesh with two geometry passes and
+offers UltraTex for materials. Game Asset targets 12,000 triangles with baked
+normals and UltraTex materials. [Workflow profiles](docs/NATIVE_PROFILES.md)
 
-**High Detail** retains the 1024/20-step/2K sampling setup, targets 250,000 triangles and uses direct simplification to preserve more surface detail. Create custom profiles when you need another recipe; the built-in profiles remain protected. Historical recipes remain readable.
+**High Detail (Props)** uses the TRELLIS.2 1024 cascade
+with 12 / 25 / 12 sampling steps, a 300,000-triangle target and 2K textures. It
+keeps the decoded source for finishing variants and selects **Multiview refinement**
+when compatible. Choose a recipe and click **Use at startup** to remember it in
+this browser.
 
-**Humanoid · Experimental** (`humanoid_experimental`) is an optional comparison recipe: 1024 cascade, 250,000 target triangles, 2K materials and direct simplification. It retains the decoded source automatically and classifies the result as a humanoid. Inspect this detailed master, then use **Refinish model** to compare lighter copies around 10,000–14,000 triangles without generating again. The single-image sampler uses D’s 20-step setup; the Pixal3D version keeps its existing multi-view sampler. It does not automatically reconstruct or replace the face and hands, bake a new high-to-low normal map, generate extra reference views or add a rig. Those anatomy experiments remain separate.
+**Figure Master** is a TRELLIS.2 single-image profile for characters, creatures
+and statues. It uses the 1024 cascade with 30 / 35 / 12 sampling steps, a target
+of 800,000 triangles and 2K textures. It keeps the source cache and selects
+**Multiview refinement** when compatible. The Windows package uses Studio's
+native dual contouring. Existing installations can use the separately
+provisioned QuadDC and MeshLib integration. [Figure Master release notes](docs/RELEASE_3.13.0.md#figure-master)
+
+Save a copy of a standard recipe or manage your saved profiles from Create.
+**Reset profile settings** restores the selected recipe. Historical presets remain
+available through saved models and the API. The API default (`game_d`) uses the
+1024 TRELLIS.2 cascade, a 28,000-triangle target and 2K textures. Dimensions and
+seeds belong to individual models.
 
 512 and 1024 generation are provided by the standard installer. Higher-resolution controls require separate local capability validation and sufficient memory. Texture resolution is independent of geometry resolution.
+
+### Texture methods
+
+In **Create → Output Quality**, choose **Native PBR** for the engine's materials,
+**Multiview refinement** to harmonize color and blend six views on compatible
+single-image jobs, or **UltraTex · 2K (local preview)** for six color and six
+metallic/roughness views baked to the existing 2K UV atlas. Multiview and UltraTex
+require their optional runtimes. UltraTex is for private, non-commercial and
+non-production evaluation under the FLUX.2 Klein 9B terms. [Windows Setup](docs/WINDOWS_SETUP.md) · [UltraTex guide](docs/ULTRATEX.md)
 
 ### Optional Pixal3D generation
 
@@ -157,7 +183,7 @@ orientation, silhouette and fine details in the 3D preview.
 
 ### Import and review
 
-Import a self-contained **GLB, FBX, OBJ, STL or PLY**, up to 500 MB. A self-contained GLB retains its original bytes, embedded PBR materials, skins and clips. Other formats are converted through a private Blender process; external resources should be embedded or prepared before importing.
+Import a self-contained **GLB** of up to 500 MiB in either edition. The import retains its original bytes, embedded PBR materials, skins and clips. Desktop can also convert **FBX, OBJ, STL and PLY** through Blender when it is installed. Prepare any required external resources before importing.
 
 Each card identifies static or animated content. Its action menu opens details, history, diagnostics, preparation, comparison, export, a linked version or trash. Use multiple selection to classify, export or remove several models together. The initial workspace leaves every model unselected.
 
@@ -193,6 +219,13 @@ For a jellyfish, choose **Adapt tentacles** in the skeleton editor. TRELLIS trac
 The **Jellyfish swim** panel controls loop duration, pulse count, bell contraction, tentacle wave amplitude, propagation delay, and vertical travel. **Apply and play swim** creates and plays the clip in TRELLIS. Reapply it on the same model to try new settings. The GLB stores the settings with the clip and preserves other animations.
 
 For validation, start Desktop with a comma-separated `TRELLIS_RIG_PROFILES` list such as `simple,standard,advanced,expert,expressive`. Server has its own `TRELLIS_SERVER_RIG_PROFILES` list. Stop and restart the service after changing its list. An empty list hides profile creation while existing variants remain available for preview and export.
+
+On a completed skinned model, open the **Creature** tab in Animation. Studio
+checks the existing hierarchy and shows the loops it can generate. Adjust duration,
+cycle count and intensity, then save the clip on the same model. **Creature swim**
+contracts and reopens the bell and offers controls for wave delay and vertical
+travel. Review playback from **Added**. Independent tentacle motion depends on the
+existing bones and skin weights.
 
 The library uses the **free Standard editions** of Quaternius Universal Animation Libraries 1 and 2 under **CC0-1.0**. Entries cover locomotion, crouching, jumping, a ledge climb with root motion, interactions, combat, reactions and emotes. Card previews show each motion on its source mannequin. The retargeter adapts timing, body and finger rotations, and root travel to the fitted rig. Review grips, foot contacts, props and transitions on the target character.
 
@@ -257,20 +290,23 @@ To update a Unity asset, extract the new package **outside** `Assets`, select th
 
 ## API and agents
 
-The header's **API & MCP** icon opens the developer workspace:
+The header's **API & MCP** icon opens the developer workspace. Desktop uses
+loopback for the API and Streamable HTTP bridge.
 
-- Studio: `http://127.0.0.1:7860/`
-- Developer workspace: `http://127.0.0.1:7860/developers`
-- Interactive API reference: `http://127.0.0.1:7860/api/docs`
-- OpenAPI: `http://127.0.0.1:7860/api/openapi.json`
-- REST base: `http://127.0.0.1:7860/api/v1`
-- MCP Streamable HTTP: `http://127.0.0.1:7861/mcp`
+| Service | Windows Setup default | Source installation default |
+| --- | --- | --- |
+| Studio | `http://127.0.0.1:7870/` | `http://127.0.0.1:7860/` |
+| Developer workspace | `http://127.0.0.1:7870/developers` | `http://127.0.0.1:7860/developers` |
+| Interactive API reference | `http://127.0.0.1:7870/api/docs` | `http://127.0.0.1:7860/api/docs` |
+| OpenAPI | `http://127.0.0.1:7870/api/openapi.json` | `http://127.0.0.1:7860/api/openapi.json` |
+| REST v1 | `http://127.0.0.1:7870/api/v1` | `http://127.0.0.1:7860/api/v1` |
+| MCP Streamable HTTP | `http://127.0.0.1:7871/mcp` | `http://127.0.0.1:7861/mcp` |
 
 Documentation JavaScript/CSS is served locally. The launcher starts the API and HTTP MCP bridge together. STDIO clients launch `.mcp-venv/Scripts/python.exe trellis_mcp.py` using absolute paths. See the [MCP guide](docs/MCP.md) for Codex registration, client JSON and connection details, and the [REST guide](docs/API.md) for uploads, recipes, async jobs, preparation and downloads.
 
 The MCP tools cover library search, import/generation, queue control, classification, collections, history, diagnostics, LOD/game/print copies, rigging, animations, export and restorable trash. Long operations return job IDs; agents poll progress. Client approval settings remain controlled by the host agent application.
 
-These loopback URLs are for Desktop. For remote access, use the authenticated **Server** edition with your configured HTTPS origin and a personal API key. An MCP client runs its STDIO bridge with `TRELLIS_API_URL` and `TRELLIS_API_TOKEN` pointing to that Server; the local HTTP MCP port is not published to the Internet. ChatGPT web access still needs a compatible reachable connection and cannot contact a workstation's loopback URL directly. Studio creates no tunnel or hosted service. See [Server client setup](docs/SERVER.md#connect-a-script-or-mcp-client) and [security](SECURITY.md).
+For remote access, use the authenticated **Server** edition with your configured HTTPS origin and a personal API key. Configure the client's STDIO bridge with `TRELLIS_API_URL` for the Server origin and `TRELLIS_API_TOKEN` for the key. The Desktop HTTP MCP bridge stays on loopback. [Server client setup](docs/SERVER.md#connect-a-script-or-mcp-client) · [Security](SECURITY.md)
 
 ## Local files and updates
 
@@ -285,7 +321,7 @@ These loopback URLs are for Desktop. For remote access, use the authenticated **
 | `.venv/`, `.mcp-venv/`, `.tools/`, `.downloads/`, `node_modules/` | Private environments, tools and caches |
 
 These locations are excluded from Git. This repository contains application code, necessary runtime adapters/patches, install manifests, public documentation, license notices and demonstration screenshots. It contains no personal models.
-Back up a collection through the application before upgrading. Updating source code is separate from replacing a user library. Re-run the installer to restore missing prerequisites or verified downloads. It preserves unrecognised files instead of deleting them. Keep the application at its installed path; moving Python virtual environments requires recreating them.
+Back up your collection before upgrading. For an existing packaged installation, stop Studio or Server and rerun Setup in the same installation folder. Source installations have a separate update procedure. Keep the application at its installed path because moving Python virtual environments requires recreating them. [Windows update guide](docs/WINDOWS_SETUP.md) · [Source update guide](INSTALLATION.md#updating-and-uninstalling)
 
 ## Credits and licenses
 
@@ -306,10 +342,12 @@ Studio's original code is released under the **[MIT License](LICENSE)** by **[yo
 
 The complete [third-party credits and license notes](THIRD_PARTY_NOTICES.md) cover mesh/CUDA libraries, the Python/web stack, background removal, installation tools and animation provenance. Model-use rights and rights to an input image remain separate from the MIT license on Studio itself. There is no blanket claim that every dependency or generated asset is unrestricted for every use.
 
-## Support
+## Support and contributing
 
 Report translation issues in [the Loomaknox fork](https://github.com/Loomaknox/TRELLIS-Studio/issues). Include the language, the screen and the wording you saw.
 
 Use [GitHub Issues](https://github.com/yoslo59/TRELLIS-Studio/issues) for reproducible problems. Include Windows version, GPU/VRAM, driver, installer stage, relevant dependency versions and a redacted error excerpt. Avoid uploading tokens, personal files, the full library or unredacted configuration/logs. A minimal model can help only when you have the right to share it.
 
-The [installation guide](INSTALLATION.md) includes repair commands, expected limitations and recovery from interrupted downloads. This preview has been exercised on the reference workstation and with isolated API/export checks; a Windows prerequisite setup and end-to-end GPU validation on additional hardware are still valuable community contributions.
+Documentation improvements and focused fixes are welcome. Follow the contribution guide for local checks and reproducible pull requests, and read the code of conduct before participating. [Contributing guide](https://github.com/yoslo59/TRELLIS-Studio/blob/main/CONTRIBUTING.md) · [Code of conduct](https://github.com/yoslo59/TRELLIS-Studio/blob/main/CODE_OF_CONDUCT.md)
+
+Follow the security policy when reporting vulnerabilities. [Security policy](SECURITY.md)

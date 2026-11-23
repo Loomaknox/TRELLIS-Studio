@@ -1,11 +1,14 @@
 import {formatLocale, t} from './i18n.js';
 import {button, dialog, el, field, input, select} from './workbench-ui.js?v=3.4.0';
 import {detailRefinements} from './hd-master-finishing.js?v=detail-refinement-native';
+import {createAdvancedControls, optionHelp} from './advanced-controls.js?v=figure-master-ultratex';
+import {canOpenFinishingBoard} from './card-menu.js?v=texture-variant';
 
 const number = value => Number.isFinite(value) ? value.toLocaleString(formatLocale) : '—';
 const nameOf = job => job?.metadata?.display_name || job?.settings?.name || t('Source model');
 const canCompare = job => job?.state === 'done' && job.media?.available !== false;
 const labels = {queued: 'Queued', running: 'Finishing', done: 'Completed', error: 'Failed', cancelled: 'Cancelled'};
+const textureEndpoint = id => `/api/v1/models/${encodeURIComponent(id)}/multiview-texture-refinement`;
 const defaults = [
     {label: 'High-detail copy', triangles: 1200000, bake_normals: false},
     {label: 'Game · 14K triangles', triangles: 14000, bake_normals: true},
@@ -13,9 +16,28 @@ const defaults = [
 ];
 
 export function createFinishingBoard({api, getRecords, refresh, compare}) {
-    const ui = dialog('finishingBoard', t('Finishing board'), t('CACHED SOURCE'),
-        t('Queue finishing recipes on one saved source, then compare and keep a result.'), 'finishing-board');
+    const ui = dialog('finishingBoard', t('Finishing board'), '',
+        t('Queue geometry and texture variants, then compare the results.'), 'finishing-board');
     const summary = el('p', 'finishing-summary');
+    const texture = el('section', 'finishing-refinement');
+    const textureHead = el('div', 'finishing-refinement-head');
+    const textureTitle = el('h3', '', 'Texture refinement');
+    textureTitle.id = 'finishingBoardTexture';
+    textureHead.append(textureTitle);
+    texture.setAttribute('aria-labelledby', textureTitle.id);
+    const textureHint = el('p', 'hint');
+    textureHint.id = 'finishingBoardTextureHint';
+    textureHint.setAttribute('role', 'status');
+    const textureMethod = select([['multiview', 'Multiview refinement'],
+        ['ultratex', 'UltraTex · 2K (local preview)']], 'multiview');
+    textureMethod.setAttribute('aria-describedby', textureHint.id);
+    const textureMethodField = field('Texture method', textureMethod);
+    const textureActions = el('div', 'finishing-refinement-actions');
+    const textureQueue = button('Queue texture refinement', 'image', 'secondary');
+    textureQueue.setAttribute('aria-describedby', textureHint.id);
+    textureActions.append(textureQueue);
+    const textureRows = el('div', 'finishing-rows');
+    texture.append(textureHead, textureMethodField, textureHint, textureActions, textureRows);
     const selected = el('p', 'finishing-choice');
     const form = el('form', 'finishing-form');
     form.id = 'finishingBoardRecipes';
@@ -46,27 +68,43 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         refinementGroup.append(label);
         return {method, control, detail};
     });
+    const refinementSettings = el('fieldset', 'finishing-hi3d-options');
+    refinementSettings.hidden = refinementSettings.disabled = true;
+    refinementSettings.setAttribute('aria-label', 'Advanced Hi3D settings');
+    const retextureField = el('div', 'finishing-retexture');
+    retextureField.hidden = true;
+    const retexture = input('checkbox', '', {id: 'boardRetextureAfterHi3d', 'aria-describedby': 'boardRetextureStatus'});
+    const retextureLabel = el('label', 'check');
+    retextureLabel.append(retexture, el('span', '', 'Retexture after Hi3D'));
+    const retextureStatus = el('p', 'hint');
+    retextureStatus.id = 'boardRetextureStatus';
+    retextureStatus.setAttribute('role', 'status');
+    retextureField.append(retextureLabel, retextureStatus);
+    optionHelp(retextureLabel, 'Retexture after Hi3D',
+        'Generates new PBR materials from the saved cutout on the refined mesh. Uses 12 steps, guidance 1 and the selected texture size.');
     const refinementTexture = select([], '');
     const refinementActions = el('div', 'finishing-refinement-actions');
     const refinementQueue = button(t('Queue refinement'), 'layers', 'primary');
     refinementQueue.type = 'submit';
     refinementQueue.disabled = true;
     refinementActions.append(field(t('Texture size'), refinementTexture), refinementQueue);
-    refinement.append(refinementHead, refinementHint, refinementGroup, refinementActions);
+    refinement.append(refinementHead, refinementHint, refinementGroup, refinementSettings, retextureField, refinementActions);
     const results = el('section', 'finishing-results');
     const rows = el('div', 'finishing-rows');
     results.setAttribute('aria-labelledby', 'finishingBoardResults');
     const heading = el('h3', '', t('Source and variants'));
     heading.id = 'finishingBoardResults';
     results.append(heading, selected, rows);
-    ui.body.append(summary, refinement, form, results);
+    ui.body.append(summary, texture, refinement, form, results);
     const queue = button(t('Queue variants'), 'layers', 'primary');
     queue.type = 'submit';
     queue.setAttribute('form', form.id);
     const footerHint = el('small', 'wb-footnote', t('Shared cache · Finishing uses the GPU'));
     ui.foot.append(footerHint, queue);
 
-    let base = null, board = null, drafts = [], opening = 0, pending = false;
+    let base = null, board = null, textureInfo = null, drafts = [], opening = 0, pending = false;
+    let hi3dControls, hi3dControlsPromise;
+    let textureDefault, textureChosen;
     const cards = new Map();
     const request = (method, value) => api(`/api/jobs/${base.id}/finishing-board`, {
         method,
@@ -84,6 +122,108 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         return source ? [source, ...variants] : variants;
     }
 
+    function textureVariants() {
+        return getRecords().filter(job => job.settings?.source_kind === 'multiview_texture_refinement'
+            && job.settings.parent_id === base?.id)
+            .sort((left, right) => (right.settings.created || 0) - (left.settings.created || 0));
+    }
+
+    function updateTexture() {
+        const variants = textureVariants();
+        const active = variants.some(job => job.state === 'queued' || job.state === 'running');
+        const option = textureInfo?.methods?.[textureMethod.value]
+            || (textureMethod.value === 'multiview' ? textureInfo : null);
+        textureMethod.disabled = pending || !textureInfo;
+        textureQueue.disabled = pending || option?.ready !== true || active;
+        let hint = option?.reason || textureInfo?.reason || 'Texture refinement is unavailable for this model.';
+        if (option?.ready === true) {
+            const size = option.atlas;
+            const recipe = [Number.isFinite(option.triangles) ? `${number(option.triangles)} triangles` : '',
+                Array.isArray(size) && size.length === 2 ? `${size[0]} × ${size[1]} source atlas` : '']
+                .filter(Boolean).join(' · ');
+            if (option.native) {
+                hint = 'Creates 2K color, metal and roughness maps from the original reference and keeps the existing mesh and UVs.';
+            } else {
+                hint = textureMethod.value === 'ultratex'
+                    ? 'Generates color, metal and roughness from six views on the existing 2K UV atlas. Local non-commercial testing.'
+                    : 'Refines the baked color from six generated views and keeps the existing UVs and material maps.';
+            }
+            if (recipe) hint += ` ${recipe}.`;
+        } else if (!textureInfo) {
+            hint = 'Checking the saved model and reference…';
+        }
+        if (textureHint.textContent !== hint) textureHint.textContent = hint;
+        textureRows.hidden = !variants.length;
+        const revision = JSON.stringify(variants.map(job => [job.id, nameOf(job), job.state, job.stage,
+            job.error, job.progress, canCompare(job)]));
+        if (revision === textureRows.dataset.revision) return;
+        textureRows.dataset.revision = revision;
+        textureRows.replaceChildren(...variants.map(variant => {
+            const row = el('article', 'finishing-row');
+            const copy = el('div');
+            const running = variant.state === 'queued' || variant.state === 'running';
+            const stage = [labels[variant.state] || variant.state,
+                variant.error || (variant.state === 'done' ? '' : variant.stage)].filter(Boolean).join(' · ');
+            copy.append(el('strong', '', nameOf(variant)), el('small', variant.state === 'error' ? 'finishing-failure' : '', stage));
+            if (running) {
+                const progress = el('progress');
+                progress.max = 100;
+                progress.value = variant.progress || 0;
+                progress.setAttribute('aria-label', 'Progress for ' + nameOf(variant));
+                copy.append(progress);
+            }
+            const actions = el('div', 'finishing-row-actions');
+            const compareCopy = button('Compare', 'compare', 'secondary', () => {
+                const source = getRecords().find(job => job.id === base.id) || base;
+                if (!canCompare(source)) return;
+                ui.close();
+                compare.open(source, variant, {candidates: [source, ...textureVariants().filter(canCompare)],
+                    backToBoard: () => { ui.show(); update(); }});
+            });
+            compareCopy.disabled = !canCompare(variant);
+            actions.append(compareCopy);
+            row.append(copy, actions);
+            return row;
+        }));
+    }
+
+    async function loadTextureCapability(id, token) {
+        try {
+            const capability = await api(`${textureEndpoint(id)}?include_methods=true`);
+            if (token === opening) {
+                textureInfo = capability || {ready: false};
+                textureMethod.options[0].hidden = capability?.methods?.ultratex?.native === true && capability.ready !== true;
+                textureMethod.value = !capability?.ready && capability?.methods?.ultratex?.ready
+                    ? 'ultratex' : 'multiview';
+            }
+        } catch (error) {
+            if (token === opening) textureInfo = {ready: false, reason: error.message};
+        }
+        if (token === opening) update();
+    }
+
+    textureMethod.onchange = updateTexture;
+    textureQueue.onclick = async () => {
+        if (textureQueue.disabled) return;
+        const token = opening;
+        pending = true;
+        ui.notice.textContent = 'Queueing texture refinement…';
+        update();
+        try {
+            const params = new URLSearchParams({texture_method: textureMethod.value});
+            await api(`${textureEndpoint(base.id)}?${params}`, {method: 'POST'});
+            if (token === opening) ui.notice.textContent = 'Texture refinement queued. The new copy will appear here.';
+            await refresh();
+        } catch (error) {
+            if (token === opening) ui.notice.textContent = error.message;
+        } finally {
+            if (token === opening) {
+                pending = false;
+                update();
+            }
+        }
+    };
+
     function updateQueueButton() {
         const count = drafts.filter(draft => draft.enabled.checked).length;
         queue.disabled = pending || !board || !count;
@@ -92,7 +232,20 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         refinementGroup.disabled = pending;
         refinementTexture.disabled = pending || !availableRefinement;
         const chosenRefinement = refinementChoices.some(({control}) => control.checked && !control.disabled);
-        refinementQueue.disabled = pending || !board || !availableRefinement || !chosenRefinement || !refinementTexture.value;
+        const editable = !!board?.hi3d_options && availableRefinement && chosenRefinement;
+        refinementSettings.hidden = !editable;
+        refinementSettings.disabled = pending || !editable;
+        const showRetexture = !!board?.retexture && availableRefinement && chosenRefinement;
+        retextureField.hidden = !showRetexture;
+        retexture.disabled = pending || !showRetexture || board.retexture.available !== true;
+        refinementQueue.disabled = pending || !board || !availableRefinement || !chosenRefinement
+            || !refinementTexture.value || (editable && !hi3dControls?.ready);
+    }
+
+    function selectRefinementTexture() {
+        if (textureChosen) return;
+        const canUse4k = [...refinementTexture.options].some(option => option.value === '4096');
+        refinementTexture.value = retexture.checked && canUse4k ? '4096' : textureDefault;
     }
 
     function configureRefinement() {
@@ -102,9 +255,16 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         if (refinement.hidden) return;
         const textureSizes = board.texture_sizes.filter(size => [1024, 2048, 4096].includes(size));
         refinementTexture.replaceChildren(...textureSizes.map(size => new Option(`${size / 1024}K`, size)));
-        const textureDefault = [base.settings.texture_size, config.default_texture_size, textureSizes[0]]
+        const size = [base.settings.texture_size, config.default_texture_size, textureSizes[0]]
             .find(size => textureSizes.includes(size));
-        refinementTexture.value = String(textureDefault || '');
+        textureDefault = String(size || '');
+        refinementTexture.value = textureDefault;
+        textureChosen = base.settings.source_kind === 'refinish' && !!detailRefinements[base.settings.master_finishing];
+        retexture.checked = board.retexture?.available === true && board.retexture.enabled === true;
+        retextureStatus.textContent = board.retexture?.available === false
+            ? board.retexture.reason || 'The local texturing pipeline is unavailable.' : '';
+        retextureStatus.hidden = !retextureStatus.textContent;
+        selectRefinementTexture();
         for (const {method, control, detail} of refinementChoices) {
             const capability = support[control.value];
             control.disabled = capability?.available !== true;
@@ -119,6 +279,25 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
             ? t('TRELLIS.2 single image{source} · Saved cutout',{source})
             : t('Requires a native TRELLIS.2 single-image source at 512³, 1024³ or 1536³ with a saved cutout.');
         refinementActions.hidden = !first;
+    }
+
+    async function configureHi3dOptions(token) {
+        if (!board.hi3d_options) return;
+        if (!hi3dControlsPromise) {
+            refinementSettings.replaceChildren();
+            hi3dControlsPromise = createAdvancedControls(refinementSettings, {
+                groupId: 'hi3d', title: 'Advanced Hi3D', idPrefix: 'board_option_',
+            });
+        }
+        const controls = await hi3dControlsPromise;
+        if (token !== opening) return;
+        hi3dControls = controls;
+        if (!controls.ready) {
+            hi3dControlsPromise = null;
+            return;
+        }
+        controls.apply(board.hi3d_options);
+        controls.group('hi3d').open = false;
     }
 
     function recipeForm() {
@@ -194,8 +373,12 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         const stage = el('small');
         const progress = el('progress');
         progress.max = 100;
+        const hi3dSummary = el('small');
+        const hi3dSettings = el('details', 'finishing-variant-options');
+        const settingsList = el('dl');
+        hi3dSettings.append(el('summary', '', 'Hi3D settings'), settingsList);
         const text = el('div');
-        text.append(title, metrics, stage, progress);
+        text.append(title, metrics, stage, progress, hi3dSummary, hi3dSettings);
         const actions = el('div', 'finishing-row-actions');
         const compareButton = button(t('Compare'), 'compare', 'secondary', () => {
             const jobs = family().filter(canCompare);
@@ -210,14 +393,39 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         actions.append(compareButton, keep);
         root.append(text, actions);
         rows.append(root);
-        const card = {root, title, metrics, stage, progress, compareButton, keep};
+        const card = {root, title, metrics, stage, progress, compareButton, keep, hi3dSummary, hi3dSettings, settingsList};
         cards.set(id, card);
         return card;
+    }
+
+    function renderHi3dRecipe(card, options) {
+        const scheduler = options?.hi3d_scheduler;
+        const summary = [
+            typeof scheduler === 'string' && scheduler ? scheduler[0].toUpperCase() + scheduler.slice(1) : '',
+            Number.isFinite(options?.hi3d_steps) ? `${options.hi3d_steps} steps per pass` : '',
+            Number.isFinite(options?.hi3d_seed) ? `seed ${options.hi3d_seed}` : '',
+        ].filter(Boolean).join(' · ');
+        card.hi3dSummary.hidden = !summary;
+        card.hi3dSummary.textContent = summary;
+        const values = (hi3dControls?.fields || []).filter(({key}) => options?.[key] != null)
+            .map(({key, label, choices}) => {
+                const value = options[key];
+                const display = choices?.find(choice => choice.value === value)?.label
+                    ?? (typeof value === 'boolean' ? (value ? 'On' : 'Off') : String(value));
+                return [label, display];
+            });
+        card.hi3dSettings.hidden = !values.length;
+        const revision = JSON.stringify(values);
+        if (card.hi3dRevision !== revision) {
+            card.settingsList.replaceChildren(...values.flatMap(([label, value]) => [el('dt', '', label), el('dd', '', value)]));
+            card.hi3dRevision = revision;
+        }
     }
 
     function update() {
         if (!ui.element.open) return;
         updateQueueButton();
+        updateTexture();
         if (!board) return;
         const jobs = family();
         const retained = jobs.find(job => job.id === board.selected_id);
@@ -254,9 +462,14 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
             }
             if (Number.isFinite(result.seconds)) pieces.push(result.seconds.toLocaleString(formatLocale)+' s');
             if (Number.isFinite(result.peak_vram_gib)) pieces.push(t('{memory} GiB peak VRAM',{memory:result.peak_vram_gib.toLocaleString(formatLocale)}));
-            if (result.neural_inferences === 0) pieces.push(t('0 inferences'));
+            if (!isSource && result.neural_inferences === 0) pieces.push(t('Cached source'));
+            const retextureResult = result.finishing?.retexture_after_refinement;
+            if (retextureResult?.state === 'done') pieces.push(t('Retextured after Hi3D'));
+            if (retextureResult?.state === 'failed') pieces.push(t('Source materials baked after the texture pass failed'));
             card.title.textContent = nameOf(job);
             card.metrics.textContent = pieces.join(' · ');
+            renderHi3dRecipe(card, !isSource && detailRefinements[job.settings?.master_finishing]
+                ? job.settings.generation_options : null);
             card.stage.textContent = [labels[job.state] || job.state,
                 job.error || (job.state === 'done' ? '' : job.stage)].filter(Boolean).map(label=>t(label)).join(' · ');
             card.stage.classList.toggle('finishing-failure', job.state === 'error');
@@ -290,11 +503,20 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
     }
 
     refinement.onchange = updateQueueButton;
+    refinementTexture.onchange = () => { textureChosen = true; };
+    retexture.onchange = selectRefinementTexture;
+    refinementSettings.addEventListener('invalid', () => hi3dControls?.openGroup('hi3d'), true);
     refinement.onsubmit = async event => {
         event.preventDefault();
         if (refinementQueue.disabled) return;
         const choice = refinementChoices.find(({control}) => control.checked && !control.disabled);
         if (!choice) return;
+        const payload = {
+            master_finishing: choice.control.value,
+            texture_size: Number(refinementTexture.value),
+        };
+        if (!refinementSettings.disabled) payload.hi3d_options = hi3dControls.read();
+        if (board.retexture) payload.retexture_after_refinement = !retexture.disabled && retexture.checked;
         const token = opening;
         pending = true;
         ui.notice.textContent = t('Queueing detail refinement…');
@@ -302,10 +524,7 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         try {
             const response = await api(`/api/jobs/${base.id}/refinish`, {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    master_finishing: choice.control.value,
-                    texture_size: Number(refinementTexture.value),
-                }),
+                body: JSON.stringify(payload),
             });
             if (token === opening) {
                 ui.notice.textContent = response.paused ? t('Refinement queued. Resume processing in Queue.')
@@ -367,22 +586,31 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
     };
 
     return {
+        canOpen: canOpenFinishingBoard,
         async open(job) {
-            if (!job?.can_refinish) return;
+            if (!canOpenFinishingBoard(job)) return;
             const token = ++opening;
             base = job;
             board = null;
+            textureInfo = null;
             pending = false;
             drafts = [];
+            hi3dControls = null;
             cards.clear();
             rows.replaceChildren();
             form.replaceChildren();
+            ui.foot.hidden = true;
             refinement.hidden = true;
             results.hidden = true;
             summary.textContent = nameOf(job);
             ui.show();
-            ui.notice.textContent = t('Loading the saved finishing source…');
+            ui.notice.textContent = job.can_refinish ? t('Loading the saved finishing source…') : '';
             update();
+            const textureCapability = loadTextureCapability(job.id, token);
+            if (!job.can_refinish) {
+                await textureCapability;
+                return;
+            }
             try {
                 const response = await api(`/api/jobs/${job.id}/finishing-board`);
                 if (token !== opening) return;
@@ -391,13 +619,17 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
                 const size = board.cache_bytes / 1024 ** 2;
                 summary.textContent = t('{name} · {size} MiB shared cache',{name:nameOf(source||job),size:size.toLocaleString(formatLocale,{minimumFractionDigits:1,maximumFractionDigits:1})});
                 configureRefinement();
+                await configureHi3dOptions(token);
+                if (token !== opening) return;
                 recipeForm();
+                ui.foot.hidden = false;
                 results.hidden = false;
                 ui.notice.textContent = '';
                 update();
             } catch (error) {
                 if (token === opening) ui.notice.textContent = t(error.message);
             }
+            await textureCapability;
         },
         update,
     };

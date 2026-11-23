@@ -12,7 +12,8 @@ def mesh_points():return np.array([list(o.matrix_world@v.co) for o in bpy.contex
 vertices=mesh_points()
 bpy.ops.wm.read_factory_settings(use_empty=True)
 source=job/'rig-work'/'input.glb'
-if not source.is_file():source=job/'source.glb'
+settings = json.loads((job/'settings.json').read_text(encoding='utf-8'))
+if (settings.get('rig_options') or {}).get('mode') == 'creature' or not source.is_file():source=job/'source.glb'
 bpy.ops.import_scene.gltf(filepath=str(source));target=mesh_points()
 # Use the same scale, translation and orientation recovery as UniRig's merge.
 vertices,bones=denormalize_vertices(target,vertices,bones)

@@ -221,4 +221,10 @@ with TemporaryDirectory(prefix='trellis-creature-motion-') as folder:
         ('incompatible', 'none', 'none', 0),
     ]:
         run_fixture(root / f'{kind}-{requested}', kind, requested, applied, animated_bones)
-print('Creature animation fixtures passed.')
+from creature_motion import Skeleton
+from creature_rig import MAX_CREATURE_BONES
+long_chain = [dict(name=f'joint_{index}', parent=f'joint_{index-1}' if index else None,
+                   head=[0, float(index), 0], tail=[0, float(index+1), 0])
+              for index in range(MAX_CREATURE_BONES)]
+assert len(Skeleton(long_chain).longest_chain('joint_0', lambda _: True)) == MAX_CREATURE_BONES
+print('Creature animation fixtures passed, including the maximum-length edited chain.')
