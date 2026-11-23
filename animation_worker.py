@@ -3,6 +3,7 @@ from collections import Counter
 from pathlib import Path
 import json, shutil, subprocess, sys, time, traceback, uuid
 from studio_import import animation_recipe, animation_recipes, find_blender, validate_glb
+from animation_diagnostics import require_valid_animation
 from animation_edits import FILES, recover
 from glb_data import remove_animation
 from lod_animations import prepare as prepare_lod_clips
@@ -86,6 +87,7 @@ try:
     settings = dict(previous_settings)
     previous_clips = previous_result.get('animation_set') or []
     authored = {}
+    edited_clips = set()
     if removing:
         status('running', 'Removing the selected animation', 35)
         remove_animation(source, stage / 'model.glb', request.get('remove_clip'), request.get('remove_index'))
@@ -106,6 +108,7 @@ try:
             dict(id='creature_' + motion['effective_motion'], name=clip, clip=clip,
                  duration_s=motion['duration_s'], source='TRELLIS Studio procedural motion')
         ]}
+        edited_clips.add(clip)
     else:
         previous = {clip['id']: clip for clip in animation_recipes(source_data)}
         changed = [clip['id'] for clip in request['clips'] if previous.get(clip['id']) != clip]
@@ -126,6 +129,10 @@ try:
         if not model.get('skins') or (changed and not authored.get('humanoid_mapping')):
             raise ValueError('Standard humanoid motions could not be applied to this skeleton.')
         verify_clips(source_data, model, authored.get('animation_set', []), changed)
+        edited_clips = {item['clip'] for item in authored.get('animation_set', []) if item['id'] in changed}
+    if edited_clips:
+        require_valid_animation(stage/'model.glb', clips=edited_clips,
+                                mapping=authored.get('humanoid_mapping') or previous_result.get('humanoid_mapping'))
     settings['animation_clips'] = animation_recipes(model)
     result = {**previous_result, **authored, 'revision': time.time_ns(),
               'animation_set': animation_metadata(model, [*previous_clips, *authored.get('animation_set', [])]),

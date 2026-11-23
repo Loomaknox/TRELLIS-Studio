@@ -1,4 +1,10 @@
 export default {
+  "{clip} · {bone} · {time} s: abrupt rotation ({degrees}°).": "{clip} · {bone} · {time} s : rotation brusque ({degrees}°).",
+  "{clip} · {bone} · {time} s: foot moved {distance} cm during the crouch.": "{clip} · {bone} · {time} s : le pied s’est déplacé de {distance} cm pendant la flexion.",
+  "{clip} · {bone} · {time} s: foot moved {distance} cm across the loop.": "{clip} · {bone} · {time} s : le pied se décale de {distance} cm au raccord de la boucle.",
+  "{clip}: some animation channels could not be measured.": "{clip} : certaines pistes d’animation n’ont pas pu être mesurées.",
+  "{clip} · {bone}: invalid animation track.": "{clip} · {bone} : piste d’animation invalide.",
+  "The final animation file contains an invalid track. See the generation log for details.": "Le fichier d’animation final contient une piste invalide. Consultez le journal de génération.",
   "Choose a model from the collection": "Choisissez un modèle dans la collection",
   "Animation added.": "Animation ajoutée.",
   "Cancel selection": "Annuler la sélection",

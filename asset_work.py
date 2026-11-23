@@ -2,6 +2,7 @@
 from pathlib import Path
 import json,re,shutil,subprocess,sys,time,traceback,uuid
 from studio_import import find_blender,validate_glb
+from animation_diagnostics import require_valid_animation
 from studio_workspace import read,write,checkpoint
 from animation_edits import FILES,recover
 from lod_animations import prepare as prepare_lod_clips
@@ -13,7 +14,11 @@ try:
         stage.mkdir();(stage/'backup').mkdir();shutil.copy2(JOB/'model.glb',stage/'source.glb');write(stage/'settings.json',request['settings']);write(stage/'work-request.json',request)
     status('running','Preparing '+{'lod':'detail levels','game':'game copy','motion':'animation edit'}[request['operation']],8)
     subprocess.run([str(find_blender()),'--background','--factory-startup','--disable-autoexec','--threads','4','--python-exit-code','1','--python',str(ROOT/'work_blender.py'),'--',str(stage)],check=True,timeout=1800,stdout=sys.stdout,stderr=subprocess.STDOUT)
-    validate_glb(stage/'model.glb');result={**request.get('result',{}),**read(stage/'work-result.json'),'revision':time.time_ns()};write(stage/'result.json',result)
+    validate_glb(stage/'model.glb');result={**request.get('result',{}),**read(stage/'work-result.json'),'revision':time.time_ns()}
+    if editing:
+        require_valid_animation(stage/'model.glb', clips={result['motion_report']['clip']},
+                                mapping=result.get('humanoid_mapping'))
+    write(stage/'result.json',result)
     settings=read(stage/'settings.json')
     if editing:
         edited={**request['options'],'source_clip':request['options']['clip'],'clip':result['motion_report']['clip']}

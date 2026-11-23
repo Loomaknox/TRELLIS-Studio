@@ -6,6 +6,95 @@ from retarget_catalogue import BY_ID
 from studio_import import animation_recipe
 
 ROOT=Path(__file__).resolve().parent
+SIDES = ('left', 'right')
+LOCOMOTION = {'walk', 'run', 'sprint'}
+
+
+def continuous_rotation(rotation, previous):
+    """Keep component curves on the same quaternion hemisphere before Blender samples them."""
+    rotation = rotation.normalized()
+    if previous is not None and rotation.dot(previous) < 0:
+        rotation.negate()
+    return rotation
+
+
+def foot_support_offsets(ankles, clearance, height, *, cyclic, in_place):
+    """Blend horizontal corrections only during ground contact."""
+    corrections = [Vector() for _ in ankles]
+    floor = min(clearance)
+    threshold = max(.003, height * .017)
+    # Treat both ends as one phase for loops whose planted foot crosses the seam.
+    size = len(ankles) - 1 if cyclic else len(ankles)
+    active = [value <= floor + threshold for value in clearance[:size]]
+    starts = [i for i, value in enumerate(active) if value and
+              (not active[i - 1] if i or cyclic else True)]
+    for start in starts:
+        count = next((step for step in range(1, size)
+                      if (not cyclic and start + step >= size) or not active[(start + step) % size]), size)
+        if count < 3:
+            continue
+        start_ankle, end_ankle = ankles[start], ankles[(start + count - 1) % size]
+        # The centre of a planted phase is a steadier reference than a moving heel.
+        anchor = ankles[(start + count // 2) % size]
+        for step in range(count):
+            index = (start + step) % size
+            weight = min(1., step / 2, (count - step - 1) / 2)
+            weight = weight * weight * (3 - 2 * weight)
+            # In an in-place loop the supporting ankle travels backward at
+            # constant speed. With displacement it stays fixed in world space.
+            desired = start_ankle.lerp(end_ankle, step / (count - 1)) if in_place else anchor
+            delta = desired - ankles[index]
+            delta.z = 0.
+            corrections[index] = delta * weight
+    if cyclic:
+        corrections[-1] = corrections[0].copy()
+    return corrections
+
+
+def locomotion_support(poses, source_height, *, in_place):
+    offsets = {}
+    for side in SIDES:
+        ankles = [pose[side + '_foot']['head'] for pose in poses]
+        # Heel-to-toe roll changes ankle height, so read contact from the ball.
+        clearance = [pose.get(side + '_toe', pose[side + '_foot'])['head'].z for pose in poses]
+        offsets[side] = foot_support_offsets(ankles, clearance, source_height, cyclic=in_place, in_place=in_place)
+    return offsets
+
+
+def leg_chain_goal(hip, goal, bend, rest_direction, l1, l2):
+    direction = goal - hip
+    epsilon = min(.00001, min(l1, l2) * .01)
+    distance = min(max(direction.length, abs(l1-l2)+epsilon), l1+l2-epsilon)
+    direction = (direction if direction.length > epsilon else rest_direction).normalized()
+    bend = bend - direction*bend.dot(direction)
+    if bend.length < .001:
+        bend = Vector((0,-1,0)) if abs(direction.y) < .98 else Vector((1,0,0))
+        bend -= direction*bend.dot(direction)
+    cosine = max(-1, min(1, (l1*l1+distance*distance-l2*l2)/(2*l1*distance)))
+    knee = hip + direction*l1*cosine + bend.normalized()*l1*math.sqrt(max(0,1-cosine*cosine))
+    return knee, hip+direction*distance
+
+
+def correct_support_pose(arm, mapping, offsets):
+    """Apply a post-retime contact adjustment with the existing leg plane."""
+    for side, offset in offsets.items():
+        if offset.length_squared < 1e-10:
+            continue
+        thigh, shin, foot = (arm.pose.bones[mapping[side + '_' + role]] for role in ('leg', 'shin', 'foot'))
+        hip, old_knee, ankle = (arm.matrix_world @ bone.head for bone in (thigh, shin, foot))
+        foot_rotation = (arm.matrix_world @ foot.matrix).to_quaternion()
+        l1, l2 = (old_knee-hip).length, (ankle-old_knee).length
+        if min(l1, l2) < 1e-6:
+            continue
+        knee, goal = leg_chain_goal(hip, ankle + offset, old_knee - hip, ankle - hip, l1, l2)
+        for bone, direction in ((thigh, knee-hip), (shin, goal-knee)):
+            actual = (arm.matrix_world @ bone.matrix).to_quaternion()
+            target = (actual @ Vector((0, 1, 0))).rotation_difference(direction.normalized()) @ actual
+            bone.rotation_quaternion = bone.rotation_quaternion @ actual.inverted() @ target
+            bpy.context.view_layer.update()
+        actual = (arm.matrix_world @ foot.matrix).to_quaternion()
+        foot.rotation_quaternion = foot.rotation_quaternion @ actual.inverted() @ foot_rotation
+        bpy.context.view_layer.update()
 
 def source_map(pack):
     if pack=='UAL1':
@@ -177,28 +266,40 @@ def author(scene,target,target_mapping,requests,height,*,profile=None):
             if previous and previous['id'] == request['id']:
                 original_actions.remove(existing)
                 bpy.data.actions.remove(existing)
-        action=bpy.data.actions.new(action_name);action.use_fake_user=True;target.animation_data.action=action
         # Leg length controls root displacement and ankle targets, not head size.
         ratios=[]
         for side in ('left','right'):
             ratios.append((rest_heads[mapping[side+'_leg']]-rest_heads[mapping[side+'_foot']]).length/(src_heads[side+'_leg']-src_heads[side+'_foot']).length)
         scale=sum(ratios)/len(ratios)
-        twist_angles = {}
+        poses = []
+        if recipe.get('composite') == 'crouch':
+            idle_action, down_action = actions['Idle_Loop'], actions['Crouch_Idle_Loop']
+            activate(source, idle_action);idle=capture(source,smap,idle_action.frame_range[0])
+            activate(source, down_action);down=capture(source,smap,down_action.frame_range[0])
         for frame in range(frames+1):
             u=frame/frames;phase=u*cycles
             source_frame=start+(end-start)*(phase%1 if u<1 and recipe['loop'] else 1 if recipe['loop'] else u)
-            activate(source,src_action);pose=capture(source,smap,source_frame)
             if recipe.get('composite')=='jump':
                 if u<.3:name,progress='Jump_Start',u/.3
                 elif u<.65:name,progress='Jump_Loop',(u-.3)/.35
                 else:name,progress='Jump_Land',(u-.65)/.35
                 act=actions[name];activate(source,act);a,b=act.frame_range;pose=capture(source,smap,a+(b-a)*progress)
             elif recipe.get('composite')=='crouch':
-                act=actions['Idle_Loop'];activate(source,act);idle=capture(source,smap,act.frame_range[0])
-                act=actions['Crouch_Idle_Loop'];activate(source,act);down=capture(source,smap,act.frame_range[0])
                 weight=min(1,u/.3,(1-u)/.3);weight=weight*weight*(3-2*weight)
                 pose=blend_crouch_pose(idle,down,weight,finger_parents)
-            reset_pose();desired={};target_to_semantic={name:key for key,name in mapping.items()}
+            else:
+                pose=capture(source,smap,source_frame)
+            poses.append(pose)
+        support = (locomotion_support(poses, height / scale, in_place=recipe['loop'])
+                   if request['id'] in LOCOMOTION else None)
+        scene.frame_set(0)
+        action=bpy.data.actions.new(action_name);action.use_fake_user=True;target.animation_data.action=action
+        twist_angles = {}
+        previous_rotations = {}
+        planted = {}
+        target_to_semantic = {name: key for key, name in mapping.items()}
+        for frame, pose in enumerate(poses):
+            reset_pose();desired={}
             for b in ordered:
                 key=target_to_semantic.get(b.name)
                 parent_rest=rest[b.parent.name] if b.parent else target.matrix_world.to_quaternion()
@@ -223,23 +324,29 @@ def author(scene,target,target_mapping,requests,height,*,profile=None):
                 source_vector=pose[side+'_foot']['head']-pose[side+'_leg']['head']
                 goal=hip+source_vector*scale
                 goal.z=rest_heads[mapping[side+'_foot']].z+(pose[side+'_foot']['head'].z-src_heads[side+'_foot'].z)*scale
+                world_foot = desired[foot.name]
+                if recipe.get('composite') == 'crouch':
+                    goal, world_foot = planted.setdefault(side, (goal.copy(), world_foot.copy()))
+                elif support:
+                    goal += support[side][frame] * scale
                 l1=(rest_heads[mapping[side+'_shin']]-rest_heads[mapping[side+'_leg']]).length;l2=(rest_heads[mapping[side+'_foot']]-rest_heads[mapping[side+'_shin']]).length
-                direction=goal-hip;distance=min(max(direction.length,.001),l1+l2-.00001);direction.normalize()
-                bend=pose[side+'_shin']['head']-pose[side+'_leg']['head'];bend-=direction*bend.dot(direction)
-                if bend.length<.001:bend=Vector((0,-1,0));bend-=direction*bend.dot(direction)
-                bend.normalize();cosine=max(-1,min(1,(l1*l1+distance*distance-l2*l2)/(2*l1*distance)))
-                knee=hip+direction*l1*cosine+bend*l1*math.sqrt(max(0,1-cosine*cosine))
+                bend=pose[side+'_shin']['head']-pose[side+'_leg']['head']
+                knee, goal=leg_chain_goal(hip,goal,bend,rest_heads[foot.name]-rest_heads[thigh.name],l1,l2)
                 for bone,vector in ((thigh,knee-hip),(shin,goal-knee)):
                     current=desired[bone.name];axis=current@Vector((0,1,0));world=axis.rotation_difference(vector.normalized())@current
                     parent_rest=rest[bone.parent.name] if bone.parent else target.matrix_world.to_quaternion();parent_pose=desired[bone.parent.name] if bone.parent else target.matrix_world.to_quaternion()
                     bone.rotation_quaternion=rest[bone.name].inverted()@parent_rest@parent_pose.inverted()@world;desired[bone.name]=world
                 # Keep the foot orientation from the authored clip after the leg solve.
-                world=desired[foot.name];foot.rotation_quaternion=rest[foot.name].inverted()@rest[foot.parent.name]@desired[foot.parent.name].inverted()@world
+                foot.rotation_quaternion=rest[foot.name].inverted()@rest[foot.parent.name]@desired[foot.parent.name].inverted()@world_foot
             drive_forearm_twists(target, mapping, twists, rest, rest_heads,
                                  fraction=forearm_fraction, previous=twist_angles)
             drive_body_helpers(helper_drivers)
             for name in set(mapping.values()):
-                p=target.pose.bones[name];p.keyframe_insert('rotation_quaternion',frame=frame,group=p.name)
+                p=target.pose.bones[name]
+                rotation=continuous_rotation(p.rotation_quaternion, previous_rotations.get(name))
+                p.rotation_quaternion=rotation
+                previous_rotations[name]=rotation
+                p.keyframe_insert('rotation_quaternion',frame=frame,group=p.name)
             root.keyframe_insert('location',frame=frame,group=root.name)
         for layer in action.layers:
             for strip in layer.strips:
