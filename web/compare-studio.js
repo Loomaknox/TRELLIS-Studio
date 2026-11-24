@@ -17,6 +17,13 @@ export function createComparison({api,getRecords,labelAnimation}){
  const back=document.createElement('button');back.type='button';back.className='secondary';back.textContent=t('Back to finishing board');back.hidden=true;
  const measure=document.createElement('button');measure.type='button';measure.className='secondary';measure.textContent=t('Measure open edges');
  dialog.querySelector('.compare-options').prepend(back,measure);
+ const quarter=document.createElement('button');quarter.type='button';quarter.className='secondary';
+ quarter.textContent=t('Face in three-quarter view');quarter.onclick=()=>frameFaces(Math.PI/4);
+ const clayToggle=document.createElement('label');clayToggle.className='check';
+ const clayInput=document.createElement('input');clayInput.type='checkbox';
+ clayToggle.append(clayInput,document.createTextNode(t('Matte surface')));
+ $('compareFaces').after(quarter,clayToggle);
+ const clay=new THREE.MeshStandardMaterial({color:0xbbbbb5,roughness:1,metalness:0});
  let boardMode=false,boardFramed=false,standardMatch=true;
  function dispose(root){const mats=new Set(),tex=new Set();root?.traverse(x=>{x.geometry?.dispose();for(const m of Array.isArray(x.material)?x.material:[x.material])if(m){mats.add(m);for(const v of Object.values(m))if(v?.isTexture)tex.add(v);}});mats.forEach(m=>m.dispose());tex.forEach(t=>t.dispose());}
  function clear(p){p.obstacle.clear();p.obstacles=[];p.mixer?.stopAllAction();p.mixer=null;p.action=null;p.clips=[];p.clip.replaceChildren();if(p.helper){p.scene.remove(p.helper);p.helper.geometry.dispose();p.helper.material.dispose();p.helper=null;}if(p.root){p.scene.remove(p.root);dispose(p.root);p.root=null;}p.group=null;p.rig?.fit(null);}
@@ -34,12 +41,12 @@ export function createComparison({api,getRecords,labelAnimation}){
   });
   return eyes.L&&eyes.R?eyes:null;
  }
- function frameFaces(){
+ function frameFaces(angle=0){
   const eyes=faceCameraPoints();
   if(!eyes)return;
   const across=eyes.L.clone().sub(eyes.R),distance=across.length()*8;
   if(distance<=0)return;
-  const front=across.cross(new THREE.Vector3(0,1,0)).normalize();
+  const up=new THREE.Vector3(0,1,0),front=across.cross(up).normalize().applyAxisAngle(up,Number.isFinite(angle)?angle:0);
   const center=eyes.L.clone().lerp(eyes.R,.5);
   for(const p of panes){
    p.controls.target.copy(center);
@@ -50,6 +57,7 @@ export function createComparison({api,getRecords,labelAnimation}){
  function normalise(reframe=true){for(const p of panes){if(!p.root)continue;p.root.position.set(0,0,0);p.root.scale.setScalar(1);p.root.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(p.root,true),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),factor=$('compareMatch').checked?1/Math.max(size.y,.00001):1;p.root.scale.setScalar(factor);p.root.position.set(-center.x*factor,-box.min.y*factor,-center.z*factor);p.root.updateMatrixWorld(true);p.rig.fit(p.root);p.obstacle.sync();}if(reframe)frameBoth();}
  function updateDelta(){
   $('compareFaces').hidden=!panes.some(p=>p.root&&p.job?.result?.facial_head_enhancement?.state==='applied');
+  quarter.hidden=$('compareFaces').hidden;
   const [left,right]=panes;
   const a=left?.job?.result?.triangles,b=right?.job?.result?.triangles;
   const delta=a&&b?[t('{delta}% triangles · B vs A',{delta:(b>a?'+':'')+((b/a-1)*100).toLocaleString(formatLocale,{minimumFractionDigits:1,maximumFractionDigits:1})})]:[];
@@ -102,7 +110,7 @@ export function createComparison({api,getRecords,labelAnimation}){
   p.obstacle=createObstaclePreview(scene);
   p.observer=new ResizeObserver(()=>{const w=Math.max(1,view.clientWidth),h=Math.max(1,view.clientHeight);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();});p.observer.observe(view);
   select.onchange=()=>load(p,select.value);clip.onchange=()=>{const hadObstacle=p.obstacle.active;p.obstacle.set(p.root,clip.value===''?null:p.obstacles[Number(clip.value)]);p.mixer?.stopAllAction();p.action=null;if(clip.value!==''){p.action=p.mixer.clipAction(p.clips[Number(clip.value)]).play();updatePose();}else{p.root?.traverse(x=>{if(x.isSkinnedMesh)x.skeleton.pose();});p.root?.updateMatrixWorld(true);}if(hadObstacle||p.obstacle.active)frameBoth();updatePlayback();};return p;}
- function loop(now){if(!dialog.open)return;const delta=last?Math.min((now-last)/1000,.1):0;last=now;if(playing){phase=(phase+delta/Math.max(...panes.map(p=>p.action?.getClip().duration||0),1))%1;updatePose();$('compareTime').value=phase;$('compareTimeValue').textContent=Math.round(phase*100)+'%';}for(const p of panes)p.renderer.render(p.scene,p.camera);frame=requestAnimationFrame(loop);}
+ function loop(now){if(!dialog.open)return;const delta=last?Math.min((now-last)/1000,.1):0;last=now;if(playing){phase=(phase+delta/Math.max(...panes.map(p=>p.action?.getClip().duration||0),1))%1;updatePose();$('compareTime').value=phase;$('compareTimeValue').textContent=Math.round(phase*100)+'%';}for(const p of panes){p.scene.overrideMaterial=clayInput.checked?clay:null;p.renderer.render(p.scene,p.camera);}frame=requestAnimationFrame(loop);}
  function close(){cancelAnimationFrame(frame);++token;for(const p of panes){++p.version;p.observer.disconnect();p.controls.dispose();clear(p);p.rig.dispose();p.grid.geometry.dispose();p.grid.material.dispose();p.env.dispose();p.renderer.dispose();}panes=[];dialog.querySelector('.compare-panes').replaceChildren();playing=false;}
  dialog.addEventListener('close',()=>{if(!dialog.open)close();});dialog.querySelector('[data-close]').onclick=()=>dialog.close();$('compareFrame').onclick=frameBoth;$('compareFaces').onclick=frameFaces;$('compareMatch').onchange=()=>normalise();
  $('compareSkeleton').onchange=()=>{for(const p of panes)if(p.helper)p.helper.visible=$('compareSkeleton').checked;};$('compareWire').onchange=()=>{for(const p of panes)p.root?.traverse(x=>{if(x.isMesh)(Array.isArray(x.material)?x.material:[x.material]).forEach(m=>m.wireframe=$('compareWire').checked);});};

@@ -16,6 +16,10 @@ Les yeux restent des objets distincts dans le GLB exporté. Les outils qui exige
 
 ## Revenir en arrière
 
+Dans **Aperçu de la référence**, le mode humanoïde TRELLIS.2 indique la largeur et la hauteur du visage détecté dans le premier passage de 512 pixels. Un visage mal identifié peut rester sans mesure. Pour un portrait complémentaire, ouvrez le personnage source, reprenez sa recette, cochez **Améliorer le visage** et joignez une vue de face du même personnage avec une expression neutre. La collection enregistre la variante et son portrait. L’outil vérifie la position relative des yeux, du nez et de la bouche avant de guider la géométrie et la matière.
+
+Dans **Comparer**, cadrez les visages de face ou de trois quarts et activez **Surface mate** pour juger le relief des paupières et la continuité du cou. Les deux vues partagent la caméra.
+
 - Pour la génération suivante, décocher **Améliorer le visage**. Chaque génération avec TOPOS crée un modèle distinct dans la collection.
 - Pour retirer les poids, les dépendances et les caches facultatifs, ouvrir **Desinstaller le module visage.cmd**. Le composant possède son dossier `.tools/facial-head`. Le désinstalleur vérifie son marqueur de propriété et protège les opérations en cours. Il fonctionne aussi après une installation interrompue.
 - Une fois le composant retiré, actualiser la page. Les GLB déjà exportés restent autonomes. Chaque modèle d’essai peut être retiré individuellement depuis la collection.

@@ -52,13 +52,14 @@ def image(data,binary,index):
     else:raw=base64.b64decode(entry['uri'].split(',',1)[1])
     result=Image.open(io.BytesIO(raw));result.load();return result
 
-def accessor(data,binary,index):
+def accessor(data,binary,index,rows=None):
     a=data['accessors'][index]
     if 'sparse' in a:raise ValueError('Sparse animation accessors are not supported by this diagnostic.')
     view=data['bufferViews'][a['bufferView']];dtype=np.dtype({5120:'i1',5121:'u1',5122:'<i2',5123:'<u2',5125:'<u4',5126:'<f4'}[a['componentType']])
     width={'SCALAR':1,'VEC2':2,'VEC3':3,'VEC4':4,'MAT4':16}[a['type']];stride=view.get('byteStride',width*dtype.itemsize)
     start=view.get('byteOffset',0)+a.get('byteOffset',0)
-    result=np.ndarray((a['count'],width),dtype=dtype,buffer=binary,offset=start,strides=(stride,dtype.itemsize)).copy()
+    view_rows=np.ndarray((a['count'],width),dtype=dtype,buffer=binary,offset=start,strides=(stride,dtype.itemsize))
+    result=view_rows.copy() if rows is None else view_rows[rows].copy()
     if a.get('normalized') and dtype.kind in ('i','u'):
         result=np.maximum(result.astype(float)/np.iinfo(dtype).max,-1)
     return result

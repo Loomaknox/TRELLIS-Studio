@@ -1325,17 +1325,17 @@ async def inspect_job(identifier: str):
         except (ValueError,OSError) as error: raise HTTPException(422,str(error))
 
 @app.get('/api/jobs/{identifier}/diagnostics')
-async def diagnostics(identifier: str,force: bool=False):
+async def diagnostics(identifier: str,force: bool=False,pose_surfaces: bool=False):
     from model_diagnostics import diagnose
     async with LOCK:
         folder=job_path(identifier)
         if job_record(folder)['state']!='done':raise HTTPException(409,'Choose a completed model.')
-        try:return await asyncio.to_thread(diagnose,folder,force)
+        try:return await asyncio.to_thread(diagnose,folder,force,pose_surfaces=pose_surfaces)
         except (ValueError,OSError,KeyError,TypeError) as error:raise HTTPException(422,'Unable to inspect this model: '+str(error))
 
 @app.get('/api/jobs/{identifier}/diagnostics/report')
-def diagnostics_report(identifier: str):
-    path=job_path(identifier)/'Diagnostics'/'report.json'
+def diagnostics_report(identifier: str,pose_surfaces: bool=False):
+    path=job_path(identifier)/'Diagnostics'/('pose-report.json' if pose_surfaces else 'report.json')
     if not path.is_file():raise HTTPException(404,'Run model diagnostics first.')
     return FileResponse(path,filename='TRELLIS-diagnostics-'+identifier[:8]+'.json',media_type='application/json')
 
@@ -1671,8 +1671,8 @@ def encode_reference_preview(image, max_size=None):
     return 'data:image/png;base64,' + base64.b64encode(buffer.getvalue()).decode('ascii')
 
 
-def reference_preview_views(sources, cutouts, frames, engine, preview_size=None, *, edits=None):
-    from reference_preparation import reference_warnings
+def reference_preview_views(sources, cutouts, frames, engine, preview_size=None, *, edits=None, character=False, preflight=False):
+    from reference_preparation import reference_face_size, reference_warnings
 
     views = []
     for role, source in sources.items():
@@ -1680,16 +1680,22 @@ def reference_preview_views(sources, cutouts, frames, engine, preview_size=None,
         if engine in ('pixal3d', 'pixal3d_single'):
             frame = Image.fromarray((premultiplied_rgb(frame) * 255).astype('uint8'))
         crop = (edits or {}).get(role, {}).get('crop')
+        warnings = reference_warnings(cutouts[role], crop, engine)
+        if preflight:
+            if warnings:
+                views.append(dict(role=role, warnings=warnings,cutout=encode_reference_preview(cutouts[role],max_size=512)))
+            continue
+        face = reference_face_size(frame, ROOT) if character and role == 'front' and engine == 'trellis2' else None
         views.append(dict(role=role, width=source.width, height=source.height,
                           original=encode_reference_preview(source, max_size=preview_size or 768),
                           cutout=encode_reference_preview(cutouts[role], max_size=preview_size or 768),
                           framed=encode_reference_preview(frame, max_size=preview_size),
-                          warnings=reference_warnings(cutouts[role], crop, engine)))
+                          warnings=warnings, face=face))
     return views
 
 
 async def prepare_reference_preview(image, left_image=None, back_image=None, right_image=None,
-                                    *, engine, remove_bg, reference_edits, preview_size=None):
+                                    *, engine, remove_bg, reference_edits, preview_size=None, character=False, preflight=False):
     if engine not in ('trellis2', 'pixal3d', 'pixal3d_single'):
         raise HTTPException(400, 'Unknown reference engine.')
     if engine != 'pixal3d' and any((left_image, back_image, right_image)):
@@ -1697,7 +1703,7 @@ async def prepare_reference_preview(image, left_image=None, back_image=None, rig
     sources = await reference_sources((image, left_image, back_image, right_image), engine)
     edits, cutouts, frames = await prepare_reference_uploads(sources, reference_edits, engine, remove_bg)
     views = await asyncio.to_thread(reference_preview_views, sources, cutouts, frames, engine, preview_size,
-                                    edits=edits)
+                                    edits=edits, character=character, preflight=preflight)
     return dict(engine=engine, views=views)
 
 
@@ -1710,9 +1716,11 @@ async def reference_preview(
     engine: Annotated[str, Form()] = 'trellis2',
     remove_bg: Annotated[bool, Form()] = True,
     reference_edits: Annotated[str, Form()] = '',
+    character: Annotated[bool, Form()] = False,
+    preflight: Annotated[bool, Form()] = False,
 ):
     return await prepare_reference_preview(image, left_image, back_image, right_image, engine=engine,
-                                           remove_bg=remove_bg, reference_edits=reference_edits)
+                                           remove_bg=remove_bg, reference_edits=reference_edits, character=character, preflight=preflight)
 
 
 @app.post('/api/generate-multiview', status_code=202)
@@ -1926,12 +1934,18 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                    master_finishing: Annotated[str | None, Form()] = None,
                    reproject_face: Annotated[bool, Form()] = False,
                    facial_head_enhancement: Annotated[bool, Form()] = False,
+                   facial_portrait: Annotated[UploadFile | None, File()] = None,
                    retexture_after_refinement: Annotated[bool, Form()] = False,
                    multiview_texture_refinement: Annotated[bool | None, Form()] = None,
                    texture_method: Annotated[str | None, Form()] = None,
                    workflow_options: Annotated[str, Form()] = ''):
     if WORKSPACE_CONFIG:
         queue_only = True
+    portrait = None
+    if facial_portrait is not None:
+        if not facial_head_enhancement or not parent_id:
+            raise HTTPException(400, 'Reuse a generated character before adding a portrait to its variant.')
+        portrait = await read_generation_image(facial_portrait, 'Portrait', restrict_formats=True)
     workflow_id = profile_id if profile_id in WORKFLOW_PROFILES else preset if preset in WORKFLOW_PROFILES else None
     if workflow_id:
         if workflow_id in COMFY_PROFILES:
@@ -2082,6 +2096,8 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                 settings['profile_snapshot']['hd_reconstruction'] = True
         if facial_head_enhancement:
             settings['facial_head_enhancement'] = True
+            if portrait is not None:
+                settings['facial_portrait'] = True
             if snapshot := settings.get('profile_snapshot'):
                 snapshot['facial_head_enhancement'] = True
         assign_create_master_finishing(settings, master_finishing)
@@ -2097,6 +2113,8 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
         with TemporaryDirectory(prefix='.trellis2-', dir=OUTPUT) as staging:
             staged = Path(staging)
             source.save(staged / 'input.png')
+            if portrait is not None:
+                portrait.save(staged / 'facial-portrait.png')
             if reference_edits:
                 if pixal:
                     frames['front'].save(staged / 'prepared.png')
@@ -2227,7 +2245,7 @@ async def files(identifier: str, filename: str):
         name=json.loads((folder/'settings.json').read_text(encoding='utf-8'))['name']
         return FileResponse(folder/'Blender.zip',filename='TRELLIS-'+name+'-Blender.zip',media_type='application/zip',
                             background=BackgroundTask(EXPORTING.discard,identifier))
-    if filename not in (*REFERENCE_FILES,*PREPARED_VIEWS.values(),*COMFY_INPUT_FILES,'conditioning.png','model.glb','model.stl','print-report.json','Unity.zip','Blender.zip','settings.json','result.json','heightmap.png','heightmap.raw','original.glb','original.fbx','original.obj','original.stl','original.ply') or not (folder / filename).exists():
+    if filename not in (*REFERENCE_FILES,*PREPARED_VIEWS.values(),*COMFY_INPUT_FILES,'facial-portrait.png','conditioning.png','model.glb','model.stl','print-report.json','Unity.zip','Blender.zip','settings.json','result.json','heightmap.png','heightmap.raw','original.glb','original.fbx','original.obj','original.stl','original.ply') or not (folder / filename).exists():
         raise HTTPException(404)
     settings = json.loads((folder/'settings.json').read_text(encoding='utf-8'))
     if filename in COMFY_INPUT_FILES and (settings.get('workflow_id') not in WORKFLOW_PROFILES

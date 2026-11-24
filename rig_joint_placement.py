@@ -2,7 +2,7 @@
 
 Landmarks constrain only X/Z. A harmonic displacement along the bone hierarchy
 keeps the intervening joints continuous and translates unanchored finger/foot
-branches with their wrist/ankle. The predicted Y depth is never changed.
+branches with their wrist/ankle. Optional knee and ankle depths use glTF +Z forward.
 """
 import numpy as np
 
@@ -61,8 +61,11 @@ def place_joints(bones, parents, names, mapping, options):
             edge(2*i,endpoint)
     fixed={};targets={}
     for key,point_index in anchors.items():
-        x,y=options['landmarks'][key];target=points[point_index].copy()
+        marker=options['landmarks'][key]
+        x,y=marker[:2];target=points[point_index].copy()
         target[0]=x*height;target[2]=y*height+offset
+        if len(marker)==3:
+            target[1]=-marker[2]*height
         delta=target-points[point_index]
         if np.linalg.norm(delta)>height*.4:
             raise ValueError('A landmark is too far from its predicted joint; check model orientation and placement.')
@@ -75,11 +78,10 @@ def place_joints(bones, parents, names, mapping, options):
     if len(unknown):
         try:displacement[unknown]=np.linalg.solve(lap[np.ix_(unknown,unknown)],-lap[np.ix_(unknown,known)]@displacement[known])
         except np.linalg.LinAlgError as error:raise ValueError('The predicted skeleton contains an unconnected joint branch.') from error
-    displacement[:,1]=0
     adjusted=points+displacement[groups]
     lengths=np.linalg.norm(adjusted[1::2]-adjusted[::2],axis=1)
     if (lengths<height*1e-5).any():raise ValueError('Landmark placement collapses a bone; adjust the landmarks.')
-    report=dict(coordinate_space='Blender world Z-up; landmark X/Z constrained, Y depth preserved',
+    report=dict(coordinate_space='Blender world Z-up', depth_landmarks=[k for k,v in options['landmarks'].items() if len(v)==3],
                 max_joint_displacement_m=float(np.linalg.norm(adjusted-points,axis=1).max()),
                 max_depth_change_m=float(np.abs(adjusted[:,1]-points[:,1]).max()),
                 anchors={key:dict(bone=names[index//2],endpoint='head' if index%2==0 else 'tail',

@@ -130,26 +130,55 @@ def _generate(repo, portrait, stage, seed):
     return vertices, torch.cuda.get_device_name(), round(torch.cuda.max_memory_allocated() / 2**20)
 
 
-def run(component, source, stage, seed):
+def aligned_portrait(image, points, body_points, box, size=512):
+    """Sample donor pixels in the same square as the body's conditioning crop."""
+    anchors = [468, 473, 1, 61, 291]
+    body = body_points[anchors, :2]; donor = points[anchors, :2]
+    # A similarity transform preserves aspect and handedness.
+    src = body - body.mean(0); dst = donor - donor.mean(0)
+    u, values, vt = np.linalg.svd(src.T @ dst)
+    rotation = u @ vt
+    if np.linalg.det(rotation) <= 0:
+        raise ValueError('Choose a matching frontal portrait with a neutral expression.')
+    linear = rotation * (values.sum() / np.square(src).sum())
+    offset = donor.mean(0) - body.mean(0) @ linear
+    residual = np.linalg.norm(body @ linear + offset - donor, axis=1).max()
+    if residual > .2 * np.linalg.norm(donor[0] - donor[1]):
+        raise ValueError('Choose a matching frontal portrait with a neutral expression.')
+    origin = np.asarray(box[:2]) @ linear + offset
+    coeff = np.column_stack((linear.T * ((box[2]-box[0]) / size), origin)).ravel()
+    return image.transform((size, size), Image.Transform.AFFINE, coeff, Image.Resampling.BICUBIC)
+
+
+def run(component, source, stage, seed, extra=None):
     with Image.open(source) as opened:
         image = ImageOps.exif_transpose(opened).convert("RGBA")
     points = _landmarks(image, component / "face_landmarker.task")
     box = _portrait_box(points)
     portrait = stage / "portrait.png"
-    image.crop(box).save(portrait)
-    colors, sources = _iris_colors(image, points)
+    material_reference = {}
+    if extra is None:
+        image.crop(box).save(portrait)
+        colors, sources = _iris_colors(image, points)
+    else:
+        with Image.open(extra) as opened:
+            closeup = ImageOps.exif_transpose(opened).convert("RGBA")
+        donor_points = _landmarks(closeup, component / "face_landmarker.task")
+        aligned_portrait(closeup, donor_points, points, box).save(portrait)
+        colors, sources = _iris_colors(closeup, donor_points)
+        material_reference['portrait_landmarks_px'] = donor_points[:, :2].tolist()
     vertices, gpu, peak = _generate(component / "TOPOS", portrait, stage, seed)
     w, h = image.size
     report = {"image_size": [w, h], "crop_box": list(box), "landmarks": (points / [w, h, w]).tolist(),
               "iris_rgb": colors, "iris_color_source": sources, "vertices": vertices,
-              "gpu": gpu, "peak_cuda_mib": peak}
+              "gpu": gpu, "peak_cuda_mib": peak, **material_reference}
     (stage / "landmarks.json").write_text(json.dumps(report, allow_nan=False), encoding="utf-8")
 
 
 if __name__ == "__main__":
     component, source, stage = (Path(value).resolve() for value in sys.argv[1:4])
     try:
-        run(component, source, stage, int(sys.argv[4]))
+        run(component, source, stage, int(sys.argv[4]), Path(sys.argv[5]) if len(sys.argv)>5 else None)
     except Exception as error:
         (stage / "error.json").write_text(json.dumps({"message": str(error)[:2048]}), encoding="utf-8")
         raise

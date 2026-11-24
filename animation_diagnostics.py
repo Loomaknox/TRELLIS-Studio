@@ -210,7 +210,7 @@ def rotation_findings(nodes, tracks, clip, issues):
                                       time_s=float(quarters.ravel()[at]), degrees=round(float(overshoot[at]), 1)))
 
 
-def world_positions(nodes, tracks, indices, samples, offsets=None):
+def world_matrices(nodes, tracks, indices, samples):
     parents = {child: parent for parent, node in enumerate(nodes) for child in node.get('children', [])}
     cache = {}
 
@@ -241,9 +241,14 @@ def world_positions(nodes, tracks, indices, samples, offsets=None):
             cache[index] = np.broadcast_to(transform, (len(samples), 4, 4))
         return cache[index]
 
+    return {index:world(index) for index in indices}
+
+
+def world_positions(nodes, tracks, indices, samples, offsets=None):
+    matrices = world_matrices(nodes, tracks, indices.values(), samples)
     points = {}
     for role,index in indices.items():
-        m = world(index)
+        m = matrices[index]
         points[role] = m[:,:3,3]
         if offsets and role in offsets:
             points[role] = points[role] + m[:,:3,:3] @ np.asarray(offsets[role])
@@ -276,6 +281,23 @@ def pose_findings(nodes, tracks, clip, mapping, rate, issues):
     if 'root' in points:
         travel = points['root'][-1] - points['root'][0]
         travel[1] = 0
+        pelvis = indices['root']
+        rest = world_matrices(nodes, {}, [pelvis], [0])[pelvis][0]
+        forward = world_matrices(nodes, tracks, [pelvis], samples)[pelvis][:,:3,:3] @ np.linalg.solve(rest[:3,:3], [0.,0.,1.])
+        forward /= np.maximum(np.linalg.norm(forward, axis=1)[:,None],1e-12)
+        for side in SIDES:
+            roles = [side+'_'+joint for joint in ('leg','shin','foot')]
+            if not all(role in points for role in roles):
+                continue
+            hip, knee, ankle = (points[role] for role in roles)
+            axis = ankle-hip
+            t = np.clip(((knee-hip)*axis).sum(1)/np.maximum((axis*axis).sum(1),1e-12),0,1)
+            bend = ((knee-hip-t[:,None]*axis)*forward).sum(1)
+            at = int(bend.argmin())
+            if bend[at] < -.04*np.linalg.norm(axis[at]) and bend[at] < -.015:
+                issues.append(finding('animation_knee_direction', '{clip} · {bone} · {time} s: knee bends behind the hip-to-ankle line ({distance} cm).',
+                                      'warning', clip, bone=mapping[roles[1]], time_s=float(samples[at]),
+                                      location_m=knee[at].tolist(), distance_cm=round(float(-100*bend[at]),1)))
     for side in SIDES:
         for joint in ('foot', 'toe'):
             role = side + '_' + joint
@@ -322,12 +344,42 @@ def inspect_animation(path, *, clips=None, mapping=None, strict=False, rate=48):
     if not selected:
         return dict(issues=issues, clips=measurements)
     with animation_buffer(path) as binary:
+        contact_cache = {}
+        if not mapping and data.get('skins') and any(animation_recipe(clip.get('name','')) for _,clip in selected):
+            from generated_motion import SOMA_TO_SEMANTIC, resolve_target_mapping
+            try:
+                joints, _ = resolve_target_mapping(data, binary)
+                mapping = {SOMA_TO_SEMANTIC[role]: data['nodes'][joint]['name'] for role,joint in joints.items()}
+            except (ValueError, KeyError, IndexError, TypeError, np.linalg.LinAlgError):
+                mapping = {}
         for index, item in selected:
             clip = item.get('name', f'Animation {index + 1}')
             try:
                 tracks, partial, errors = read_tracks(data, binary, item)
                 rotation_findings(data.get('nodes', []), tracks, clip, issues)
                 details = pose_findings(data.get('nodes', []), tracks, clip, mapping, rate, issues)
+                # Incomplete skin sampling is a coverage limitation of the measurement.
+                # It must never reject a valid animation channel.
+                from pose_surface_diagnostics import skin_contacts
+                try:
+                    contacts = skin_contacts(data, binary, tracks, item, mapping, rate, animation_recipe(clip), contact_cache)
+                except (ValueError, TypeError, IndexError, KeyError, np.linalg.LinAlgError):
+                    contacts = {'coverage':'unavailable'}
+                if contacts:
+                    details['surface_contacts'] = contacts
+                    for role, metric in contacts.get('regions', {}).items():
+                        candidates = [(metric['distance_m'], metric['time_s'], 'animation_skin_contact',
+                                      '{clip} · {bone} · {time} s: skin contact deviation {distance} cm.')]
+                        if 'box_penetration_m' in metric:
+                            candidates.append((metric['box_penetration_m'], metric['box_time_s'], 'animation_skin_box',
+                                               '{clip} · {bone} · {time} s: palm skin penetrates the box by {distance} cm.'))
+                        for distance, instant, code, msg in candidates:
+                            if distance > .015:
+                                issues.append(finding(code,msg,'warning',clip,bone=role,time_s=instant,distance_cm=round(100*distance,2)))
+                        if metric.get('max_support_speed_m_s',0) > .25:
+                            issues.append(finding('animation_support_speed','{clip} · {bone} · {time} s: support movement {speed} m/s.',
+                                                  'warning', clip, bone=role, time_s=metric['support_time_s'],
+                                                  speed=round(metric['max_support_speed_m_s'],2)))
                 measurements.append(dict(clip=clip, checked_tracks=len(tracks), **details))
             except (IndexError, KeyError, TypeError, ValueError, RecursionError) as error:
                 partial, errors = False, [(None, str(error))]

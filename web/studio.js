@@ -58,6 +58,7 @@ const multiview=createMultiviewInputs({
     if(role||mode)referencePreview.discard(role);
     if(swap)referencePreview.swapSides();
     if(role==='front'){
+      $('facialPortrait').value='';
       $('parentId').value='';
       if(file&&$('name').value==='New model')$('name').value=file.name.replace(/\.[^.]+$/,'').slice(0,80);
     }
@@ -556,11 +557,13 @@ $('form').onsubmit=async event=>{
     const current=new FormData($('form'));
     const form=workflow?new FormData():current;
     if(workflow){
+      if(!await referencePreview.reviewEdges(current.get('image')))return;
       for(const field of ['image','profile_id','name','height_m','asset_type','reference_prompt','parent_id']){
         if(current.has(field))form.set(field,current.get(field));
       }
       if(!profileControls.appendWorkflow(form))return;
     }else{
+      if(!await referencePreview.reviewEdges())return;
       for(const [field,value] of Object.entries(profileControls.budget()))form.set(field,String(value));
       multiview.appendRequest(form);
       form.set('remove_bg',String(multiview.usesPixal||$('removeBg').checked));
@@ -604,6 +607,14 @@ async function reuseJob(j){
   updateButtons();
   try{
     await multiview.restore(j);
+    $('facialPortrait').value='';
+    if(s.facial_portrait){
+      const response=await fetch(`/api/jobs/${j.id}/files/facial-portrait.png`);
+      if(!response.ok)throw Error(t('The supplemental portrait could not be restored.'));
+      const transfer=new DataTransfer();
+      transfer.items.add(new File([await response.blob()],'facial-portrait.png',{type:'image/png'}));
+      $('facialPortrait').files=transfer.files;
+    }
     referencePreview.restore(s.reference_edits,s.remove_bg);
     setMode(false);
     $('parentId').value=j.id;

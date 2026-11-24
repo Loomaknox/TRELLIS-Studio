@@ -19,6 +19,7 @@
 !/animation_edits.py
 !/animation_blend.py
 !/animation_worker.py
+!/pose_surface_diagnostics.py
 !/api_contract.py
 !/app.py
 !/creature_rig.py
@@ -129,6 +130,7 @@
 !/tests/creature_motion_blender.py
 !/tests/creature_rig_editor.mjs
 !/tests/rig_landmarks_blender.py
+!/tests/rig_lateral_integration.py
 !/tests/rig_profiles_api.py
 !/tests/rig_profiles_blender.py
 !/tests/texture_projection.py

@@ -56,7 +56,7 @@ def readiness(root):
     return {"ready": True, "reason": ""}
 
 
-def _infer(root, image, output_dir, seed):
+def _infer(root, image, output_dir, seed, portrait=None):
     component = _component(root)
     output = Path(output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -74,6 +74,8 @@ def _infer(root, image, output_dir, seed):
         env.update(TEMP=str(scratch), TMP=str(scratch), TMPDIR=str(scratch))
         argv = [str(_python(component)), "-I", "-B", "-u", str(script), str(component),
                 str(Path(image).resolve(strict=True)), str(stage), str(int(seed))]
+        if portrait is not None:
+            argv.append(str(Path(portrait).resolve(strict=True)))
         result = subprocess.run(argv, cwd=stage, env=env, stdin=subprocess.DEVNULL,
                                 timeout=1200, check=False,
                                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -91,13 +93,13 @@ def _infer(root, image, output_dir, seed):
     return {key: str(output / name) for key, name in paths.items()}
 
 
-def infer_head(root, image, output_dir, seed):
+def infer_head(root, image, output_dir, seed, portrait=None):
     from installer.facial_head_lock import component_lock
     with component_lock(root):
         state = readiness(root)
         if not state["ready"]:
             raise RuntimeError(state["reason"])
-        return _infer(root, image, output_dir, seed)
+        return _infer(root, image, output_dir, seed, portrait)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,8 @@
 
 Coordinates are [horizontal / height, height above ground / height] before
 offset_m. Positive horizontal is the character's anatomical left. They locate
-joint centres in the front view; UniRig supplies each joint's depth.
+joint centres in the front view. Knee and ankle markers optionally carry
+a third coordinate, glTF +Z depth / height.
 """
 import math
 
@@ -24,9 +25,11 @@ def validate_landmarks(value):
     result = {}
     for key in LANDMARK_KEYS:
         point = value[key]
-        if (not isinstance(point, (list, tuple)) or len(point) != 2
+        leg = key.endswith(('_knee', '_ankle'))
+        if (not isinstance(point, (list, tuple)) or len(point) not in ((2, 3) if leg else (2,))
                 or not all(_number(v) for v in point)
-                or not -1 <= point[0] <= 1 or not 0 <= point[1] <= 1.05):
+                or not -1 <= point[0] <= 1 or not 0 <= point[1] <= 1.05
+                or len(point) == 3 and not -.5 <= point[2] <= .5):
             raise ValueError('Rig landmarks must be finite [x, y] positions within the character setup area.')
         result[key] = [float(v) for v in point]
     chin, groin = result['chin'], result['groin']
@@ -44,7 +47,7 @@ def validate_landmarks(value):
         if max(elbow[1], wrist[1]) >= chin[1] or min(elbow[1], wrist[1]) <= ankle[1]:
             raise ValueError('Place elbows and wrists between the ankles and chin.')
         for a, b in ((shoulder, elbow), (elbow, wrist), (knee, ankle)):
-            if math.dist(a, b) < .015:
+            if math.dist(a[:2], b[:2]) < .015:
                 raise ValueError('Adjacent limb landmarks are too close together.')
     return result
 

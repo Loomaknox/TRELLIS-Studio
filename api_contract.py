@@ -235,7 +235,7 @@ class Rig(Contract):
     rotation:tuple[float,float,float]=(0,0,0)
     height_m:float=Field(default=1.7,ge=.2,le=3)
     offset_m:float=Field(default=0,ge=-1,le=1)
-    landmarks:dict[str,list[float]]|None=Field(default=None,description='Optional complete set of 12 frontal joint markers [x/height,y/height], centre/ground origin before offset. +X is anatomical left. Requires an unrigged humanoid A/T pose; depth is predicted by UniRig.')
+    landmarks:dict[str,list[float]]|None=Field(default=None,description='Optional 12 frontal joint markers [x/height,y/height] before offset. +X is anatomical left. Knees and ankles optionally accept a third coordinate, depth/height along glTF +Z from the model centre.')
     profile:Literal['auto','simple','standard','advanced','expert','expressive']|None=Field(default='auto',description='Optional humanoid profile listed in Studio status. Auto uses the existing UniRig workflow. Expressive has 65 bones with rigid hands or 95 with articulated fingers.')
     articulated_fingers:bool|None=Field(default=None,description='Hand module for Advanced, Expert, and Expressive. Advanced and Simple default to rigid hands. Standard, Expert, and Expressive default to articulated fingers.')
     @model_validator(mode='before')

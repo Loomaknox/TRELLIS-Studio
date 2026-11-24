@@ -5,6 +5,10 @@ const imageNames = {original: 'Original', cutout: 'Cutout', framed: 'Model input
 const warningMessages = {
   reference_crop_cut: 'The crop crosses the foreground. Check for cut-off details before generating.',
   reference_mask_small: 'Very little foreground remains. Check the cutout or widen the crop.',
+  reference_edge_left: 'The subject touches the left edge of the original image.',
+  reference_edge_right: 'The subject touches the right edge of the original image.',
+  reference_edge_top: 'The subject touches the top edge of the original image.',
+  reference_edge_bottom: 'The subject touches the bottom edge of the original image.',
 };
 const fullCrop = [0, 0, 1, 1];
 const svgNamespace = 'http://www.w3.org/2000/svg';
@@ -152,6 +156,12 @@ export function createReferencePreview({api, multiview, removeBackground}) {
       (warnings?.length ? warnings.map(message => t(message)).join(' ') : t(dirty ?
       'Corrections pending. Update the preview to check the new model input.' :
       'Model input shows the prepared image sent to the generation engine.'));
+    const face = !dirty && view()?.face;
+    if (!request && !failure && face) {
+      status.textContent += ' ' + t('Face at the first native pass ({size} px): about {width} × {height} px.', {
+        size: face.input_px, width: face.box_px[2], height: face.box_px[3]});
+      if (Math.min(...face.box_px.slice(2)) < 64) status.textContent += ' '+t('For more facial detail, reuse the result and add a portrait with TOPOS.');
+    }
     updateButton.disabled = Boolean(request) || (!dirty && !failure);
     applyButton.disabled = !views.length || Boolean(request) || dirty || Boolean(failure);
     content.setAttribute('aria-busy', Boolean(request));
@@ -252,6 +262,7 @@ export function createReferencePreview({api, multiview, removeBackground}) {
       return;
     }
     form.set('engine', multiview.method);
+    form.set('character', String(document.getElementById('assetType').value === 'humanoid'));
     form.set('remove_bg', String(multiview.usesPixal || removeBackground.checked));
     form.set('reference_edits', payload);
     const controller = new AbortController();
@@ -397,6 +408,40 @@ export function createReferencePreview({api, multiview, removeBackground}) {
   return {
     get open() { return dialog.open; },
     sync,
+    async reviewEdges(fixedImage=null) {
+      if (!fixedImage && approvedContext === context()) return true;
+      const form = fixedImage ? new FormData() : multiview.referenceRequest();
+      if(fixedImage)form.set('image',fixedImage);
+      form.set('engine', fixedImage?'trellis2':multiview.method);
+      form.set('remove_bg', String(Boolean(fixedImage)||multiview.usesPixal || removeBackground.checked));
+      form.set('reference_edits', fixedImage?'{}':JSON.stringify(selectedEdits(saved)));
+      form.set('preflight', 'true');
+      const result = await api('/api/reference-preview', {method:'POST', body:form});
+      if (!result.views?.length) return true;
+      if(fixedImage){
+        const dialog=document.createElement('dialog');dialog.className='studio-dialog';
+        const title=document.createElement('h2');title.textContent=t('Review the original framing');
+        dialog.setAttribute('aria-label',title.textContent);
+        const thumb=document.createElement('img');thumb.src=result.views[0].cutout;thumb.alt=t('Cutout');
+        thumb.style.cssText='max-height:42vh;max-width:100%;object-fit:contain';
+        const text=document.createElement('p');
+        text.textContent=result.views[0].warnings.map(code=>t(warningMessages[code]||code)).join(' ');
+        const buttons=document.createElement('form');buttons.method='dialog';
+        for(const [label,value] of [['Cancel','cancel'],['Use this reference','accept']]){
+          const button=document.createElement('button');button.textContent=t(label);button.value=value;buttons.append(button);
+        }
+        dialog.append(title,thumb,text,buttons);document.body.append(dialog);
+        const answer=new Promise(resolve=>dialog.addEventListener('close',()=>{resolve(dialog.returnValue==='accept');dialog.remove();},{once:true}));
+        dialog.showModal();return answer;
+      }
+      await openPreview({currentTarget:button});
+      if (dialog.open) {
+        role = result.views[0].role;
+        selectStage('cutout');
+        describeStatus();
+      }
+      return false;
+    },
     append(form) {
       const edits = selectedEdits(saved);
       if (approvedContext === context() || Object.keys(edits).length) form.set('reference_edits', JSON.stringify(edits));

@@ -116,7 +116,8 @@ def generate(root, job, settings, image, reviewed, options, status):
         subject_path = work / 'subject.png'
         subject.save(subject_path)
         status('running', 'Estimating facial landmarks and head geometry', 6)
-        files = infer_head(root, subject_path, work, settings['seed'])
+        portrait = job / 'facial-portrait.png' if settings.get('facial_portrait') else None
+        files = infer_head(root, subject_path, work, settings['seed'], portrait)
         detection = json.loads(Path(files['landmarks_json']).read_text(encoding='utf8'))
         pixels = face_landmarks(detection, subject)
         donor, donor_faces = read_topos(files['head_obj'])
@@ -134,10 +135,14 @@ def generate(root, job, settings, image, reviewed, options, status):
                 condition_transform=lambda pipeline, cond, resolution: portrait_conditioning(
                     pipeline, cond, subject, pixels, detection, files['portrait'], resolution))
         from facial_head_color import prepare_face_material
-        guide = prepare_face_material(vertices, faces, target, pixels, subject)
+        if portrait is None:
+            guide = prepare_face_material(vertices, faces, target, pixels, subject)
+        else:
+            with Image.open(portrait) as closeup:
+                guide = prepare_face_material(vertices, faces, target, np.asarray(detection['portrait_landmarks_px']), closeup)
     report = dict(state='applied', method='TOPOS-DiT', landmarks=478, eyes=2, material_inferences=1,
                   modified_vertices=changed, shape_resolution=decoded_res, material_resolution=1024,
-                  deformation_quality=quality,
+                  deformation_quality=quality, supplemental_portrait=portrait is not None,
                   iris_color_source=detection.get('iris_color_source', []))
     return dict(vertices=torch.from_numpy(vertices), faces=torch.from_numpy(faces),
                 coords=torch.as_tensor(coords[:, 1:]).contiguous(), attr_volume=torch.as_tensor(attrs).half(),

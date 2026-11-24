@@ -97,9 +97,10 @@ elif stage=='verify':
     anchors=landmark_anchors(names,report['mapping'])
     fixture=json.loads((work/'fixture.json').read_text());expected=np.asarray(fixture['world_bones']).reshape(-1,3)
     for key,index in anchors.items():
-        x,y=options['landmarks'][key]
+        marker=options['landmarks'][key];x,y=marker[:2]
         assert np.allclose(aligned[index,[0,2]],[x*options['height_m'],y*options['height_m']+options['offset_m']],atol=2e-5),(key,aligned[index])
-        assert abs(aligned[index,1]-report['anchors'][key]['before'][1])<2e-5
+        expected_depth=-marker[2]*options['height_m'] if len(marker)==3 else report['anchors'][key]['before'][1]
+        assert abs(aligned[index,1]-expected_depth)<2e-5
         original_index=fixture['names'].index(report['anchors'][key]['bone'])*2+(index%2)
         assert np.allclose(report['anchors'][key]['before'],expected[original_index],atol=2e-5),(key,'wrong normalization/alignment')
     extracted=work/'skeleton-landmarks'/'raw_data.npz'

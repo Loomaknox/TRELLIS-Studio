@@ -134,6 +134,12 @@ def reference_warnings(cutout, crop, engine):
         # Compare both sides of each new crop edge. An intentional trim of
         # transparent margins should not be reported as a cut silhouette.
         mask = np.asarray(alpha) >= threshold
+        # Evaluate the full file before the silhouette crop or encoder padding.
+        # A fully opaque input has no usable background segmentation.
+        for side, border in (('left', mask[:, 0]), ('right', mask[:, -1]),
+                             ('top', mask[0]), ('bottom', mask[-1])):
+            if border.any():
+                warnings.append('reference_edge_' + side)
         crosses = (
             left > 0 and np.any(mask[top:bottom, left - 1] & mask[top:bottom, left]),
             right < width and np.any(mask[top:bottom, right - 1] & mask[top:bottom, right]),
@@ -143,6 +149,41 @@ def reference_warnings(cutout, crop, engine):
         if any(crosses):
             warnings.append('reference_crop_cut')
     return warnings
+
+
+def reference_face_size(frame, root=None):
+    """Measure a single confident frontal face in the prepared native conditioning frame."""
+    try:
+        import cv2
+    except ImportError:
+        return None
+    if root:
+        from face_projection import _find_face
+        from pixal3d_runtime import verified_face_detector
+        try:
+            model = verified_face_detector(root)
+            detector = cv2.FaceDetectorYN.create(str(model), '', (320, 320), .65, .3, 20)
+            box, _, _ = _find_face(detector, np.asarray(frame.convert('RGB')), 'reference', 1024)
+            factor = np.array([512/frame.width, 512/frame.height]*2)
+            return dict(stage='native_structure', input_px=512, box_px=np.round(box*factor).astype(int).tolist())
+        except (OSError, ValueError, RuntimeError, cv2.error):
+            pass
+    gray = np.asarray(frame.convert('L').resize((512, 512), Image.Resampling.LANCZOS))
+    cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+    if cascade.empty():
+        return None
+    boxes = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(24, 24))
+    if not len(boxes):
+        # Upsample the upper-body region to detect small faces without changing
+        # the measured input size. Tall hats are a reason to leave this unknown.
+        upper = cv2.resize(gray[:230,96:416],None,fx=2,fy=2,interpolation=cv2.INTER_CUBIC)
+        found = cascade.detectMultiScale(upper,scaleFactor=1.08,minNeighbors=5,minSize=(30,30))
+        if len(found) == 1:
+            boxes = np.round(found/2 + np.array([96,0,0,0])).astype(int)
+    if len(boxes) != 1:
+        return None
+    x, y, width, height = map(int, boxes[0])
+    return dict(stage='native_structure', input_px=512, box_px=[x, y, width, height])
 
 
 def _trellis_frame(image):

@@ -27,6 +27,11 @@ export async function createPreparationPreview(container,url,result){
  }
  const obstacles = motionObstacles(gltf,result);
  return {get root(){return root;},clips:gltf.animations,obstacles,frame,showEdges,
+  pose(index, time){
+    if(index==null)return;
+    this.play(index);
+    clip.time=Math.min(Math.max(0,time),clip.getClip().duration);clip.paused=true;mixer.update(0);
+  },
   game(options){root.position.set(0,0,0);root.scale.setScalar(options.scale);root.rotation.set(...options.rotation.map(THREE.MathUtils.degToRad),'ZYX');root.updateMatrixWorld(true);const b=new THREE.Box3().setFromObject(root,true),c=b.getCenter(new THREE.Vector3());if(options.pivot!=='source')root.position.set(-c.x,-(options.pivot==='ground'?b.min.y:c.y),-c.z);root.position.add(new THREE.Vector3(...options.offset));root.updateMatrixWorld(true);box.visible=options.collider!=='none';box.box.setFromObject(root,true);rig.fit(root);},
   play(index){mixer?.stopAllAction();mixer=new THREE.AnimationMixer(root);clip=mixer.clipAction(gltf.animations[index]);const wasActive=obstacle.active;obstacle.set(root,obstacles[index]);playPreviewAction(clip,obstacle.active);if(wasActive||obstacle.active)frame();clock.getDelta();},
   contacts(report){for(const d of dots){scene.remove(d.mesh);d.mesh.geometry.dispose();d.mesh.material.dispose();}dots=[];contactReport=report;for(const foot of Object.values(report?.contacts||{})){const height=new THREE.Box3().setFromObject(root,true).getSize(new THREE.Vector3()).y;const mesh=new THREE.Mesh(new THREE.SphereGeometry(Math.max(.005,height*.013),12,8),new THREE.MeshBasicMaterial({color:0xc4f58a,depthTest:false}));mesh.renderOrder=15;scene.add(mesh);dots.push({mesh,points:foot.positions,contacts:foot.contact});}},

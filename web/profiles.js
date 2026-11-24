@@ -540,6 +540,11 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       if(facialHead.checked && !$('facialHeadField').hidden){
         if(facialHeadReason)throw Error(t(facialHeadReason));
         form.set('facial_head_enhancement','true');
+        const portrait=$('facialPortrait').files[0];
+        if(portrait){
+          if(!form.get('parent_id'))throw Error(t('Reuse a generated character before adding a portrait to its variant.'));
+          form.set('facial_portrait',portrait);
+        }
       }
       if (value==='repair') form.set('repair_surface','true');
       if (value==='none'||detailRefinements[value]||value==='wtivo_1024'||(value==='studio_768'&&masterSupport.studio_768?.available)) {

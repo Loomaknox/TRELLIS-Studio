@@ -71,10 +71,15 @@ export function createRigSetupViewer({scene, camera, controls, viewport, getMode
   mannequin.add(ruler);
   function emit() { onChange?.(getLandmarks(), selected); }
   function move(key, value) {
-    points[key] = [Math.max(-1,Math.min(1,value[0])),Math.max(0,Math.min(1.05,value[1]))];
+    const marker = points[key].slice();
+    const side = orientationView !== 'front';
+    if (side) marker[2] = Math.max(-.5,Math.min(.5,value[0]));
+    else marker[0] = Math.max(-1,Math.min(1,value[0]));
+    marker[1] = Math.max(0,Math.min(1.05,value[1]));
+    points[key] = marker;
     if (symmetric && /^(left|right)_/.test(key)) {
       const other = key.replace(/^(left|right)_/, key.startsWith('left_') ? 'right_' : 'left_');
-      points[other] = [-points[key][0], points[key][1]];
+      points[other] = [-marker[0], marker[1], ...(side ? [marker[2]] : points[other].slice(2))];
     } else if (symmetric && (key === 'chin' || key === 'groin')) points[key][0] = 0;
     selected = key; emit(); update();
   }
@@ -93,8 +98,11 @@ export function createRigSetupViewer({scene, camera, controls, viewport, getMode
       if (!drag || drag.key !== key) return;
       const rect = viewport.getBoundingClientRect();
       ray.setFromCamera(new THREE.Vector2((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1),camera);
+      const side = orientationView !== 'front';
+      dragPlane.normal.set(side?1:0,0,side?0:1);
+      dragPlane.constant = -(side ? points[key][0] : points[key][2] || 0)*options.height_m;
       const hit = ray.ray.intersectPlane(dragPlane,new THREE.Vector3());
-      if (hit) move(key,[hit.x/options.height_m,(hit.y-options.offset_m)/options.height_m]);
+      if (hit) move(key,[(side ? hit.z : hit.x)/options.height_m,(hit.y-options.offset_m)/options.height_m]);
     };
     const end = () => { drag = null; if (base) controls.enabled = base.controlsEnabled; };
     button.onpointerup = end; button.onpointercancel = end; button.onlostpointercapture = end;
@@ -103,14 +111,15 @@ export function createRigSetupViewer({scene, camera, controls, viewport, getMode
       const delta = {ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,1],ArrowDown:[0,-1]}[event.key];
       if (!delta || !points) return;
       event.preventDefault(); const step=event.shiftKey ? .01 : .002;
-      move(key,points[key].map((v,i)=>v+delta[i]*step));
+      const side=orientationView!=='front', sign=orientationView==='right'?-1:1;
+      move(key,[(side ? points[key][2] || 0 : points[key][0])+sign*delta[0]*step,points[key][1]+delta[1]*step]);
     };
     overlay.append(button); buttons.set(key,button);
   }
   function frame(view) {
     if (!base) return;
-    if (!markerMode && ['front','left','right'].includes(view)) orientationView=view;
-    const angle = markerMode ? 'front' : orientationView;
+    if (['front','left','right'].includes(view)) orientationView=view;
+    const angle = orientationView;
     const side = angle!=='front';
     const box = new THREE.Box3().setFromObject(base.model,true);
     mannequin.visible=!markerMode&&!side;
@@ -148,7 +157,7 @@ export function createRigSetupViewer({scene, camera, controls, viewport, getMode
   }
   function startMarkers(config={}) {
     if (!base) return;
-    markerMode=true;helpers.visible=false;legend.hidden=true;
+    markerMode=true;orientationView='front';helpers.visible=false;legend.hidden=true;
     points=config.points?structuredClone(config.points):initialRigLandmarks();
     symmetric=config.symmetry??true;onChange=config.onChange;
     for (const button of buttons.values()) button.hidden=false;
@@ -164,7 +173,10 @@ export function createRigSetupViewer({scene, camera, controls, viewport, getMode
     const rect=viewport.getBoundingClientRect();
     for (const [key,button] of buttons) {
       if (!markerMode) continue;
-      const p=new THREE.Vector3(points[key][0]*options.height_m,points[key][1]*options.height_m+options.offset_m,0).project(camera);
+      const visible = orientationView==='front' || (key.startsWith(orientationView==='left'?'right_':'left_') && /_(knee|ankle)$/.test(key));
+      button.hidden=!visible;
+      if(!visible)continue;
+      const p=new THREE.Vector3(points[key][0]*options.height_m,points[key][1]*options.height_m+options.offset_m,(points[key][2]||0)*options.height_m).project(camera);
       button.style.left=(p.x+1)*rect.width/2+'px';button.style.top=(1-p.y)*rect.height/2+'px';
       button.classList.toggle('selected',key===selected);
     }

@@ -446,6 +446,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  $('cancelRigSetup').onclick=()=>{if(rigStep===1){savedLandmarks=rigSetup.getLandmarks();rigSetup.endMarkers();showRigStep(0);}else{closeRig();render();}};
  $('resetRigSetup').onclick=()=>{if(rigStep===1){rigSetup.resetMarkers();return;}savedLandmarks=null;rotation.forEach(s=>s.value=0);$('rigHeight').value=1.7;$('rigOffset').value=0;changeRig();};
  $('rigSymmetry').onchange=()=>rigSetup.setSymmetry($('rigSymmetry').checked);
+ for(const button of document.querySelectorAll('[data-rig-plane]'))button.onclick=()=>rigSetup.frame(button.dataset.rigPlane);
  $('confirmRigSetup').onclick=async()=>{
   const options=rigOptions(),j=getJob(),button=$('confirmRigSetup');
   if(!j||j.id!==rigJobId){closeRig();return;}

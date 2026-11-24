@@ -47,6 +47,18 @@ def main():
     assert report['max_depth_change_m']==0
     assert all(v['error_m']<1e-10 for v in report['anchors'].values())
     assert np.array_equal(after[:,[1,4]],bones[:,[1,4]])
+    side=copy.deepcopy(options)
+    side['landmarks']['left_knee'].append(.07)
+    side['landmarks']['left_ankle'].append(-.03)
+    new,depth=place_joints(bones,parents,names,mapping,validate_rig_options(side))
+    assert np.isclose(depth['anchors']['left_knee']['after'][1],-.07*1.8)
+    assert np.isclose(depth['anchors']['left_ankle']['after'][1],.03*1.8)
+    assert depth['anchors']['right_knee']['after'][1]==report['anchors']['right_knee']['after'][1]
+    assert Rig(**side).model_dump()['landmarks']==side['landmarks']
+    side['landmarks']['left_wrist'].append(.03)
+    try:validate_rig_options(side)
+    except ValueError:pass
+    else:raise AssertionError('Unexpected wrist depth accepted')
     for side in ('left','right'):
         finger=names.index(side+'Finger');hand=names.index(side+'Hand')
         assert np.allclose(after[finger]-bones[finger],np.tile(after[hand,:3]-bones[hand,:3],2))

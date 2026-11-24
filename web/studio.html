@@ -174,6 +174,8 @@
   <div id="facialHeadField" hidden>
     <label class="check"><input id="facialHeadEnhancement" type="checkbox" autocomplete="off" aria-describedby="facialHeadHelp" disabled><span>Enhance face (TOPOS)</span></label>
     <p class="hint" id="facialHeadHelp"></p>
+    <p class="hint">TOPOS adds separate eyes. Check compatibility before using texture projection, baked game copies or UltraTex on this variant.</p>
+    <label class="field">Optional frontal portrait for a variant<input type="file" id="facialPortrait" accept="image/png,image/jpeg,image/webp"></label>
   </div>
   <label id="keepFinishingSourceField" class="check"><input id="keepFinishingSource" name="keep_finishing_source" type="checkbox" value="true"><span>Keep source for finishing variants</span></label>
   <p id="finishingSourceHelp" class="hint">Stores the decoded geometry and materials so finishing can be repeated.</p>
@@ -215,7 +217,8 @@
  <div id="rigLandmarkStep" hidden><p class="hint">Drag each marker onto the joint. L and R refer to the character’s own sides. Use the arrow keys for fine adjustments, Shift for larger steps.</p>
  <div class="rig-marker-key"><span style="--marker-color:#6bd7e8">Chin</span><span style="--marker-color:#e6d56a">Shoulders</span><span style="--marker-color:#8fdf83">Elbows</span><span style="--marker-color:#d990d9">Wrists</span><span style="--marker-color:#e2e8db">Groin</span><span style="--marker-color:#e8a365">Knees</span><span style="--marker-color:#b6d76b">Ankles</span></div>
  <label class="rig-symmetry"><input id="rigSymmetry" type="checkbox" checked> Mirror paired markers</label><output id="rigSelectedPoint" class="rig-selected-point" aria-live="polite"></output>
- <p class="hint">Starting markers are a guide. Check every joint before confirming. Depth is estimated from the model.</p></div>
+ <div class="field"><button type="button" class="secondary" data-rig-plane="front">Front</button><button type="button" class="secondary" data-rig-plane="left">Left</button><button type="button" class="secondary" data-rig-plane="right">Right</button></div>
+ <p class="hint">Use a side view to adjust knee and ankle depth. Untouched depths follow the predicted skeleton.</p></div>
  <p id="rigCreatureStep" class="hint" hidden>UniRig proposes bones from the 3D mesh. Review the joints and branches before applying skin weights.</p>
  <button id="openRigDiagnostics" class="quiet" type="button">Inspect source mesh</button>
  <div class="rig-setup-actions"><button id="resetRigSetup" class="secondary" type="button">Reset</button><button id="cancelRigSetup" class="quiet" type="button">Cancel</button><button id="confirmRigSetup" class="primary" type="button">Next · place joints</button></div>

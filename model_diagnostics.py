@@ -6,7 +6,7 @@ import trimesh
 from scipy.spatial import cKDTree
 from glb_data import read,image,animation_info,posed_bounds,accessor
 
-VERSION=5
+VERSION=6
 OVERLAY_LIMIT=1000
 INTERSECTION_FACE_LIMIT=64_000
 INTERSECTION_SAMPLE_LIMIT=4_000
@@ -76,8 +76,8 @@ def suspected_intersections(vertices, faces, extent):
     return ids[candidates[crosses]]
 
 
-def diagnose(folder,force=False,*,verified_digest=None,staged_cache=None):
-    folder=Path(folder);source=folder/'model.glb';stat=source.stat();target=folder/'Diagnostics';cache=target/'report.json'
+def diagnose(folder,force=False,*,verified_digest=None,staged_cache=None,pose_surfaces=False):
+    folder=Path(folder);source=folder/'model.glb';stat=source.stat();target=folder/'Diagnostics';cache=target/('pose-report.json' if pose_surfaces else 'report.json')
     if not force:
         if verified_digest is not None:
             old = matching_report(staged_cache or cache, verified_digest)
@@ -157,14 +157,16 @@ def diagnose(folder,force=False,*,verified_digest=None,staged_cache=None):
             alpha_mode=entry.get('alphaMode','OPAQUE'),double_sided=entry.get('doubleSided',False)))
     clips=animation_info(data,binary)
     motion_scan = None
-    if clips:
-        from animation_diagnostics import inspect_animation
+    mapping = {}
+    if clips or pose_surfaces:
         try:
             result = json.loads((folder/'result.json').read_text(encoding='utf-8'))
         except (OSError, ValueError):
             result = {}
+        mapping = result.get('humanoid_mapping', {}) if isinstance(result, dict) else {}
+    if clips:
+        from animation_diagnostics import inspect_animation
         try:
-            mapping = result.get('humanoid_mapping', {}) if isinstance(result, dict) else {}
             motion_scan = inspect_animation(source, strict=False, mapping=mapping)
             issues.extend(motion_scan['issues'])
         except (OSError, ValueError):
@@ -208,5 +210,10 @@ def diagnose(folder,force=False,*,verified_digest=None,staged_cache=None):
         intersection_scope=('Nearest-face samples within each mesh are checked for crossing faces.' if can_mark
                             else 'Crossing-face samples are available for static meshes without morph targets or GPU instancing.'),
         not_checked=['Exhaustive self-intersections','UV overlaps','Minimum wall thickness','Morph target deformations','Rig fit and deformation quality','Visual quality','Gameplay readiness','Physical printability'])
+    if pose_surfaces:
+        from pose_surface_diagnostics import inspect_surfaces
+        report['pose_surfaces'] = inspect_surfaces(data, binary, mapping)
+        if report['pose_surfaces']['weights'] or report['pose_surfaces'].get('worst_crossing'):
+            report['status'] = 'attention'
     target.mkdir(exist_ok=True);temp=target/('report-'+uuid.uuid4().hex+'.tmp');temp.write_text(json.dumps(report,indent=2,allow_nan=False),encoding='utf-8');temp.replace(cache)
     return report
