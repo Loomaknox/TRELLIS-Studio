@@ -4,6 +4,7 @@ export default {
   'Unity paint {size} × {size}': 'Peinture Unity {size} × {size}',
   'Delivered STL': 'STL livré',
   'No surface report for this STL': 'Aucun rapport de surface pour ce STL',
+  "Unable to load model: {reason}": "Impossible de charger le modèle. {reason}",
   "Engine used: {engine}": "Moteur utilisé : {engine}",
   "Unable to inspect this model: {reason}": "Impossible d’analyser ce modèle. {reason}",
   "3D model view": "Vue du modèle en 3D",
