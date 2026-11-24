@@ -52,12 +52,9 @@ $taskRequired+=@('texture_projection.py','baked_game_copy.py','game_bake_blender
     'model_finishing_worker.py','web/texture-projection.js','web/texture-projection-geometry.js',
     'web/texture-projection-auto-align.js','web/texture-projection.css',('docs/RELEASE_'+$taskPackage.version+'.md'))
 $taskRequired+=@('web/game-copy-regions.js','web/reduction-region-preview.js')
-<<<<<<< HEAD
 $taskRequired+=@('segmentation_runtime.py','installer/install_segmentation.py','installer/requirements-segmentation.txt')
 $taskRequired+=@('pose_surface_diagnostics.py')
-=======
 $taskRequired+='asset_provenance.py'
->>>>>>> 0c6ed04 (Trace texture fallback and variant history through delivered export packages)
 $taskRequired+=@('facial_head_runtime.py','facial_head_infer.py','facial_head_generation.py','facial_head_geometry.py',
     'facial_head_eyes.py','facial_head_color.py','installer/facial_head_lock.py','installer/install_facial_head.py',
     'installer/facial-head-manifest.json','installer/requirements-facial-head.txt','Installer le module visage.cmd',
