@@ -11,6 +11,12 @@ TRELLIS Studio is an independent community application built around **Microsoft 
 
 > **Windows x64 preview.** The upstream maintainer tested Full Studio installation, generation and uninstallation on Windows 11 with an RTX 4070 Ti (12 GB VRAM). Installation verifies components, but output quality, deformation and target-engine suitability still need visual review. The Studio code is MIT; model and dependency licenses are separate, particularly DINOv3.
 
+## Windows Preview · November 2026
+
+The Preview installer comes from commit `da4d367`. Its seven batches cover generation, rig diagnostics, export fidelity, disk use, the French interface, Server isolation and installation. The RTX 5070 Ti test generated Aélis in native High Detail in **5 min 40 s**. Unity 6 reimported the 1.72 m character with 52 bones and played its walk. The comparison shows sharper armour detail, thicker fingers and a less faithful gaze. [See the comparisons, Unity clip and test results](https://github.com/Loomaknox/TRELLIS-Studio/blob/preview/qualification-3.15.1/docs/qualification/README.md)
+
+Download the unsigned **Windows x64 Preview** and verify its SHA-256 against the release checksum. In Setup, select the TRELLIS.2 generation profile and the optional **High Detail GGUF with native PBR** component. In Studio, choose **Create → High Detail → TRELLIS.2 GGUF → TRELLIS.2 PBR**. The offline media covers Workshop, MCP and the standard animations. PyTorch and Transformers advisories remain open. [Get the Preview](https://github.com/Loomaknox/TRELLIS-Studio/releases/tag/v3.15.1-preview.1) · [Native profile guide at this revision](https://github.com/Loomaknox/TRELLIS-Studio/blob/da4d367/docs/NATIVE_PROFILES.md#windows-setup) · [Dependency status](https://github.com/Loomaknox/TRELLIS-Studio/blob/da4d367/SECURITY.md)
+
 ## What was tested in the 3.15.1 fork
 
 On Windows, open Studio from its desktop or Start menu shortcut. The optional **Enhance face (TOPOS)** setting reconstructs eyelids and eyes as part of generation. [Install or remove TOPOS](docs/FACIAL_HEAD.md).

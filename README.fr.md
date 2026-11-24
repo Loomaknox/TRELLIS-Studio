@@ -8,6 +8,12 @@ TRELLIS Studio est une application communautaire indépendante qui s’appuie su
 
 Les calculs s’exécutent sur la machine qui héberge Studio, où restent les images de référence et les modèles. **Desktop** est destiné à un seul utilisateur. **Server** donne à chaque compte approuvé sa propre bibliothèque et permet un accès par le réseau local ou par un domaine avec HTTPS.
 
+## Version Windows en essai · novembre 2026
+
+L’installeur Preview correspond au commit `da4d367`. Ses sept lots couvrent la génération, les diagnostics du squelette, les exports, l’espace disque, l’interface française, l’isolation des comptes Serveur et l’installation. Sur RTX 5070 Ti, Aélis a été générée en High Detail natif en **5 min 40 s**. Unity 6 a réimporté le personnage à 1,72 m avec ses 52 os et joué sa marche. Le comparatif montre une armure plus détaillée, des doigts plus épais et un regard moins fidèle. [Voir les comparatifs, la marche dans Unity et les résultats](https://github.com/Loomaknox/TRELLIS-Studio/blob/preview/qualification-3.15.1/docs/qualification/README.fr.md)
+
+Téléchargez la **Preview Windows x64** non signée et vérifiez son SHA-256 avec celui publié sur la page de téléchargement. Dans l’installeur, sélectionnez la génération TRELLIS.2 et le composant facultatif **High Detail GGUF avec PBR natif**. Dans Studio, choisissez **Créer → High Detail → TRELLIS.2 GGUF → TRELLIS.2 PBR**. Le support hors ligne comprend l’Atelier, MCP et les animations standard. Des avis de sécurité restent ouverts pour PyTorch et Transformers. [Télécharger la Preview](https://github.com/Loomaknox/TRELLIS-Studio/releases/tag/v3.15.1-preview.1) · [Guide du profil natif à cette révision](https://github.com/Loomaknox/TRELLIS-Studio/blob/da4d367/docs/NATIVE_PROFILES.md#windows-setup) · [Suivi des dépendances](https://github.com/Loomaknox/TRELLIS-Studio/blob/da4d367/SECURITY.md)
+
 ## Interface en français
 
 Sous Windows, le raccourci **TRELLIS Studio** du bureau ou du menu Démarrer ouvre l’interface. Le module facultatif **Améliorer le visage (TOPOS)** reconstruit les paupières et les yeux pendant la génération. [Installation et désinstallation de TOPOS](docs/FACIAL_HEAD.md)
