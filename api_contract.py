@@ -42,6 +42,13 @@ class ReferenceUploads(Contract):
 class ReferencePreview(ReferenceUploads):
     engine: ReferenceEngine = 'trellis2'
     remove_bg: bool = True
+    character: bool = False
+
+
+class ReferenceFaceSize(Contract):
+    stage: Literal['native_structure']
+    input_px: int = Field(gt=0)
+    box_px: tuple[int, int, int, int]
 
 
 class ReferencePreviewView(Contract):
@@ -51,6 +58,8 @@ class ReferencePreviewView(Contract):
     original: str
     cutout: str
     framed: str
+    warnings: list[str] = Field(default_factory=list)
+    face: ReferenceFaceSize | None = None
 
 
 class ReferencePreviewResult(Contract):

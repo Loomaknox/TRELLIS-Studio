@@ -160,7 +160,7 @@ def install(app,g):
         recipe = data.model_dump(include={'reference_edits'}, exclude_none=True)
         with ExitStack() as stack:
             return await g['prepare_reference_preview'](
-                **reference_files(data, stack), engine=data.engine, remove_bg=data.remove_bg,
+                **reference_files(data, stack), engine=data.engine, remove_bg=data.remove_bg,character=data.character,
                 reference_edits=json.dumps(recipe.get('reference_edits', {})), preview_size=240)
 
     @router.post('/generations',tags=['Generation'],status_code=202,response_model=JobAccepted,summary='Queue a generation from an uploaded image')

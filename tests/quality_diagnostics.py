@@ -26,6 +26,15 @@ class QualityDiagnosticsTests(unittest.TestCase):
         draw.rectangle((76,0,80,24), fill='white')
         self.assertEqual(reference_warnings(im,None,'pixal3d'),['reference_edge_left','reference_edge_top'])
 
+    def test_reference_preview_rest_contract_accepts_warnings_and_face(self):
+        from api_contract import ReferencePreviewResult
+        view=dict(role='front',width=160,height=160,original='png',cutout='png',framed='png',
+                  warnings=['reference_edge_left'],face=dict(stage='native_structure',input_px=512,box_px=[200,40,36,47]))
+        parsed=ReferencePreviewResult(engine='trellis2',views=[view])
+        self.assertEqual(parsed.views[0].face.box_px,(200,40,36,47))
+        view.pop('face')
+        self.assertIsNone(ReferencePreviewResult(engine='pixal3d',views=[view]).views[0].face)
+
     def test_portrait_alignment_uses_body_frame(self):
         image=Image.new('RGBA',(100,100))
         ImageDraw.Draw(image).rectangle((8,8,40,40),fill='red')
