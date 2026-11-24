@@ -1,4 +1,5 @@
 import {formatLocale,t} from './i18n.js';
+import {createObstaclePreview, motionObstacles, obstacleFraming, playPreviewAction} from './motion-obstacle.js';
 import {runtimeSummary} from './workbench-ui.js?v=stability';
 import './language-selector.js';
 import {createStudioWorkbench} from './studio-workbench.js?v=detail-refinement-native';
@@ -39,6 +40,7 @@ let boneDots=null;const boneDotMatrix=new THREE.Matrix4(),boneDotPosition=new TH
 let loadedRevision=null;
 let missingRigPreview=null,stoppedSkeletonChecked=null,rigSkeletonRequest=null;
 let predictedSkeleton=null,predictedId=null;
+let obstaclePreview, clipObstacles=[];
 let animationStudio,animationMode=false,pendingSelection=null,mixer=null,clips=[],clipAction=null,clipPlaying=true,skeletonHelper=null;
 const clock=new THREE.Clock();
 let renderer,scene,camera,controls,model,grid,profileControls,rotating=false,wire=false,loadVersion=0;
@@ -124,6 +126,7 @@ try{
   grid=new THREE.GridHelper(10,20,0x7d929a,0x596970);grid.material.transparent=true;grid.material.opacity=.22;scene.add(grid);grid.visible=false;
   viewerLighting=createViewerLighting({scene,renderer,getModel:()=>model});
   viewerStage=createViewerStage(scene,viewport);
+  obstaclePreview=createObstaclePreview(scene);
   hologramViewer=createHologramViewer(viewport,{camera});
   const stopRotation=()=>{rotating=false;$('rotate').setAttribute('aria-pressed','false');};
   rigSetupViewer=createRigSetupViewer({scene,camera,controls,viewport,getModel:()=>model,onViewChange:setViewPreset,stopRotation});
@@ -131,7 +134,7 @@ try{
     getModel:()=>loadedId===selectedId&&previewRevision(loadedRevision)?model:null});
   controls.addEventListener('start',()=>{if(!rigSetupViewer?.active)setViewPreset();});
   new ResizeObserver(()=>{const w=Math.max(1,viewport.clientWidth),h=Math.max(1,viewport.clientHeight);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}).observe(viewport);
-  renderer.setAnimationLoop(()=>{if(document.hidden||textureOpen||document.getElementById('compareDialog')?.open||document.getElementById('textureProjection')?.open||document.body.classList.contains('library-mode'))return;if(rotating&&model)model.rotation.y+=.004;if(mixer&&clipPlaying){mixer.update(Math.min(clock.getDelta(),.1));if(clipAction){$('clipTime').value=clipAction.time;$('clipTimeValue').value=clipAction.time.toFixed(1)+' s';}}else clock.getDelta();if(skeletonHelper&&boneDots){boneDots.visible=skeletonHelper.visible;model?.updateMatrixWorld(true);skeletonHelper.bones.forEach((bone,index)=>{boneDotPosition.setFromMatrixPosition(bone.matrixWorld);boneDotMatrix.makeTranslation(boneDotPosition.x,boneDotPosition.y,boneDotPosition.z);boneDots.setMatrixAt(index,boneDotMatrix);});boneDots.instanceMatrix.needsUpdate=true;}controls.update();rigSetupViewer?.update();creatureRigViewer?.update();hologramViewer?.update(performance.now());renderer.render(scene,camera);});
+  renderer.setAnimationLoop(()=>{if(document.hidden||textureOpen||document.getElementById('compareDialog')?.open||document.getElementById('textureProjection')?.open||document.body.classList.contains('library-mode'))return;if(rotating&&model)model.rotation.y+=.004;if(mixer&&clipPlaying){mixer.update(Math.min(clock.getDelta(),.1));if(clipAction){$('clipTime').value=clipAction.time;$('clipTimeValue').value=clipAction.time.toFixed(1)+' s';}}else clock.getDelta();if(skeletonHelper&&boneDots){boneDots.visible=skeletonHelper.visible;model?.updateMatrixWorld(true);skeletonHelper.bones.forEach((bone,index)=>{boneDotPosition.setFromMatrixPosition(bone.matrixWorld);boneDotMatrix.makeTranslation(boneDotPosition.x,boneDotPosition.y,boneDotPosition.z);boneDots.setMatrixAt(index,boneDotMatrix);});boneDots.instanceMatrix.needsUpdate=true;}obstaclePreview?.sync();controls.update();rigSetupViewer?.update();creatureRigViewer?.update();hologramViewer?.update(performance.now());renderer.render(scene,camera);});
 }catch(e){$('viewerError').hidden=false;errorAt('viewerError',e);}
 function disposeModel(root){if(!root)return;const mats=new Set(),textures=new Set();root.traverse(x=>{x.geometry?.dispose();for(const m of [...(Array.isArray(x.material)?x.material:[x.material]),...(x.userData.baseMaterials||[])]){if(!m)continue;mats.add(m);for(const v of Object.values(m))if(v?.isTexture)textures.add(v);}});textures.forEach(x=>x.dispose());mats.forEach(x=>x.dispose());}
 const angleButtons = [...viewport.querySelectorAll('[data-angle]')];
@@ -144,7 +147,7 @@ new ResizeObserver(() => {
   viewport.style.setProperty('--viewer-docks-height', `${viewerDocks.offsetHeight}px`);
 }).observe(viewerDocks);
 
-function clearModel(){hologramViewer?.clear();animationStudio?.closeRig();rigSetupViewer?.close();viewerLighting?.clear();viewerStage?.setVisible(false);setViewPreset();if(boneDots){scene.remove(boneDots);boneDots.geometry.dispose();boneDots.material.dispose();boneDots=null;}if(predictedSkeleton){scene.remove(predictedSkeleton);predictedSkeleton.geometry.dispose();predictedSkeleton.material.dispose();predictedSkeleton=null;predictedId=null;}mixer?.stopAllAction();mixer=null;clips=[];clipAction=null;$('animationPlayer').hidden=true;if(skeletonHelper){scene.remove(skeletonHelper);skeletonHelper.geometry.dispose();skeletonHelper.material.dispose();skeletonHelper=null;}if(model){scene.remove(model);disposeModel(model);}model=null;loadedId=null;loadingId=null;}
+function clearModel(){obstaclePreview?.clear();clipObstacles=[];hologramViewer?.clear();animationStudio?.closeRig();rigSetupViewer?.close();viewerLighting?.clear();viewerStage?.setVisible(false);setViewPreset();if(boneDots){scene.remove(boneDots);boneDots.geometry.dispose();boneDots.material.dispose();boneDots=null;}if(predictedSkeleton){scene.remove(predictedSkeleton);predictedSkeleton.geometry.dispose();predictedSkeleton.material.dispose();predictedSkeleton=null;predictedId=null;}mixer?.stopAllAction();mixer=null;clips=[];clipAction=null;$('animationPlayer').hidden=true;if(skeletonHelper){scene.remove(skeletonHelper);skeletonHelper.geometry.dispose();skeletonHelper.material.dispose();skeletonHelper=null;}if(model){scene.remove(model);disposeModel(model);}model=null;loadedId=null;loadingId=null;}
 function fit(angle) {
   if (!model || !camera) return;
   model.updateMatrixWorld(true);
@@ -155,15 +158,18 @@ function fit(angle) {
     }
   });
   const bounds = new THREE.Box3().setFromObject(model, true);
+  obstaclePreview?.expandBounds(bounds);
   const size = bounds.getSize(new THREE.Vector3());
   const center = bounds.getCenter(new THREE.Vector3());
   const span = Math.max(size.x, size.y, size.z, 0.01);
-  const distance = span * (angle === 'top' ? 1.8 : 2.2);
+  const vaultFrame = obstaclePreview?.active && !angle ? obstacleFraming(bounds,camera,obstaclePreview.heading) : null;
+  const distance = vaultFrame?.distance ?? span * (angle === 'top' ? 1.8 : 2.2);
   const elevation = Math.max(0.13, 0.40 - size.y / span);
   const views = {front:[0,.05,1],back:[0,.05,-1],left:[-1,.05,0],right:[1,.05,0],top:[0,1,0]};
-  if (angle !== 'top') center.y -= 0.17 * size.y;
+  if (angle !== 'top' && !vaultFrame) center.y -= 0.17 * size.y;
   camera.up.set(0, angle === 'top' ? 0 : 1, angle === 'top' ? -1 : 0);
-  camera.position.copy(center).addScaledVector(new THREE.Vector3(...(views[angle] || [.36,elevation,1])), distance);
+  if (vaultFrame) camera.position.copy(vaultFrame.eye);
+  else camera.position.copy(center).addScaledVector(new THREE.Vector3(...(views[angle] || [.36,elevation,1])), distance);
   camera.near = Math.max(0.001, distance / 1000);
   camera.far = Math.max(100, distance * 100);
   camera.updateProjectionMatrix();
@@ -903,11 +909,22 @@ workbench=await createStudioWorkbench({api,getRecords:()=>records,getJob:jobOf,r
 document.querySelector('.journal').addEventListener('toggle',refreshLog);await refresh();const entry=new URLSearchParams(location.search),entryModel=entry.get('model');if(entryModel&&records.some(j=>j.id===entryModel))selectJob(entryModel);if(entry.get('workspace')==='animation')openAnimationStudio();if(entry.get('workspace')==='details'&&jobOf())openDetails(jobOf());const comparison=records.find(j=>j.id===entry.get('compare')&&j.state==='done');if(comparison&&jobOf()?.state==='done')studioTools.compare.open(jobOf(),comparison,{focus:entry.get('focus')});setInterval(refresh,3000);
 
 function setupClips(gltf){
+ clipObstacles=motionObstacles(gltf,jobOf()?.result);
  clips=gltf.animations;mixer=clips.length?new THREE.AnimationMixer(model):null;
+ mixer?.addEventListener('finished',({action})=>{
+  if(action!==clipAction)return;
+  clipPlaying=false;
+  $('clipPlay').querySelector('use').setAttribute('href','/web/icons.svg#play');
+ });
  $('clipSelect').replaceChildren(...clips.map((c,i)=>{const o=node('option','',animationStudio?.label(c.name)||c.name);o.value=i;return o;}));
  skeletonHelper=new THREE.SkeletonHelper(model);skeletonHelper.visible=jobOf()?.settings.source_kind==='unirig';skeletonHelper.material.depthTest=false;skeletonHelper.material.vertexColors=false;skeletonHelper.material.color.set(0xc4f58a);skeletonHelper.renderOrder=10;scene.add(skeletonHelper);if(skeletonHelper.bones.length){const radius=Math.max(new THREE.Box3().setFromObject(model,true).getSize(new THREE.Vector3()).y*.004,.003);boneDots=new THREE.InstancedMesh(new THREE.SphereGeometry(radius,8,6),new THREE.MeshBasicMaterial({color:0xc4f58a,depthTest:false}),skeletonHelper.bones.length);boneDots.renderOrder=11;boneDots.frustumCulled=false;scene.add(boneDots);}$('clipSkeleton').setAttribute('aria-pressed',skeletonHelper.visible);
  $('animationPlayer').hidden=!clips.length&&!skeletonHelper.bones.length;
- $('clipSelect').hidden=!clips.length;$('clipTime').hidden=!clips.length;$('clipPlay').hidden=!clips.length;if(clips.length)selectClip(0);
+ $('clipSelect').hidden=!clips.length;$('clipTime').hidden=!clips.length;$('clipPlay').hidden=!clips.length;
+ if(clips.length){
+  const params=new URLSearchParams(location.search);
+  const requested=params.get('model')===loadedId?params.get('clip'):null;
+  selectClip(Math.max(0,clips.findIndex(clip=>clip.name===requested)),false);
+ }
 }
 function loadedAnimationClips(job) {
   if (!model || loadedId !== job?.id || previewRevision(loadedRevision)) return null;
@@ -921,13 +938,16 @@ function playAnimationClip(index, name) {
   selectClip(index);
 }
 
-function selectClip(index) {
+function selectClip(index, reframe = true) {
   const clip = clips[index];
   if (!mixer || !clip) return;
+  const hadObstacle = obstaclePreview.active;
   mixer.stopAllAction();
   clipAction = mixer.clipAction(clip);
-  clipAction.play();
+  playPreviewAction(clipAction,Boolean(clipObstacles[index]));
   mixer.update(0);
+  obstaclePreview.set(model, clipObstacles[index]);
+  if (reframe && (hadObstacle || obstaclePreview.active)) fit();
   clipPlaying = true;
   clock.getDelta();
   $('clipPlay').querySelector('use').setAttribute('href', '/web/icons.svg#pause');
@@ -937,7 +957,11 @@ function selectClip(index) {
   $('clipTimeValue').value = '0 s';
 }
 $('clipSelect').onchange=()=>selectClip(Number($('clipSelect').value));
-$('clipPlay').onclick=()=>{clipPlaying=!clipPlaying;$('clipPlay').querySelector('use').setAttribute('href','/web/icons.svg#'+(clipPlaying?'pause':'play'));};
+$('clipPlay').onclick=()=>{
+ clipPlaying=!clipPlaying;
+ if(clipPlaying&&clipAction)playPreviewAction(clipAction,obstaclePreview.active);
+ $('clipPlay').querySelector('use').setAttribute('href','/web/icons.svg#'+(clipPlaying?'pause':'play'));
+};
 $('clipTime').oninput=()=>{if(!clipAction)return;clipPlaying=false;clipAction.time=Number($('clipTime').value);mixer.update(0);$('clipPlay').querySelector('use').setAttribute('href','/web/icons.svg#play');$('clipTimeValue').value=clipAction.time.toFixed(1)+' s';};
 $('clipSkeleton').onclick=()=>{if(predictedSkeleton&&(!skeletonHelper||!skeletonHelper.bones.length)){predictedSkeleton.visible=!predictedSkeleton.visible;$('clipSkeleton').setAttribute('aria-pressed',predictedSkeleton.visible);return;}if(skeletonHelper){skeletonHelper.visible=!skeletonHelper.visible;$('clipSkeleton').setAttribute('aria-pressed',skeletonHelper.visible);}};
 async function refreshRigPreview() {

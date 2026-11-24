@@ -1177,5 +1177,21 @@
     "author": "Quaternius",
     "license": "CC0-1.0",
     "preview_url": "/api/motion-source/UAL2"
+  },
+  {
+    "id": "side_vault",
+    "name": "One-hand side vault",
+    "category": "Jumps & acrobatics",
+    "description": "A running approach, right-hand plant and sideways passage over a crate.",
+    "source_pack": "UAL1",
+    "source_clip": "Jog_Fwd_Loop",
+    "source_model": "animations\\quaternius\\UAL1\\Animation Library[Standard]\\Godot\\AnimationLibrary_Godot_Standard.glb",
+    "source_duration": 3.0,
+    "composite": "side_vault",
+    "loop": false,
+    "author": "TRELLIS Studio / Quaternius",
+    "license": "MIT / CC0-1.0",
+    "preview_url": "/web/side-vault-preview.glb",
+    "preview_clip": "TS_side_vault_3.0s"
   }
 ]

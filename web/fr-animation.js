@@ -1,4 +1,9 @@
 export default {
+  "A side vault requires both hands, arms, feet and legs on a humanoid rig.": "Le franchissement latéral nécessite un squelette humanoïde dont les deux bras, mains, jambes et pieds sont identifiés.",
+  "The shoulder line is degenerate for this side vault.": "Les épaules sont trop proches pour déterminer l’orientation du franchissement. Vérifiez leurs repères.",
+  "The supporting palm cannot be located on this rig.": "Impossible de repérer la paume d’appui sur ce squelette.",
+  "The right palm cannot reach the crate on this rig.": "Avec ce squelette, la paume droite ne peut pas atteindre la caisse.",
+  "The vault requires a measured ground plane.": "Le franchissement nécessite un niveau du sol mesuré sur le personnage.",
   "{clip} · {bone} · {time} s: abrupt rotation ({degrees}°).": "{clip} · {bone} · {time} s : rotation brusque ({degrees}°).",
   "{clip} · {bone} · {time} s: foot moved {distance} cm during the crouch.": "{clip} · {bone} · {time} s : le pied s’est déplacé de {distance} cm pendant la flexion.",
   "{clip} · {bone} · {time} s: foot moved {distance} cm across the loop.": "{clip} · {bone} · {time} s : le pied se décale de {distance} cm au raccord de la boucle.",
@@ -191,6 +196,8 @@ export default {
   "Zombie Scratch": "Zombie qui se gratte",
   "Zombie Walk Fwd": "Zombie qui avance",
   "Climb onto 1 m ledge": "Grimper sur un rebord de 1 m",
+  "One-hand side vault": "Franchissement latéral à une main",
+  "A running approach, right-hand plant and sideways passage over a crate.": "Prise d’élan, appui de la main droite et franchissement de la caisse avec les jambes sur le côté.",
   "Submitting…": "Envoi…",
   "Generate animation": "Générer une animation",
   "Library unavailable": "Bibliothèque indisponible",

@@ -1,4 +1,5 @@
 import {formatLocale, localizeStatic, t} from './i18n.js';
+import {createObstaclePreview, motionObstacles, obstacleFraming} from './motion-obstacle.js';
 import {createLightingRig} from './viewer-lighting.js?v=3.4.0';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
@@ -18,10 +19,11 @@ export function createComparison({api,getRecords,labelAnimation}){
  dialog.querySelector('.compare-options').prepend(back,measure);
  let boardMode=false,boardFramed=false,standardMatch=true;
  function dispose(root){const mats=new Set(),tex=new Set();root?.traverse(x=>{x.geometry?.dispose();for(const m of Array.isArray(x.material)?x.material:[x.material])if(m){mats.add(m);for(const v of Object.values(m))if(v?.isTexture)tex.add(v);}});mats.forEach(m=>m.dispose());tex.forEach(t=>t.dispose());}
- function clear(p){p.mixer?.stopAllAction();p.mixer=null;p.action=null;p.clips=[];p.clip.replaceChildren();if(p.helper){p.scene.remove(p.helper);p.helper.geometry.dispose();p.helper.material.dispose();p.helper=null;}if(p.root){p.scene.remove(p.root);dispose(p.root);p.root=null;}p.group=null;p.rig?.fit(null);}
+ function clear(p){p.obstacle.clear();p.obstacles=[];p.mixer?.stopAllAction();p.mixer=null;p.action=null;p.clips=[];p.clip.replaceChildren();if(p.helper){p.scene.remove(p.helper);p.helper.geometry.dispose();p.helper.material.dispose();p.helper=null;}if(p.root){p.scene.remove(p.root);dispose(p.root);p.root=null;}p.group=null;p.rig?.fit(null);}
  function cameraSync(from){if(syncing)return;syncing=true;for(const p of panes)if(p!==from){p.camera.position.copy(from.camera.position);p.camera.quaternion.copy(from.camera.quaternion);p.camera.up.copy(from.camera.up);p.camera.near=from.camera.near;p.camera.far=from.camera.far;p.camera.updateProjectionMatrix();p.controls.target.copy(from.controls.target);p.controls.update();}for(const p of panes)p.view.dataset.camera=JSON.stringify([...p.camera.position.toArray(),...p.camera.quaternion.toArray(),...p.controls.target.toArray()].map(x=>Number(x.toFixed(7))));syncing=false;}
- function frameBoth(){const box=new THREE.Box3();for(const p of panes)if(p.root)box.union(new THREE.Box3().setFromObject(p.root,true));if(box.isEmpty())return;const size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),d=Math.max(size.x,size.y,size.z,.01)*1.9;
-  for(const p of panes){p.camera.position.copy(center).add(new THREE.Vector3(.8,.45,1).multiplyScalar(d));p.camera.near=Math.max(.00001,d/1000);p.camera.far=Math.max(100,d*100);p.camera.updateProjectionMatrix();p.controls.target.copy(center);p.controls.minDistance=d*.03;p.controls.maxDistance=d*20;p.controls.update();}}
+ function frameBoth(){const box=new THREE.Box3();for(const p of panes)if(p.root){box.union(new THREE.Box3().setFromObject(p.root,true));p.obstacle.expandBounds(box);}if(box.isEmpty())return;const size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),d=Math.max(size.x,size.y,size.z,.01)*1.9;
+  const vault=panes.find(p=>p.obstacle.active)?.obstacle;
+  for(const p of panes){if(vault)p.camera.position.copy(obstacleFraming(box,p.camera,vault.heading).eye);else p.camera.position.copy(center).add(new THREE.Vector3(.8,.45,1).multiplyScalar(d));p.camera.near=Math.max(.00001,d/1000);p.camera.far=Math.max(100,d*100);p.camera.updateProjectionMatrix();p.controls.target.copy(center);p.controls.minDistance=d*.03;p.controls.maxDistance=d*20;p.controls.update();}}
  function faceCameraPoints(){
   const pane=panes.find(p=>p.root&&p.job.result?.facial_head_enhancement?.state==='applied');
   if(!pane)return null;
@@ -45,7 +47,7 @@ export function createComparison({api,getRecords,labelAnimation}){
    p.controls.update();
   }
  }
- function normalise(reframe=true){for(const p of panes){if(!p.root)continue;p.root.position.set(0,0,0);p.root.scale.setScalar(1);p.root.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(p.root,true),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),factor=$('compareMatch').checked?1/Math.max(size.y,.00001):1;p.root.scale.setScalar(factor);p.root.position.set(-center.x*factor,-box.min.y*factor,-center.z*factor);p.root.updateMatrixWorld(true);p.rig.fit(p.root);}if(reframe)frameBoth();}
+ function normalise(reframe=true){for(const p of panes){if(!p.root)continue;p.root.position.set(0,0,0);p.root.scale.setScalar(1);p.root.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(p.root,true),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),factor=$('compareMatch').checked?1/Math.max(size.y,.00001):1;p.root.scale.setScalar(factor);p.root.position.set(-center.x*factor,-box.min.y*factor,-center.z*factor);p.root.updateMatrixWorld(true);p.rig.fit(p.root);p.obstacle.sync();}if(reframe)frameBoth();}
  function updateDelta(){
   $('compareFaces').hidden=!panes.some(p=>p.root&&p.job?.result?.facial_head_enhancement?.state==='applied');
   const [left,right]=panes;
@@ -80,7 +82,7 @@ export function createComparison({api,getRecords,labelAnimation}){
  function updatePose(){for(const p of panes)if(p.action){p.action.time=phase*Math.max(p.action.getClip().duration-.00001,0);p.mixer.update(0);}}
  async function load(p,id){const version=++p.version;clear(p);p.job=records().find(j=>j.id===id);p.select.value=id||'';p.note.textContent=id?t('Loading model…'):t('Choose a model to compare');p.metrics.textContent=p.topology.textContent='';p.boundary=null;p.measuring=false;updateDelta();if(!p.job)return;
   try{const gltf=await new GLTFLoader().loadAsync(p.job.preview_url||`/api/jobs/${id}/files/model.glb?v=${p.job.result?.revision||0}`);if(version!==p.version||!dialog.open){dispose(gltf.scene);return;}
-   p.root=gltf.scene;p.scene.add(p.root);p.clips=gltf.animations;p.mixer=new THREE.AnimationMixer(p.root);p.root.traverse(x=>{if(x.isMesh)x.material&&(Array.isArray(x.material)?x.material:[x.material]).forEach(m=>m.wireframe=$('compareWire').checked);});
+   p.root=gltf.scene;p.scene.add(p.root);p.obstacles=motionObstacles(gltf,p.job.result);p.clips=gltf.animations;p.mixer=new THREE.AnimationMixer(p.root);p.root.traverse(x=>{if(x.isMesh)x.material&&(Array.isArray(x.material)?x.material:[x.material]).forEach(m=>m.wireframe=$('compareWire').checked);});
    p.helper=new THREE.SkeletonHelper(p.root);p.helper.material.depthTest=false;p.helper.material.vertexColors=false;p.helper.material.color.set(0xc4f58a);p.helper.renderOrder=10;p.helper.visible=$('compareSkeleton').checked;p.scene.add(p.helper);
    const rest=document.createElement('option');rest.value='';rest.textContent=t('Rest pose');p.clip.append(rest);p.clips.forEach((c,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=labelAnimation?.(c.name)||c.name.replace(/^TS_/,'').replace(/_/g,' ');p.clip.append(o);});p.clip.disabled=!p.clips.length;
    const r=p.job.result||{},actual=new THREE.Box3().setFromObject(p.root,true).getSize(new THREE.Vector3());const metrics=[t('{count} triangles',{count:Number(r.triangles||0).toLocaleString(formatLocale)}),`${Number((r.height_m||actual.y)*100).toLocaleString(formatLocale,{minimumFractionDigits:1,maximumFractionDigits:1})} cm`];
@@ -97,8 +99,9 @@ export function createComparison({api,getRecords,labelAnimation}){
   const topology=document.createElement('p');topology.className='compare-metrics';topology.setAttribute('role','status');view.before(topology);
   const p={el,select,metrics,topology,view,note,clip,renderer,scene,camera,controls,env,grid,version:0,root:null,job:null};controls.addEventListener('change',()=>cameraSync(p));
   p.rig=createLightingRig(scene,renderer);
+  p.obstacle=createObstaclePreview(scene);
   p.observer=new ResizeObserver(()=>{const w=Math.max(1,view.clientWidth),h=Math.max(1,view.clientHeight);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();});p.observer.observe(view);
-  select.onchange=()=>load(p,select.value);clip.onchange=()=>{p.mixer?.stopAllAction();p.action=null;if(clip.value!==''){p.action=p.mixer.clipAction(p.clips[Number(clip.value)]).play();updatePose();}else{p.root?.traverse(x=>{if(x.isSkinnedMesh)x.skeleton.pose();});p.root?.updateMatrixWorld(true);}updatePlayback();};return p;}
+  select.onchange=()=>load(p,select.value);clip.onchange=()=>{const hadObstacle=p.obstacle.active;p.obstacle.set(p.root,clip.value===''?null:p.obstacles[Number(clip.value)]);p.mixer?.stopAllAction();p.action=null;if(clip.value!==''){p.action=p.mixer.clipAction(p.clips[Number(clip.value)]).play();updatePose();}else{p.root?.traverse(x=>{if(x.isSkinnedMesh)x.skeleton.pose();});p.root?.updateMatrixWorld(true);}if(hadObstacle||p.obstacle.active)frameBoth();updatePlayback();};return p;}
  function loop(now){if(!dialog.open)return;const delta=last?Math.min((now-last)/1000,.1):0;last=now;if(playing){phase=(phase+delta/Math.max(...panes.map(p=>p.action?.getClip().duration||0),1))%1;updatePose();$('compareTime').value=phase;$('compareTimeValue').textContent=Math.round(phase*100)+'%';}for(const p of panes)p.renderer.render(p.scene,p.camera);frame=requestAnimationFrame(loop);}
  function close(){cancelAnimationFrame(frame);++token;for(const p of panes){++p.version;p.observer.disconnect();p.controls.dispose();clear(p);p.rig.dispose();p.grid.geometry.dispose();p.grid.material.dispose();p.env.dispose();p.renderer.dispose();}panes=[];dialog.querySelector('.compare-panes').replaceChildren();playing=false;}
  dialog.addEventListener('close',()=>{if(!dialog.open)close();});dialog.querySelector('[data-close]').onclick=()=>dialog.close();$('compareFrame').onclick=frameBoth;$('compareFaces').onclick=frameFaces;$('compareMatch').onchange=()=>normalise();

@@ -178,6 +178,8 @@
 !/web/advanced-controls.js
 !/web/animation-studio.css
 !/web/animation-studio.js
+!/web/motion-obstacle.js
+!/web/side-vault-preview.glb
 !/web/rig-setup-viewer.js
 !/web/creature-rig-editor.js
 !/web/creature-rig-viewer.js
@@ -451,6 +453,7 @@
 !/web/language-selector.js
 !/web/language-selector.css
 !/tests/i18n.mjs
+!/tests/motion_obstacle.mjs
 !/tests/creature_tentacles.py
 !/tests/creature_swim.py
 !/docs/RELEASE_3.12.0.md
@@ -535,6 +538,8 @@
 !/animation_diagnostics.py
 !/tests/collection_preview_stability.py
 !/tests/animation_diagnostics.py
+!/vault_motion.py
+!/tests/side_vault.py
 !/tests/quality_diagnostics.py
 !/facial_head_runtime.py
 !/facial_head_infer.py

@@ -210,7 +210,7 @@ def rotation_findings(nodes, tracks, clip, issues):
                                       time_s=float(quarters.ravel()[at]), degrees=round(float(overshoot[at]), 1)))
 
 
-def world_positions(nodes, tracks, indices, samples):
+def world_positions(nodes, tracks, indices, samples, offsets=None):
     parents = {child: parent for parent, node in enumerate(nodes) for child in node.get('children', [])}
     cache = {}
 
@@ -241,7 +241,13 @@ def world_positions(nodes, tracks, indices, samples):
             cache[index] = np.broadcast_to(transform, (len(samples), 4, 4))
         return cache[index]
 
-    return {role: world(index)[:, :3, 3] for role, index in indices.items()}
+    points = {}
+    for role,index in indices.items():
+        m = world(index)
+        points[role] = m[:,:3,3]
+        if offsets and role in offsets:
+            points[role] = points[role] + m[:,:3,:3] @ np.asarray(offsets[role])
+    return points
 
 
 def pose_findings(nodes, tracks, clip, mapping, rate, issues):

@@ -801,7 +801,7 @@ async def print_copy(identifier: str,request: Request):
 @app.get('/api/animations')
 def animation_library():
     return dict(animations=ANIMATION_LIBRARY,min_duration=2,max_duration=5,step=.5,max_batch_clips=len(ANIMATION_LIBRARY),
-                description='Authored Quaternius CC0 animations, retargeted to your character.')
+                description='Quaternius motions and contact-aware obstacle motions adapted to your character.')
 
 @app.get('/api/motion-source/{pack}')
 def motion_source(pack: str):
