@@ -16,30 +16,35 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from studio_model_assets import model_asset_path
+
 
 @dataclass(frozen=True)
 class TextureAssets:
     root: Path
 
+    def locate(self, relative):
+        return model_asset_path(Path(__file__).resolve().parents[1], 'native-ultratex', relative, directory=self.root)
+
     @property
     def backbone(self):
-        return self.root / 'diffusion_models/flux-2-klein-base-9b-Q4_0.gguf'
+        return self.locate('diffusion_models/flux-2-klein-base-9b-Q4_0.gguf')
 
     @property
     def text(self):
-        return self.root / 'text_encoders/Qwen3-8B-Q4_K_M.gguf'
+        return self.locate('text_encoders/Qwen3-8B-Q4_K_M.gguf')
 
     @property
     def vae(self):
-        return self.root / 'vae/flux2-vae.safetensors'
+        return self.locate('vae/flux2-vae.safetensors')
 
     @property
     def decoder(self):
-        return self.root / 'ultratex/ultratex_flux2_decoder.pt'
+        return self.locate('ultratex/ultratex_flux2_decoder.pt')
 
     def adapter(self, branch):
         names = {'albedo': 'ultratex_flux2.safetensors', 'mr': 'ultratex_flux2_mr.safetensors'}
-        return self.root / 'loras' / names[branch]
+        return self.locate('loras/' + names[branch])
 
 
 def load_pinned_file(name, path, expected):

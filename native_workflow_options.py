@@ -89,8 +89,8 @@ def _value(field, value):
     return value
 
 
-def settings(profile_id, overrides=None):
-    """Validate only named stage options and fill omitted values from the reference recipe."""
+def settings(profile_id, overrides=None, *, saved=None):
+    """Validate named options, with saved values falling back to the reference recipe."""
     stages = schema(profile_id)['stages']
     if overrides is None:
         overrides = {}
@@ -102,7 +102,8 @@ def settings(profile_id, overrides=None):
         fields = stage['fields']
         if not isinstance(values, dict) or values.keys() - {field['name'] for field in fields}:
             raise ValueError(f"Unknown option in {stage['title']}.")
-        effective = {field['name']: _value(field, values.get(field['name'], field['default']))
+        defaults = (saved or {}).get(stage['id'], {})
+        effective = {field['name']: _value(field, values.get(field['name'], defaults.get(field['name'], field['default'])))
                      for field in fields}
         for key, start in effective.items():
             if key.endswith('_interval_start') and start > effective[key[:-5] + 'end']:

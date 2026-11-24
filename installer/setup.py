@@ -305,6 +305,7 @@ def main():
         return
     if args.verify_only:verify(not args.skip_rig and not args.workshop_only,args.workshop_only);return
     if not args.uv or not args.uv.is_file():raise RuntimeError('Run Install TRELLIS Studio.cmd to provision uv/Python first.')
+    os.environ['UV_LINK_MODE'] = 'copy'
     if not bundled_web():
         for tool in ('node','npm.cmd'):
             if not shutil.which(tool):raise RuntimeError('Missing prerequisite: '+tool+'. See INSTALLATION.md.')

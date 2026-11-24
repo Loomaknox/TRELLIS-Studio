@@ -143,11 +143,15 @@ export function createQueueStudio({api, refresh}) {
   }
 
   async function editDraft(row) {
-    const workflow = workflowOf(row.profile_id);
+    const profile = profileOf(row.profile_id);
+    const workflow = profile?.workflow;
     if (workflow) {
       const container = el('div');
-      const editor = createWorkflowFields(container, workflow.advanced, row.workflow_options);
-      const title = workflowSummary(workflow, profileOf(row.profile_id).settings.texture_method);
+      const settings = profile.settings;
+      const editor = createWorkflowFields(container, workflow.advanced, row.workflow_options ?? settings.workflow_options);
+      const summary = {...workflow, label: profile.name, resolution: settings.resolution,
+        target_faces: settings.triangles, texture_size: settings.texture_size};
+      const title = workflowSummary(summary, settings.texture_method);
       recipe.body.replaceChildren(el('strong', '', title), container);
       recipe.foot.replaceChildren(button('Apply', 'check', 'primary', () => {
         if(!editor.validate())return;
@@ -158,7 +162,7 @@ export function createQueueStudio({api, refresh}) {
       return;
     }
     const {runtime, schema} = await capabilities();
-    const profileSettings = profileOf(row.profile_id)?.settings;
+    const profileSettings = profile?.settings;
     const preset = profileSettings?.preset;
     const removeBg = checkbox(row.remove_bg);
     const requiredSource = !!row.master_finishing || ['dense_master', 'humanoid_experimental'].includes(preset);
@@ -367,14 +371,15 @@ export function createQueueStudio({api, refresh}) {
 
   async function editRetry(item) {
     const saved = item.settings;
-    const profile = profileOf(saved.profile?.id || saved.workflow_id);
-    const workflow = profile?.workflow;
-    if (saved.workflow_id || workflow) {
+    if (saved.workflow_id) {
+      const profile = profileOf(saved.workflow_id);
+      const workflow = profile?.workflow;
       const height = heightInput(saved.height_m);
       const priority = prioritySelect(item.priority);
       const unavailable = workflow?.available !== true;
       const details = unavailable ? workflow?.reason || 'Choose a current profile to run a new generation.' : 'Reuses the saved reference image.';
-      const recorded = workflow && {...workflow, resolution: saved.resolution ?? workflow.resolution,
+      const recorded = workflow && {...workflow, label: saved.profile?.name || workflow.label,
+        resolution: saved.resolution ?? workflow.resolution,
         target_faces: saved.triangles ?? workflow.target_faces, texture_size: saved.texture_size ?? workflow.texture_size};
       retry.body.replaceChildren(el('strong', '', item.name), el('p', 'queue-failure', item.error || item.stage),
         el('p', 'hint', recorded ? workflowSummary(recorded, saved.texture_method ?? profile.settings.texture_method) : saved.profile?.name),

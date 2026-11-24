@@ -133,7 +133,43 @@ def _quad_floaters(toolkit, torch):
     return namespace['_remove_floaters_cuda']
 
 
-def reconstruct_quad(toolkit, cumesh_directory, vertices, faces, *, options=None):
+def _quad_reconstruction_with_progress(remeshing, source, progress):
+    """Instrument only the signed-distance loop in the verified CuMesh source."""
+    tree = ast.parse(source.read_text(encoding='utf-8'), filename=str(source))
+    reconstruct, = (node for node in tree.body if isinstance(node, ast.FunctionDef)
+                    and node.name == 'reconstruct_mesh_dc_quad')
+    inner_filter, = (node for node in reconstruct.body if isinstance(node, ast.FunctionDef)
+                     and node.name == 'chunked_sdf_raystab')
+    loop, = (node for node in inner_filter.body if isinstance(node, ast.For))
+    loop.iter = ast.parse('_studio_quad_batches(N, chunk_size, device)', mode='eval').body
+
+    def batches(total, chunk_size, device):
+        label = 'Filtering inner faces with QuadDC'
+        total_batches = (total + chunk_size - 1) // chunk_size
+        progress(f'{label} (0/{total_batches} batches complete)')
+        synchronize = remeshing.torch.cuda.synchronize
+        synchronize(device)
+        started = time.perf_counter()
+        for batch, start in enumerate(range(0, total, chunk_size), 1):
+            yield start
+            # The native ray queries queue CUDA work. Count a batch after it finishes.
+            synchronize(device)
+            completed = min(start + chunk_size, total)
+            detail = f'{batch}/{total_batches} batches complete'
+            if completed < total:
+                remaining = math.ceil((time.perf_counter() - started) * (total - completed) / completed)
+                minutes, seconds = divmod(remaining, 60)
+                duration = f'{minutes} min {seconds:02d} s' if minutes else f'{seconds} s'
+                detail += f', about {duration} remaining'
+            progress(f'{label} ({detail})')
+
+    namespace = {**vars(remeshing), '_studio_quad_batches': batches}
+    instrumented = ast.Module(body=[reconstruct], type_ignores=[])
+    exec(compile(ast.fix_missing_locations(instrumented), str(source), 'exec'), namespace)
+    return namespace[reconstruct.name]
+
+
+def reconstruct_quad(toolkit, cumesh_directory, vertices, faces, *, options=None, quad_progress=None):
     """Rebuild with the pinned VisualBruno CuMesh and its CUDA floater rule."""
     from importlib.util import find_spec
     import torch
@@ -155,8 +191,12 @@ def reconstruct_quad(toolkit, cumesh_directory, vertices, faces, *, options=None
             or indices.ndim != 2 or indices.shape[1] != 3 or not len(indices)
             or indices.min() < 0 or indices.max() >= len(position)):
         raise ValueError('QuadDC expects finite indexed triangles.')
+    reconstruct = cumesh.remeshing.reconstruct_mesh_dc_quad
+    if recipe['remove_inner_faces'] and quad_progress is not None:
+        reconstruct = _quad_reconstruction_with_progress(cumesh.remeshing, cumesh_directory / 'remeshing.py',
+                                                         quad_progress)
     with torch.inference_mode():
-        position, indices = cumesh.remeshing.reconstruct_mesh_dc_quad(
+        position, indices = reconstruct(
             position, indices, recipe['resolution'], band=recipe['remesh_band'],
             verbose=True, remove_inner_faces=recipe['remove_inner_faces'])
         if recipe['remove_floaters']:
@@ -168,12 +208,12 @@ def reconstruct_quad(toolkit, cumesh_directory, vertices, faces, *, options=None
     return position.numpy(), indices.numpy()
 
 
-def rebuild_watertight(root, work, vertices, faces, *, options=None):
+def rebuild_watertight(root, work, vertices, faces, *, options=None, progress=None):
     """Run the pinned WTiVo executable with Character 05's grid and component mode."""
     from wtivo_runtime import reconstruct
 
     recipe = _step('327', 'WTiVoNativeMeshToMesh', options)
-    return reconstruct(root, work, vertices, faces, options=recipe)
+    return reconstruct(root, work, vertices, faces, options=recipe, progress=progress)
 
 
 def _surface_arrays(vertices, faces):
@@ -543,7 +583,8 @@ def write_character_glb(source, output, surface, *, smooth=False, options=None):
 
 
 def _normal_ready_model(model, resolution):
-    from glb_data import image, read
+    import numpy as np
+    from glb_data import accessor, image, read
 
     data, binary = read(model)
     primitive, = [primitive for mesh in data['meshes'] for primitive in mesh['primitives']]
@@ -558,8 +599,14 @@ def _normal_ready_model(model, resolution):
         size = image(data, binary, source).size
         if size != (resolution, resolution):
             raise ValueError('Character 05 bake did not write the expected normal texture resolution.')
-    triangles = data['accessors'][primitive['indices']]['count'] // 3
-    return dict(triangles=triangles, normal_size=resolution)
+    vertices = accessor(data, binary, primitive['attributes']['POSITION'])
+    faces = accessor(data, binary, primitive['indices']).reshape(-1, 3)
+    if len(faces):
+        vertices, faces = _surface_arrays(vertices, faces)
+    corners = vertices[faces].astype(np.float64)
+    cross = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
+    surface_triangles = int(np.count_nonzero(np.any(cross != 0, axis=1)))
+    return dict(triangles=len(faces), surface_triangles=surface_triangles, normal_size=resolution)
 
 
 def finish_reduced_character(toolkit, blender, comfy_source, work, *, donor, low, device='cuda',
@@ -569,7 +616,7 @@ def finish_reduced_character(toolkit, blender, comfy_source, work, *, donor, low
     work.mkdir(exist_ok=False)
     progress = progress or (lambda label: None)
     started = time.perf_counter()
-    progress('Preparing the Character 05 UV layout')
+    progress('Preparing the UV layout')
     high_glb, low_glb = work / 'input_high.glb', work / 'input_low.glb'
     bake_settings = _step('341', 'LODTailorBakeForger', options)
     bake_enabled = any(bake_settings[name] for name in BAKE_MAP_OPTIONS)
@@ -584,30 +631,46 @@ def finish_reduced_character(toolkit, blender, comfy_source, work, *, donor, low
         torch.cuda.empty_cache()
     started = time.perf_counter()
     if bake_enabled:
-        progress('Baking the Character 05 normal map' if bake_settings['bake_normal_detail']
-                 else 'Baking the Character 05 surface maps')
+        progress('Baking the normal map' if bake_settings['bake_normal_detail']
+                 else 'Baking the surface maps')
         baked, bake_report = bake_normal_atlas(toolkit, blender, work / 'normal-bake', high_glb,
                                              low_glb, cpu_for_qa=cpu_bake_for_qa, options=options)
     else:
-        progress('Skipping the Character 05 bake')
+        progress('Skipping surface map baking')
         baked, bake_report = low_glb, {}
     bake_seconds = time.perf_counter() - started
-    progress('Merging the textured Character 05 surface')
+    normal_size = bake_settings['normal_map_resolution'] if bake_settings['bake_normal_detail'] else None
+    baked_report = _normal_ready_model(baked, normal_size)
+    if not baked_report['surface_triangles']:
+        raise ValueError('The Game Asset mesh has no usable triangles after surface map baking.')
+    progress('Merging vertices on the textured mesh')
     started = time.perf_counter()
     model = work / 'normal-ready.glb'
     texture_safe_merge(toolkit, baked, model, options=options)
-    normal_size = bake_settings['normal_map_resolution'] if bake_settings['bake_normal_detail'] else None
-    model_report = _normal_ready_model(model, normal_size)
+    welded_report = _normal_ready_model(model, normal_size)
+    warnings = list(bake_report.get('warnings', []))
+    print(f'Game Asset triangles: {len(low["faces"]):,} reduced, {len(unwrapped["faces"]):,} unwrapped, '
+          f'{baked_report["triangles"]:,} baked, {welded_report["triangles"]:,} after merge.', flush=True)
+    model_report = welded_report
+    if welded_report['surface_triangles'] < baked_report['surface_triangles']:
+        warning = (f'Vertex merge reduced the usable triangle count from {baked_report["surface_triangles"]:,} '
+                   f'to {welded_report["surface_triangles"]:,}. Keeping the baked mesh for UltraTex.')
+        warnings.append(warning)
+        print(warning, flush=True)
+        baked.replace(model)
+        model_report = baked_report
     uv_device = 'cpu' if _step('337', 'UnwrapMesh', options)['segmenter'] == 'adaptive' else str(device)
     return model, dict(donor_triangles=len(donor['faces']), reduced_triangles=len(low['faces']),
                        unwrapped_triangles=len(unwrapped['faces']), **model_report,
+                       baked_triangles=baked_report['triangles'], welded_triangles=welded_report['triangles'],
                        unwrap_export_seconds=round(unwrap_export_seconds, 3),
                        bake_seconds=round(bake_seconds, 3), merge_seconds=round(time.perf_counter() - started, 3),
-                       warnings=bake_report.get('warnings', []), uv_device=uv_device, cpu_bake=cpu_bake_for_qa)
+                       warnings=warnings, uv_device=uv_device, cpu_bake=cpu_bake_for_qa)
 
 
 def finish_character_mesh(root, toolkit, cumesh_directory, blender, comfy_source, work, vertices, faces,
-                          *, input_stage='decoded', device='cuda', progress=None, options=None):
+                          *, input_stage='decoded', device='cuda', progress=None, options=None,
+                          quad_progress=None, wtivo_progress=None):
     """Build the normal-ready Character 05 low-poly surface in a new working directory."""
     if input_stage not in ('decoded', 'watertight'):
         raise ValueError('Provide the decoded shape or an explicitly archived WTiVo surface.')
@@ -617,14 +680,16 @@ def finish_character_mesh(root, toolkit, cumesh_directory, blender, comfy_source
     before = {}
     if input_stage == 'decoded':
         import torch
-        progress('Reconstructing the Character 05 surface with QuadDC')
+        progress('Reconstructing the mesh with QuadDC')
         started = time.perf_counter()
-        vertices, faces = reconstruct_quad(toolkit, cumesh_directory, vertices, faces, options=options)
+        vertices, faces = reconstruct_quad(toolkit, cumesh_directory, vertices, faces, options=options,
+                                           quad_progress=quad_progress)
         before.update(quad_triangles=len(faces), quad_seconds=round(time.perf_counter() - started, 3))
         torch.cuda.empty_cache()
-        progress('Closing the Character 05 surface with WTiVo')
-        vertices, faces, before['watertight'] = rebuild_watertight(root, work, vertices, faces, options=options)
-    progress('Preparing the Character 05 high and low meshes with LODTailor')
+        progress('Closing the mesh with WTiVo')
+        vertices, faces, before['watertight'] = rebuild_watertight(
+            root, work, vertices, faces, options=options, progress=wtivo_progress)
+    progress('Preparing high- and low-poly meshes with LODTailor')
     started = time.perf_counter()
     donor = trim_surface(toolkit, blender, work / 'lod-donor', vertices, faces, game_mesh=False,
                          with_attributes=True, options=options)

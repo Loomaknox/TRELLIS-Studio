@@ -75,7 +75,7 @@ def install_dependencies():
     with tempfile.TemporaryDirectory(prefix='deps-', dir=COMPONENT) as pending:
         staged = Path(pending) / 'dependencies'
         command = [str(uv), 'pip', 'install', '--python', sys.executable, '--target', str(staged),
-                   '--only-binary', ':all:', '--no-deps', '-r', str(LOCK)]
+                   '--link-mode', 'copy', '--only-binary', ':all:', '--no-deps', '-r', str(LOCK)]
         subprocess.run(command, check=True, env={**os.environ, 'UV_CACHE_DIR': str(COMPONENT / 'uv-cache')})
         write(staged / marker.name, lock)
         staged.rename(target)

@@ -7,13 +7,14 @@ from generation_options import (DENSE_MASTER, DENSE_MASTER_NAME, FIGURE_MASTER, 
                                 PROFILE_ADVANCED, TRIANGLE_MIN, TRIANGLE_MAX, normalize_options,
                                 resolve_texture_method, validate_create_master_finishing,
                                 validate_post_refinement_texturing, validate_texture_method)
-from native_workflow_options import schema as workflow_schema
+from native_workflow_options import schema as workflow_schema, settings as workflow_settings
 
 DENSE_MASTER_DESCRIPTION = ('Keeps the complete decoded geometry and materials before finishing. '
                             'Adapts the working copy to the surface, with a default ceiling of 1.2 million triangles.')
 DETAIL_STUDY = 'detail_study'
 PROPS_PROFILE = 'high_detail'
 STARTUP_PROFILE = 'high_detail_native'
+MAX_CUSTOM_PROFILES = 100
 COMFY_INPUT_FILES = tuple('workflow-input' + extension for extension in ('.png', '.jpg', '.webp'))
 COMFY_PROFILES = {
     'game_asset_comfy': dict(name='Game Asset · ComfyUI', label='PixelArtistry Character 05',
@@ -38,6 +39,12 @@ def profile_options(overrides, steps):
     options = normalize_options(overrides, steps)
     options.pop('texture_seed')  # Every seed belongs to the object, not its recipe.
     return options
+
+
+def workflow_descriptor(preset):
+    recipe = STANDALONE_PROFILES[preset]
+    return {**{field: recipe[field] for field in ('label', 'resolution', 'texture_size', 'target_faces')},
+            'advanced': workflow_schema(preset)['stages']}
 
 
 def builtin_profiles():
@@ -79,10 +86,8 @@ def builtin_profiles():
         settings = dict(preset=key, resolution=recipe['resolution'], triangles=recipe['target_faces'],
                         texture_size=recipe['texture_size'], remove_bg=True, advanced={},
                         texture_method=recipe['texture_method'], multiview_texture_refinement=False)
-        workflow = {field: recipe[field] for field in ('label', 'resolution', 'texture_size', 'target_faces')}
-        workflow['advanced'] = workflow_schema(key)['stages']
         profiles.append(dict(id=key, name=recipe['name'], builtin=True, settings=settings,
-                             description=recipe['description'], workflow=workflow))
+                             description=recipe['description'], workflow=workflow_descriptor(key)))
     return profiles
 
 
@@ -93,9 +98,20 @@ def validate_recipe(data):
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 60 or any(ord(c) < 32 for c in name):
         raise ValueError('Choose a single-line name of 1–60 characters.')
     s = data['settings']
+    if not isinstance(s, dict):
+        raise ValueError('Incomplete or unknown profile settings.')
+    preset = s.get('preset')
+    if isinstance(preset, str) and preset in STANDALONE_PROFILES:
+        if set(s) != {'preset', 'workflow_options'} or not isinstance(s['workflow_options'], dict):
+            raise ValueError('Choose only the settings from the workflow graph.')
+        options = workflow_settings(preset, s['workflow_options'])
+        # Like standard profiles, native presets leave seeds to each generation.
+        for stage in options.values():
+            stage.pop('seed', None)
+        return dict(name=name.strip(), settings=dict(preset=preset, workflow_options=options))
     keys = {'preset', 'resolution', 'triangles', 'texture_size', 'remove_bg', 'advanced'}
     optional = {'master_finishing', 'retexture_after_refinement', 'multiview_texture_refinement', 'texture_method'}
-    if not isinstance(s, dict) or not keys <= set(s) <= keys | optional:
+    if not keys <= set(s) <= keys | optional:
         raise ValueError('Incomplete or unknown profile settings.')
     if not isinstance(s['preset'], str) or s['preset'] not in GENERATION_PRESETS:
         raise ValueError('Unknown base preset.')
@@ -143,7 +159,7 @@ class ProfileStore:
                 seen.add(p['id'])
                 validate_recipe({k: p[k] for k in ('name', 'settings')})
             return data['profiles']
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError, OverflowError):
             raise ValueError('The profile file is unreadable and has been preserved. Restore its backup before trying again.')
 
     def list(self):
@@ -157,8 +173,8 @@ class ProfileStore:
         if any(p['name'].casefold() == recipe['name'].casefold() and p['id'] != identifier
                for p in builtin_profiles() + profiles):
             raise ValueError('This profile name already exists.')
-        if not identifier and len(profiles) >= 100:
-            raise ValueError('The limit of 100 custom profiles has been reached.')
+        if not identifier and len(profiles) >= MAX_CUSTOM_PROFILES:
+            raise ValueError(f'The limit of {MAX_CUSTOM_PROFILES} custom profiles has been reached.')
         record = dict(recipe, id=identifier or 'user_' + uuid.uuid4().hex,
                       builtin=False, updated=time.time())
         profiles = [record if p['id'] == identifier else p for p in profiles] if identifier else profiles + [record]

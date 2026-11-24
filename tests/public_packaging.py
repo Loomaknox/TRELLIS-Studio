@@ -10,12 +10,44 @@ import zipfile
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'installer'))
 from audit_public import audit
 import install_caddy
+from studio_model_assets import model_asset_path
 
 
 class PublicPackage(unittest.TestCase):
+    def test_identical_pinned_weights_share_one_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / 'installer').mkdir()
+            for name in ('native-game-geometry-manifest.json', 'native-ultratex-manifest.json',
+                         'pixal3d-manifest.json', 'ultratex-manifest.json'):
+                path = Path('installer') / name
+                (root / path).write_bytes((ROOT / path).read_bytes())
+            for native, legacy, name, expected in (
+                ('native-pixal3d', 'pixal3d', 'diffusion_models/pixal3d_int8_convrot.safetensors',
+                 'models/native-pixal3d'),
+                ('native-ultratex', 'ultratex', 'vae/flux2-vae.safetensors', 'models/native-game-texture'),
+            ):
+                canonical = root / expected / name
+                self.assertEqual(model_asset_path(root, native, name), canonical)
+                self.assertEqual(model_asset_path(root, legacy, name), canonical)
+                old_root = 'models/pixal3d/models' if legacy == 'pixal3d' else 'models/ultratex'
+                old_path = root / old_root / name
+                old_path.parent.mkdir(parents=True)
+                old_path.touch()
+                self.assertEqual(model_asset_path(root, native, name), old_path)
+                self.assertEqual(model_asset_path(root, legacy, name), old_path)
+                canonical.parent.mkdir(parents=True)
+                old_path.rename(canonical)
+                self.assertEqual(model_asset_path(root, legacy, name), canonical)
+                self.assertEqual(model_asset_path(root, legacy, name, directory=root / 'custom'),
+                                 root / 'custom' / name)
+            text = 'text_encoders/Qwen3-8B-Q6_K.gguf'
+            self.assertEqual(model_asset_path(root, 'ultratex', text), root / 'models/ultratex' / text)
+
     def test_private_data_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

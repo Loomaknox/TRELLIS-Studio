@@ -62,11 +62,11 @@ def runtime_status():
     return {'available': True, 'reason': ''}
 
 
-def finish_geometry(raw_mesh, work, progress=None, *, options=None):
+def finish_geometry(raw_mesh, work, progress=None, *, options=None, quad_progress=None, wtivo_progress=None):
     """Run QuadDC, WTiVo, LOD, UV and normal bake with the selected recipe."""
     work = Path(work).resolve()
     paths = _runtime()
-    command = [str(paths['python']), '-I', '-B', '-u', str(Path(__file__).resolve()),
+    command = [str(paths['python']), '-I', '-B', '-u', '-X', 'utf8', str(Path(__file__).resolve()),
                str(Path(raw_mesh).resolve()), str(work)]
     with TemporaryDirectory(prefix='.finish-', dir=work.parent) as directory:
         settings = Path(directory) / 'settings.json'
@@ -82,6 +82,10 @@ def finish_geometry(raw_mesh, work, progress=None, *, options=None):
                 for line in process.stdout:
                     if line.startswith('FINISH_PROGRESS ') and progress is not None:
                         progress(line.removeprefix('FINISH_PROGRESS ').strip())
+                    elif line.startswith('FINISH_QUAD_PROGRESS ') and quad_progress is not None:
+                        quad_progress(line.removeprefix('FINISH_QUAD_PROGRESS ').strip())
+                    elif line.startswith('FINISH_WTIVO_PROGRESS ') and wtivo_progress is not None:
+                        wtivo_progress(line.removeprefix('FINISH_WTIVO_PROGRESS ').strip())
                     elif line.startswith('FINISH_ERROR '):
                         failure = line.removeprefix('FINISH_ERROR ').strip()
                     else:
@@ -124,6 +128,8 @@ def _main():
                 ROOT, runtime['toolkit'], runtime['cumesh'], blender, runtime['operator_source'], work,
                 arrays['vertices'], arrays['faces'], options=options,
                 progress=lambda label: print('FINISH_PROGRESS ' + label, flush=True),
+                quad_progress=lambda label: print('FINISH_QUAD_PROGRESS ' + label, flush=True),
+                wtivo_progress=lambda label: print('FINISH_WTIVO_PROGRESS ' + label, flush=True),
             )
     except WTiVoTimeout as error:
         print('FINISH_ERROR ' + str(error), flush=True)

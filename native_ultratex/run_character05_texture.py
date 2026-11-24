@@ -20,6 +20,7 @@ from PIL import Image
 import torch
 
 from glb_data import read
+from native_ultratex.dependencies import triton_compiler
 from native_ultratex_models import (TextureAssets, encode_qwen_clip, load_flux_texture_vae, load_klein_gguf,
                                     load_pinned_file, load_qwen_text, text_prompt_tokens)
 from native_ultratex_recipe import ATLAS_ORDER, character05_passes, diffusion_times, foreground_noise
@@ -41,8 +42,9 @@ def verify_model_assets(root):
     files = json.loads(path.read_text(encoding='utf-8'))
     if len(files) != 6:
         raise ValueError('Character 05 UltraTex model manifest is incomplete.')
+    assets = TextureAssets(root)
     for record in files:
-        path = root / record['path']
+        path = assets.locate(record['path'])
         if not path.is_file() or path.stat().st_size != record['bytes']:
             raise ValueError(f'Missing or incorrect UltraTex model file: {record["path"]}')
         with path.open('rb') as model:
@@ -463,10 +465,7 @@ if __name__ == '__main__':
     work = args.work.resolve()
     work.mkdir(parents=True, exist_ok=True)
     torch.set_num_threads(4)
-    compiler = NATIVE_RUNTIME / 'deps/triton/runtime/tcc/tcc.exe'
-    if not compiler.is_file():
-        raise RuntimeError('The standalone UltraTex Triton compiler is missing.')
-    os.environ.setdefault('CC', str(compiler))
+    os.environ.setdefault('CC', str(triton_compiler()))
     os.environ.setdefault('TRITON_CACHE_DIR', str(NATIVE_RUNTIME / 'triton-cache'))
     if args.preflight:
         selected_sources()

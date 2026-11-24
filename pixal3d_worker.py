@@ -11,7 +11,7 @@ import traceback
 
 from pixal3d_runtime import (
     CAMERA_FOV, VIEW_FILES, SINGLE_IMAGE_SETUP_HINT, camera_matrix, load_manifest, runtime_root, runtime_status,
-    source_path, validate_views,
+    source_path, validate_views, weight_path,
 )
 from gpu_runtime import configure_attention, probe, select_gpu
 from studio_workspace import write
@@ -160,7 +160,7 @@ def generate_source(torch, job, views, options, sampling, status, reviewed=False
     )
 
     def model_file(relative):
-        return str(RUNTIME / 'models' / relative)
+        return str(weight_path(ROOT, relative))
 
     def vae(filename):
         state, metadata = comfy.utils.load_torch_file(model_file('vae/' + filename), return_metadata=True)
@@ -268,7 +268,7 @@ def check_runtime(single_image=False):
     if single_image:
         from comfy_extras.nodes_trellis2 import Pixal3DConditioning
 
-        if not (RUNTIME / 'models' / SINGLE_DIFFUSION).is_file():
+        if not weight_path(ROOT, SINGLE_DIFFUSION).is_file():
             raise RuntimeError(SINGLE_IMAGE_SETUP_HINT)
         load_moge_estimator(torch)
     probe()

@@ -6,6 +6,7 @@ param(
     [switch]$AcceptModelLicenses
 )
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'Setup-Preflight.ps1')
 
 function Get-KimodoWslDistributions {
     $taskRegistry='HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'
@@ -21,23 +22,8 @@ function Get-KimodoWslDistributions {
 
 function Test-KimodoWslArchitecture([string]$Executable,[string]$Distribution) {
     if ($Distribution -notmatch '^[A-Za-z0-9_.-]{1,80}$') { return $false }
-    $taskOutput=[IO.Path]::GetTempFileName()
-    $taskError=[IO.Path]::GetTempFileName()
-    $taskProbe=$null
-    try {
-        $taskProbe=Start-Process -FilePath $Executable -ArgumentList @('-d',$Distribution,'--exec','uname','-m') `
-            -WindowStyle Hidden -PassThru -RedirectStandardOutput $taskOutput -RedirectStandardError $taskError
-        if (-not $taskProbe.WaitForExit(20000)) {
-            # Only this short-lived uname probe is stopped, never the distribution.
-            $taskProbe.Kill(); $taskProbe.WaitForExit()
-            return $false
-        }
-        return $taskProbe.ExitCode -eq 0 -and ([IO.File]::ReadAllText($taskOutput).Replace([string][char]0,'').Trim() -eq 'x86_64')
-    } catch { return $false }
-    finally {
-        if ($taskProbe) { $taskProbe.Dispose() }
-        Remove-Item -LiteralPath $taskOutput,$taskError -Force -ErrorAction SilentlyContinue
-    }
+    $taskProbe=Invoke-SetupProcess -FilePath $Executable -Arguments @('-d',$Distribution,'--exec','uname','-m') -TimeoutSeconds 20
+    return $taskProbe.ExitCode -eq 0 -and ($taskProbe.Output.Replace([string][char]0,'').Trim() -eq 'x86_64')
 }
 
 function Resolve-KimodoDistribution([string]$Root,[string]$Requested) {

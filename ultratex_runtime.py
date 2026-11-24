@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from time import monotonic
 
 from retexture_runtime import file_sha
+from studio_model_assets import model_asset_path
 
 
 TEXTURE_SIZE = 2048
@@ -42,6 +43,10 @@ STAGES = {
 }
 
 
+def weight_path(root, relative):
+    return model_asset_path(root, 'ultratex', relative)
+
+
 def validated_runtime(root, *, verify_weights=False):
     runtime = Path(root) / 'models' / 'ultratex'
     missing = 'Install the optional UltraTex local preview runtime.'
@@ -55,7 +60,7 @@ def validated_runtime(root, *, verify_weights=False):
         )):
             raise ValueError(missing)
         for name, (size, digest) in WEIGHTS.items():
-            path = runtime / name
+            path = weight_path(root, name)
             if path.stat().st_size != size or (verify_weights and file_sha(path) != digest):
                 raise ValueError('An installed UltraTex weight file does not match the verified runtime.')
     except (OSError, TypeError, AttributeError, json.JSONDecodeError) as error:
