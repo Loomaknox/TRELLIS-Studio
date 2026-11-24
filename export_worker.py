@@ -27,7 +27,13 @@ try:
         )
         items.append(dict(id=identifier,name=name,clips=len(manifest['animations']),file=safe+'-'+identifier[:8]))
         if target=='print':
-            items[-1]['closed_surface']=manifest['print_report'].get('closed_surface')
+            report=manifest['print_report']
+            closed=report.get('closed_surface')
+            items[-1].update(closed_surface=closed,
+                             verdict='unverified' if closed is None else 'closed' if closed else 'needs_repair',
+                             delivered_stl_sha256=manifest['delivered_stl_sha256'])
+            if closed is not None and 'sampled_wall_mm' in report:
+                items[-1]['sampled_wall_mm']=report['sampled_wall_mm']
     if target=='unity':
         editor=package/'Editor';editor.mkdir();shutil.copy2(ROOT/'unity/TrellisPackageImporter.cs',editor/'TrellisPackageImporter.cs')
     (package/'export-manifest.json').write_text(json.dumps(dict(target=target,recipe=TARGETS[target],models=items),indent=2),encoding='utf-8')

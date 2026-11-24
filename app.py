@@ -2,6 +2,7 @@
 from pathlib import Path
 from studio_workspace import ID, finishing_source, job_status, read as read_workspace_json
 from studio_version import VERSION
+from asset_provenance import capture_generation
 from studio_release import UI_REVISION, release_status, render_studio_version
 from contextlib import asynccontextmanager
 from tempfile import TemporaryDirectory
@@ -345,6 +346,20 @@ def require_texture_method(method):
                   else ultratex_texture_capability() if method == 'ultratex' else None)
     if capability and not capability['available']:
         raise HTTPException(503, capability['reason'])
+
+
+def record_generation_plan(settings, preferred=None):
+    support = None
+    if preferred and preferred != settings.get('texture_method'):
+        if preferred not in ('multiview', 'ultratex') or settings.get('texture_method') != 'trellis':
+            raise HTTPException(400, 'Invalid texture fallback selection.')
+        if settings.get('view_mode') == 'multi':
+            support = dict(reason_code='single_image_required', reason='Texture method requires a single image.')
+        elif preferred == 'ultratex' and settings.get('texture_size') != 2048:
+            support = dict(reason_code='atlas_2k_required', reason='UltraTex requires a 2K texture atlas.')
+        else:
+            support = multiview_texture_capability() if preferred == 'multiview' else ultratex_texture_capability()
+    capture_generation(settings, preferred, support)
 
 
 def detail_texturing_capability():
@@ -1749,6 +1764,7 @@ async def generate_multiview(
     asset_type: Annotated[str, Form()] = 'humanoid',
     master_finishing: Annotated[str | None, Form()] = None,
     texture_method: Annotated[str | None, Form()] = None,
+    preferred_texture_method: Annotated[str | None, Form()] = None,
 ):
     if facial_head_enhancement:
         raise HTTPException(400, 'Choose TRELLIS.2 Single image, a humanoid and 1024 resolution for face enhancement.')
@@ -1828,6 +1844,7 @@ async def generate_multiview(
     settings['profile_snapshot'] = dict(profile, engine='pixal3d', preset=preset, resolution=1024, triangles=settings['triangles'],
         texture_size=settings['texture_size'], generation_options=generation_options,
         keep_finishing_source=keep_finishing_source)
+    record_generation_plan(settings, preferred_texture_method)
     if preset == DENSE_MASTER and not (hd_reconstruction or master_finishing):
         settings['adaptive_finishing'] = True
         settings['profile_snapshot']['adaptive_finishing'] = True
@@ -1890,6 +1907,7 @@ async def generate_workflow(image, workflow_id, *, options, name, height_m, asse
                     pipeline_type=workflow_id, height_m=height_m, asset_type=asset_type,
                     workflow_options=options,
                     settings_version=4, created=time.time(), **workflow_summary(workflow_id, options))
+    record_generation_plan(settings)
     if parent_id:
         settings['parent_id'] = parent_id
     identifier = uuid.uuid4().hex
@@ -1938,6 +1956,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                    retexture_after_refinement: Annotated[bool, Form()] = False,
                    multiview_texture_refinement: Annotated[bool | None, Form()] = None,
                    texture_method: Annotated[str | None, Form()] = None,
+                   preferred_texture_method: Annotated[str | None, Form()] = None,
                    workflow_options: Annotated[str, Form()] = ''):
     if WORKSPACE_CONFIG:
         queue_only = True
@@ -2110,6 +2129,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
             if snapshot := settings.get('profile_snapshot'):
                 snapshot['multiview_texture_refinement'] = True
         if parent_id:settings['parent_id']=parent_id
+        record_generation_plan(settings, preferred_texture_method)
         with TemporaryDirectory(prefix='.trellis2-', dir=OUTPUT) as staging:
             staged = Path(staging)
             source.save(staged / 'input.png')

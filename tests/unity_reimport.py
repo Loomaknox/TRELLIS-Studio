@@ -105,7 +105,8 @@ def run(editor, crouch_model=None, mapping_file=None, vault=False, vault_model=N
             exported = export_asset(source, work/"packages/Vault", "unity")
             shutil.copytree(work/"packages/Vault", project/"Assets/Vault")
             assert exported['motion_root'] and exported['unity_baked_contacts']
-            document, _ = read(source / "model.glb")
+            from animation_diagnostics import read_tracks, world_positions
+            document, binary = read(source / "model.glb")
             _, matrix = node_transforms(document)
             indices = {n.get("name"): i for i,n in enumerate(document["nodes"])}
             def xyz(value):
@@ -114,8 +115,17 @@ def run(editor, crouch_model=None, mapping_file=None, vault=False, vault_model=N
             anchors = [dict(name=mapping[role], point=xyz(matrix(indices[mapping[role]])[:3,3]))
                        for role in ("right_hand","left_hand","head","right_toe")]
             contact = item["contact"]
+            clip = next(clip for clip in document['animations'] if clip['name'] == item['clip'])
+            tracks, partial, errors = read_tracks(document, binary, clip)
+            assert not partial and not errors, (partial, errors)
+            joints = {mapping[role]: indices[mapping[role]] for role in
+                      ('head', 'left_hand', 'right_hand', 'left_shin', 'right_shin', 'left_foot', 'right_foot')}
+            frames = [48, 192, 336]  # 0.25 s, 1 s, 1.75 s on the Unity evaluation clock.
+            positions = world_positions(document['nodes'], tracks, joints, np.asarray(frames)/192)
+            poses = [dict(frame=frame, joints=[dict(name=name, point=xyz(series[i]))
+                                                for name, series in positions.items()]) for i, frame in enumerate(frames)]
             expected = dict(clip=item["clip"], bone=contact["bone"], anchors=anchors,
-                            bind=xyz(contact["palm_bind"]), target=xyz(contact["palm_target"]),
+                            poses=poses, bind=xyz(contact["palm_bind"]), target=xyz(contact["palm_target"]),
                             interval=contact["interval_s"])
             (work/"vault.json").write_text(json.dumps(expected))
         if crouch_model:
@@ -156,7 +166,7 @@ def run(editor, crouch_model=None, mapping_file=None, vault=False, vault_model=N
         if crouch_model:
             markers.append("TRELLIS CHARACTER PASS")
         if vault:
-            markers.append("TRELLIS VAULT PASS")
+            markers += ["TRELLIS VAULT PASS", "TRELLIS FBX POSES PASS"]
         if result.returncode or any(marker not in report for marker in markers):
             errors = [line for line in report.splitlines() if "Exception:" in line or "error CS" in line or line.startswith("TRELLIS ")]
             print("\n".join(errors[-20:]) or report[-3000:])

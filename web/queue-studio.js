@@ -131,6 +131,7 @@ export function createQueueStudio({api, refresh}) {
     const restriction=textureMethodRestriction(method,capabilities,true);
     const control=select(textureMethodChoices.map(([id,label])=>[id,t(label)]),restriction?'trellis':method);
     control.id = id;
+    if(restriction) control.dataset.preferredTexture = method;
     for(const option of control.options){
       option.title=textureMethodRestriction(option.value,capabilities,true);
       option.disabled=!!option.title;
@@ -154,7 +155,7 @@ export function createQueueStudio({api, refresh}) {
         size.disabled=false;
       }
     };
-    control.addEventListener('change',()=>{status.hidden=true;sync();});
+    control.addEventListener('change',()=>{delete control.dataset.preferredTexture;status.hidden=true;sync();});
     sync();
     return control;
   }
@@ -235,6 +236,8 @@ export function createQueueStudio({api, refresh}) {
       if (supportsRetexture) row.retexture_after_refinement = !retexture.disabled && retexture.checked;
       if (textureMethod) {
         row.texture_method=textureMethod.value;
+        if(textureMethod.dataset.preferredTexture) row.preferred_texture_method=textureMethod.dataset.preferredTexture;
+        else delete row.preferred_texture_method;
         delete row.multiview_texture_refinement;
       }
       renderDrafts();
@@ -308,6 +311,7 @@ export function createQueueStudio({api, refresh}) {
     if (retexture_after_refinement !== undefined) row.retexture_after_refinement = retexture_after_refinement;
     else delete row.retexture_after_refinement;
     delete row.texture_method;
+    delete row.preferred_texture_method;
     delete row.multiview_texture_refinement; // A new profile restores its texture refinement preference.
   }
 
@@ -546,6 +550,7 @@ export function createQueueStudio({api, refresh}) {
       }
       const changes = {texture_size: Number(texture.value), height_m: height.valueAsNumber, priority: Number(priority.value)};
       if (textureMethod && textureMethod.value!==textureMethodOf(saved)) changes.texture_method=textureMethod.value;
+      if (textureMethod?.dataset.preferredTexture) changes.preferred_texture_method=textureMethod.dataset.preferredTexture;
       if (!master) changes.triangles = triangles.valueAsNumber;
       if (!fixedResolution) changes.resolution = Number(resolution.value);
       if (refinish && bakeNormals.checked !== !!saved.bake_normals) changes.bake_normals = bakeNormals.checked;

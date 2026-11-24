@@ -4,6 +4,7 @@ import hashlib,json,os,re,shutil,stat,time,uuid,zipfile
 from studio_workspace import read,write,ID,file_digest
 from studio_import import validate_glb
 from studio_version import VERSION
+from asset_provenance import export_provenance, fields
 
 EXTENSIONS={'.json','.glb','.blend','.png','.jpg','.jpeg','.webp','.stl','.fbx','.obj','.ply','.raw','.mtl','.webm'}
 EXCLUDED={'Blender','rig-work','before-animations','__pycache__'}
@@ -113,6 +114,37 @@ def published_export(task,request):
     return dict(state='done',stage='Collection backup ready' if target=='library' else 'Export ready',
                 target=target,progress=100,count=len(items),items=items,bytes=path.stat().st_size)
 
+def export_lineage(folder, settings):
+    library = folder.resolve().parent
+    seen = {folder.name}
+    ancestors = []
+    status = 'origin'
+    while settings.get('parent_id') and settings.get('source_kind'):
+        identifier = settings['parent_id']
+        if not isinstance(identifier, str) or not ID.fullmatch(identifier) or identifier in seen or len(seen) >= 64:
+            status = 'invalid_or_cyclic'
+            break
+        parent = library / identifier
+        files = [parent / name for name in ('settings.json', 'result.json')]
+        if any(path.resolve() != path for path in files) or not files[0].is_file():
+            status = 'parent_unavailable'
+            break
+        try:
+            settings = fields(read(files[0], {}))
+            result = fields(read(files[1], {}))
+        except (OSError, UnicodeError, ValueError):
+            status = 'parent_unreadable'
+            break
+        ancestors.append((identifier, settings, result))
+        seen.add(identifier)
+    if status == 'origin' and settings.get('source_kind') == 'import' and not settings.get('parent_id'):
+        status = 'imported_origin'
+    receipt = {}
+    for _, settings, result in reversed(ancestors):
+        receipt = export_provenance(settings, result, receipt)
+    return dict(chain=[row[0] for row in ancestors], status=status, ancestor=receipt)
+
+
 def snapshot_export(assets,task,target,include_revisions):
     if target=='library':
         files,total=collection_inventory([folder for folder,_ in assets],include_revisions)
@@ -130,6 +162,7 @@ def snapshot_export(assets,task,target,include_revisions):
         if (folder/'Diagnostics/report.json').is_file():
             shutil.copy2(folder/'Diagnostics/report.json',snapshot/'diagnostics.json')
         if target=='library':continue
+        write(snapshot/'export-lineage.json',export_lineage(folder,record['settings']))
         for child in ('LODs','Collisions'):
             if (folder/child).is_dir():shutil.copytree(folder/child,snapshot/child)
         for filename in ('model.glb','model.stl','result.json','print-report.json','lod-manifest.json','physics.json','motion-report.json'):

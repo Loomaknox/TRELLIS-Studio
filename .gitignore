@@ -77,6 +77,7 @@
 !/studio_transfer.py
 !/studio_workspace.py
 !/target_export.py
+!/asset_provenance.py
 !/terrain_generator.py
 !/trellis_mcp.py
 !/unity_export.py
@@ -347,6 +348,7 @@
 !/tests/finishing_board.py
 !/tests/normal_donor.py
 !/tests/export_preflight.py
+!/tests/export_receipts.py
 !/tests/unity_reimport.py
 !/tests/unity_reimport_editor.cs
 !/export_preflight.py

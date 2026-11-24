@@ -23,7 +23,7 @@ from wtivo_runtime import validate_wtivo_recipe, wtivo_capability
 from hi3d_runtime import HI3D_TRIANGLE_CAP, hi3d_source_status, hi3d_status
 
 RETRY_STATES = {'error', 'cancelled'}
-RETRY_FIELDS = {'resolution', 'texture_size', 'triangles', 'height_m', 'priority',
+RETRY_FIELDS = {'resolution', 'texture_size', 'triangles', 'height_m', 'priority', 'preferred_texture_method',
                 'mesh_mode', 'pre_simplify', 'repair_holes', 'bake_normals', 'repair_surface', 'hd_reconstruction',
                 'wtivo_reconstruction', 'multiview_texture_refinement', 'texture_method', 'workflow_options', 'facial_head_enhancement'}
 RETRY_FINISHING_FIELDS = ('mesh_mode', 'pre_simplify', 'repair_holes')
@@ -517,11 +517,12 @@ class StudioServices:
             revised = dict(saved, created=time.time(), parent_id=folder.name, retry_of=folder.name,
                            height_m=height, workflow_options=options)
             revised.update(workflow_summary(workflow_id, options))
+            self.g['record_generation_plan'](revised)
             return revised, priority, sources
         if 'workflow_options' in changes:
             raise ValueError('Choose a profile that uses workflow settings.')
         if saved.get('master_finishing') and set(changes) - {
-                'resolution', 'texture_size', 'height_m', 'priority', 'multiview_texture_refinement', 'texture_method', 'facial_head_enhancement'}:
+                'resolution', 'texture_size', 'height_m', 'priority', 'multiview_texture_refinement', 'texture_method', 'preferred_texture_method', 'facial_head_enhancement'}:
             raise ValueError('HD Master Finishing fixes the reconstruction and triangle ceiling.')
 
         refinish = saved.get('source_kind') == 'refinish'
@@ -579,6 +580,7 @@ class StudioServices:
             raise ValueError('Use a texture refinement copy to apply multiview textures to an existing model.')
         self.g['require_texture_method'](texture_method)
         settings['texture_method'] = texture_method
+        self.g['record_generation_plan'](settings, changes.get('preferred_texture_method'))
         multiview_texture = texture_method == 'multiview'
         if multiview_texture:
             settings['multiview_texture_refinement'] = True
@@ -862,7 +864,7 @@ class StudioServices:
                            'texture_size', 'resolution', 'advanced_settings', 'asset_type', 'reference_prompt',
                            'parent_id', 'keep_finishing_source', 'repair_surface', 'hd_reconstruction',
                            'reference_edits', 'engine', 'master_finishing', 'reproject_face', 'facial_head_enhancement',
-                           'retexture_after_refinement', 'multiview_texture_refinement', 'texture_method', 'workflow_options'}
+                           'retexture_after_refinement', 'multiview_texture_refinement', 'texture_method', 'preferred_texture_method', 'workflow_options'}
                 if any(not isinstance(s,dict) or set(s)-allowed for s in specs):raise ValueError('Unknown queue settings.')
                 for spec in specs:
                     for key,limit in [('name',80),('profile_id',80),('asset_type',80),('reference_prompt',6000),('parent_id',32)]:
@@ -883,6 +885,8 @@ class StudioServices:
                         raise ValueError('Invalid multiview texture refinement setting.')
                     if 'texture_method' in spec:
                         resolve_texture_method(spec['texture_method'])
+                    if 'preferred_texture_method' in spec:
+                        resolve_texture_method(spec['preferred_texture_method'])
                     if spec.get('engine', 'trellis2') not in ('trellis2', 'pixal3d_single'):raise ValueError('Invalid single-image method.')
                     if spec.get('master_finishing') not in (None, *CREATE_MASTER_FINISHING_METHODS):raise ValueError('Invalid master finishing method.')
                     if 'advanced_settings' in spec and not isinstance(spec['advanced_settings'],dict):raise ValueError('Invalid advanced settings.')
@@ -914,6 +918,10 @@ class StudioServices:
                                              and self.g['multiview_texture_capability']()['available'])
                     params['multiview_texture_refinement'] = multiview_texture
                     params['texture_method'] = spec.get('texture_method', s.get('texture_method'))
+                    params['preferred_texture_method'] = spec.get('preferred_texture_method')
+                    if (params['preferred_texture_method'] is None and 'texture_method' not in spec
+                            and s.get('multiview_texture_refinement') and not multiview_texture):
+                        params['preferred_texture_method'] = 'multiview'
                     if 'multiview_texture_refinement' in spec and 'texture_method' not in spec:
                         params['texture_method'] = None
                     params['reproject_face'] = spec.get('reproject_face', False)

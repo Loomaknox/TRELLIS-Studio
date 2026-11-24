@@ -554,6 +554,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
         form.set('retexture_after_refinement', String(wantsRetexture()));
       }
       form.set('texture_method',textureMethod.value);
+      if (textureMethod.value !== preferredTextureMethod) form.set('preferred_texture_method',preferredTextureMethod);
     },
     restoreFinishing(settings){
       refinementInputs=null;

@@ -172,4 +172,5 @@ def refine(root, model, reference, texture_size, seed, *, progress=None, cancell
         reason = str(error) if isinstance(error, ValueError) else 'UltraTex could not save the texture. See the generation log.'
         return dict(state='skipped', reason=reason)
     report['state'] = 'applied'
+    report['revisions'] = dict(REVISIONS)
     return report

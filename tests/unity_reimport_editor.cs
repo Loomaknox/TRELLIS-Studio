@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEditor;
@@ -241,7 +242,8 @@ namespace TrellisStudio
         static byte[] Bytes(string path) => File.ReadAllBytes(Path.Combine(Project, path));
 
         [Serializable] class Anchor { public string name; public Vector3 point; }
-        [Serializable] class Vault { public string clip,bone; public Anchor[] anchors; public Vector3 bind,target; public float[] interval; }
+        [Serializable] class PoseSample { public int frame; public Anchor[] joints; }
+        [Serializable] class Vault { public string clip,bone; public Anchor[] anchors; public PoseSample[] poses; public Vector3 bind,target; public float[] interval; }
 
         static void CheckContactUpdate()
         {
@@ -324,12 +326,21 @@ namespace TrellisStudio
                     AnimationPlayableOutput.Create(graph,"Vault",animator).SetSourcePlayable(playable);
                     graph.Play();
                     graph.Evaluate(0);
-                    for(int frame=1;frame<=Mathf.FloorToInt(expected.interval[1]*192);frame++) {
+                    var poseErrors=new List<float>();
+                    int lastFrame=Math.Max(expected.poses.Max(p=>p.frame), Mathf.FloorToInt(expected.interval[1]*192));
+                    for(int frame=1;frame<=lastFrame;frame++) {
                         graph.Evaluate(1f/192);
-                        if (frame/192f < expected.interval[0]) continue;
+                        foreach(var pose in expected.poses.Where(p=>p.frame==frame)) {
+                            float error=pose.joints.Max(j=>Vector3.Distance(joints[j.name].position,basis.MultiplyPoint3x4(j.point)));
+                            poseErrors.Add(error);
+                        }
+                        if (frame/192f < expected.interval[0] || frame/192f > expected.interval[1]) continue;
                         sample=hand.TransformPoint(offset);
                         worst=Mathf.Max(worst,Vector3.Distance(sample,target));
                     }
+                    var measured=string.Join(", ",poseErrors.Select(e=>e.ToString("F5",System.Globalization.CultureInfo.InvariantCulture)));
+                    Assert(poseErrors.Count==3 && poseErrors.Max()<.035f,"source GLB / FBX joint positions in metres: "+measured);
+                    Debug.Log("TRELLIS FBX POSES PASS, maximum joint distance in metres at 0.25 / 1 / 1.75 s: "+measured);
                 } finally { graph.Destroy(); }
                 Debug.Log("TRELLIS vault measurement: root path "+((ModelImporter)AssetImporter.GetAtPath(path)).motionNodeName+" actor="+animator.transform.position+" sample="+sample+" target="+target);
                 Assert(worst<.045f,"palm on crate in retimed Unity animation, maximum error (m) "+worst+" target="+target+" palm="+sample+" bind axis scales="+basis.lossyScale);
