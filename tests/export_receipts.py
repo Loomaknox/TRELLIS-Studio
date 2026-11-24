@@ -154,6 +154,19 @@ def legacy(library):
     pinned = export_provenance({}, dict(finishing=dict(multiview_texture_refinement=dict(state='applied',
                               view_generation=dict(adapter_revision='historical-pin')))))
     assert 'historical-pin' in pinned['recorded_revisions'].values()
+    original = asset(library,'f',texture_method='ultratex')
+    write(original/'result.json',dict(engine='current', texture_method='ultratex'))
+    revision = '2'*32
+    historical = original/'Revisions'/revision
+    write(historical/'revision.json',dict(id=revision))
+    write(historical/'settings.json',dict(name='Snapshot',texture_method='trellis'))
+    write(historical/'result.json',dict(engine='historical', texture_method='trellis'))
+    restored = dict(source_kind='restored',parent_id=original.name,restored_revision=revision)
+    ancestry = export_lineage(folder,restored)
+    result = export_provenance(restored,{},ancestry['ancestor'])
+    assert result['used_engine']=='historical' and result['used_texture']=='trellis'
+    assert result['restored_asset_revision']==revision
+    assert export_lineage(folder,dict(restored,restored_revision='3'*32))['status']=='revision_unavailable'
 
 
 if __name__=='__main__':

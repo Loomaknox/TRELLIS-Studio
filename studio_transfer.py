@@ -154,6 +154,20 @@ def export_lineage(folder, settings):
             status = 'invalid_or_cyclic'
             break
         parent = library / identifier
+        if settings.get('source_kind') == 'restored':
+            revision = settings.get('restored_revision')
+            if not isinstance(revision, str) or not ID.fullmatch(revision):
+                status = 'revision_unavailable'
+                break
+            parent = parent/'Revisions'/revision
+            record_file = parent/'revision.json'
+            try:
+                verified = record_file.resolve() == record_file and fields(read(record_file, {})).get('id') == revision
+            except (OSError, UnicodeError, ValueError):
+                verified = False
+            if not verified:
+                status = 'revision_unavailable'
+                break
         files = [parent / name for name in ('settings.json', 'result.json')]
         if any(path.resolve() != path for path in files) or not files[0].is_file():
             status = 'parent_unavailable'
