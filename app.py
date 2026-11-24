@@ -1,8 +1,8 @@
 """Loopback-only local asset studio. No remote inference or hosted dependencies."""
 from pathlib import Path
 from studio_workspace import ID, finishing_source, job_status, read as read_workspace_json
-from studio_version import VERSION
 from asset_provenance import capture_generation
+from studio_version import VERSION, build_identity
 from studio_release import UI_REVISION, release_status, render_studio_version
 from contextlib import asynccontextmanager
 from tempfile import TemporaryDirectory
@@ -42,6 +42,7 @@ from wtivo_runtime import wtivo_capability
 from hi3d_runtime import hi3d_status
 
 ROOT = Path(__file__).resolve().parent
+BUILD_IDENTITY = build_identity(ROOT)
 PIXAL_CHARACTER_PROFILE = dict(id='character_pixal', name='Character · Pixal3D',
                                resolution=1024, triangles=10600, texture_size=2048)
 PIXAL_TEXTURE_SIZES = (1024, 2048)
@@ -423,7 +424,7 @@ def status(collection_hint: bool = False):
                 preview_active=COLLECTION_PREVIEWS.rendering,
                 active=ACTIVE if PROCESS is not None and PROCESS.poll() is None else TERRAIN_ACTIVE,
                 export_active=EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None,
-                resolution=DEFAULT_GENERATION['resolution'], default_profile=DEFAULT_PROFILE, local=True, studio_version=VERSION,source_revision=SOURCE_REVISION,ui_revision=UI_REVISION,multi_view=pixal3d['ready'],pixal3d=pixal3d,
+                resolution=DEFAULT_GENERATION['resolution'], default_profile=DEFAULT_PROFILE, local=True, studio_version=VERSION,source_revision=SOURCE_REVISION,build_identity=BUILD_IDENTITY,ui_revision=UI_REVISION,multi_view=pixal3d['ready'],pixal3d=pixal3d,
                 generation_methods=generation_methods, create_master_finishing=create_master_finishing_capabilities(),
                 facial_head_enhancement=facial_head_capability(), detail_texturing=detail_texturing_capability(),
                 multiview_texture_refinement=multiview,

@@ -47,6 +47,8 @@ cd TRELLIS-Studio
 2. Exécute **Install TRELLIS Studio.cmd** dans le dossier extrait ou cloné. Lis les conditions des modèles, dont DINOv3, et accepte uniquement celles auxquelles tu consens.
 3. Exécute **Open TRELLIS.cmd**. Depuis les sources, Studio écoute par défaut sur [127.0.0.1:7860](http://127.0.0.1:7860/) et le pont MCP Desktop sur le port **7861**. Les ports par défaut du paquet Windows sont **7870** et **7871**.
 
+Pour installer l’Atelier sans connexion, prépare le support avec `python installer/prepare_offline_workshop.py MEDIA` sur un poste connecté. Sur la machine cible, vérifie l’empreinte du programme d’installation publiée par le mainteneur, définis `$env:TRELLIS_OFFLINE_WORKSHOP_MEDIA` avec le chemin du support, puis lance ce programme et sélectionne **Atelier uniquement**. Studio vérifie les bibliothèques, Python et les animations avant installation. Le survol de la version dans l’en-tête affiche aussi le commit du fork et l’empreinte du contenu du paquet lorsqu’ils sont connus. [Guide Windows](docs/WINDOWS_SETUP.md#install-workshop-offline)
+
 La configuration de référence du projet d’origine est Windows 11 avec une NVIDIA RTX 4070 Ti et 12 Go de VRAM. Le guide d’installation depuis les sources recommande **32 Go de RAM** et **80 Gio d’espace libre** pour une installation complète, auquel s’ajoute l’espace utilisé par ta collection et par les options installées. La génération TRELLIS.2 fonctionne dans l’environnement Windows, et UniRig s’exécute dans un environnement WSL2 séparé. [Installation et dépannage](INSTALLATION.md)
 
 | Composant | Quand l’utiliser | Configuration |

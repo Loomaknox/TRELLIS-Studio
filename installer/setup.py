@@ -168,12 +168,14 @@ def ensure_web():
 def ensure_venvs(uv):
     for environment in ('.venv','.mcp-venv'):
         target=ROOT/environment
-        if not (target/'Scripts/python.exe').exists():run(uv,'venv','--python','3.11',target)
+        if not (target/'Scripts/python.exe').exists():
+            run(uv,'venv','--python',sys.executable if os.environ.get('UV_OFFLINE')=='true' else '3.11',target)
     return ROOT/'.venv/Scripts/python.exe'
 
 
 def record_workshop():
-    paths=('installer/setup.py','requirements-windows.txt','requirements-mcp-lock.txt')
+    paths=('installer/setup.py','requirements-windows.txt','requirements-mcp-lock.txt',
+           'installer/locks/workshop-win-cp311.txt','installer/locks/mcp-win-cp311.txt')
     record={path:digest(ROOT/path) for path in paths}
     target=ROOT/'.studio-workshop-ready'
     stage=target.with_suffix('.pending')
@@ -184,13 +186,9 @@ def record_workshop():
 def install_workshop(uv):
     # CPU projection/reduction work without the generation models or CUDA.
     # PyMeshLab is fetched from its published wheel, not bundled in Setup.
-    names=set('annotated-doc annotated-types anyio click colorama fastapi h11 idna numpy opencv-python-headless opentelemetry-api pillow psutil pydantic pydantic_core pymeshlab python-multipart scipy starlette trimesh typing-inspection typing_extensions uvicorn'.split())
-    requirements=[line.strip() for line in (ROOT/'requirements-windows.txt').read_text().splitlines()
-                  if line.partition('==')[0].strip() in names]
-    if len(requirements)!=len(names):raise RuntimeError('Workshop dependency list does not match the Windows lock.')
     python=ensure_venvs(uv)
-    run(uv,'pip','install','--python',python,*requirements)
-    run(uv,'pip','install','--python',ROOT/'.mcp-venv/Scripts/python.exe','-r',ROOT/'requirements-mcp-lock.txt')
+    install_locked(uv,python,'workshop')
+    install_locked(uv,ROOT/'.mcp-venv/Scripts/python.exe','mcp')
     ensure_web()
     verify(rig=False,workshop_only=True)
     record_workshop()
@@ -287,10 +285,25 @@ def verify(rig=True,workshop_only=False):
     if rig:verify_rig(runtime_distribution('Ubuntu-22.04'))
 
 
+def install_locked(uv,python,name):
+    lock=ROOT/'installer/locks'/f'{name}-win-cp311.txt'
+    run(uv,'pip','install','--python',python,'--only-binary',':all:','--require-hashes','--no-deps','-r',lock)
+
+
 def install_native_packages(uv, python, plan):
-    run(uv,'pip','install','--python',python,'--only-binary',':all:',
-        *plan['packages'],'--index-url',plan['index_url'])
-    run(uv,'pip','install','--python',python,'-r',ROOT/'requirements-windows.txt')
+    if plan['packages'] != ['torch==2.8.0+cu128','torchvision==0.23.0+cu128','xformers==0.0.32.post2']:
+        raise RuntimeError('A matching hashed CUDA wheel lock is required for this GPU plan.')
+    install_locked(uv,python,'torch28-cu128')
+    install_locked(uv,python,'foundation')
+    from installer.native_workflow_install_common import fetch_asset
+    build_cache=Path('.downloads/utils3d-build')
+    for item in json.loads((ROOT/'installer/locks/utils3d-build.json').read_text()):
+        fetch_asset(ROOT,item,build_cache/item['path'])
+    source_entry=dict(url='https://codeload.github.com/EasternJournalist/utils3d/zip/9a4eb15e4021b67b12c460c7057d642626897ec8',
+                      bytes=152598,sha256='e11843922c771f8900926bbcc2f37efdbf3adfb5282b4db0f9973069923e43d0')
+    archive=fetch_asset(ROOT,source_entry,build_cache/'utils3d-0.0.2.zip')
+    run(uv,'pip','install','--python',python,'--offline','--no-index','--find-links',ROOT/build_cache,
+        '--no-deps',archive)
     wheel_paths=[ROOT/'engine/whl'/filename for filename in plan['native_wheels']]
     run(uv,'pip','install','--python',python,'--no-deps',*wheel_paths)
 
@@ -348,7 +361,7 @@ def main():
     install_native_packages(args.uv,python,plan)
     from installer.install_segmentation import install as install_segmentation
     install_segmentation(ROOT,args.uv,python)
-    run(args.uv,'pip','install','--python',ROOT/'.mcp-venv/Scripts/python.exe','-r',ROOT/'requirements-mcp-lock.txt')
+    install_locked(args.uv,ROOT/'.mcp-venv/Scripts/python.exe','mcp')
     ensure_web()
     run(python,'-B',ROOT/'gpu_runtime.py',label='Checking the installed CUDA extensions before model downloads...',timeout=180)
     download_assets(manifest,{'generation','animations'})

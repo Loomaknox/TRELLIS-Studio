@@ -156,6 +156,9 @@ function Invoke-GuidedSetup {
     $requested=@($RequestedComponents -split ',' | ForEach-Object {$_.Trim().ToLowerInvariant()} | Where-Object {$_})
     if ($Retry -and -not $requested.Count) { $requested=@($setupState.requested | Where-Object {$_}) }
     if ($WithKimodo) { $requested+=@('kimodo') }
+    if ($env:TRELLIS_OFFLINE_WORKSHOP_MEDIA -and @($requested | Where-Object {$_ -ne 'workshop'}).Count) {
+        throw 'Offline Workshop media supplies the Workshop and its animation library. Select Workshop only.'
+    }
     if ($SkipNativeWorkflows) {
         $requested=@($requested | Where-Object { $_ -ne 'native-workflows' })
         $setupState.requested=@($setupState.requested | Where-Object { $_ -ne 'native-workflows' })

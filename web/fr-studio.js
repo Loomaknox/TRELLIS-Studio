@@ -30,6 +30,8 @@ export default {
   'Inspect export copies': 'Examiner les copies d’export',
   'Export copies · {size} MiB': 'Copies d’export · {size} Mio',
   'Portable backups restore geometry, materials and clips. HD refinishing also requires the matching local master cache.': 'La sauvegarde portable restaure la géométrie, les matériaux et les clips. Refaire une finition HD demande aussi le cache maître local correspondant.',
+  "Upstream version": "Version amont",
+  "Package built with local changes": "Paquet compilé avec des modifications locales",
   "Unreadable job status": "État de la tâche illisible",
   "The saved job status could not be read.": "Impossible de lire l’état enregistré de cette tâche.",
   "Checkpoint model checksum mismatch.": "L’empreinte du modèle diffère de celle du point de sauvegarde.",

@@ -933,6 +933,14 @@ async function refresh(force = true) {
           }
         }
         features = !!status.studio_version;
+        if (status.build_identity) {
+          const build = status.build_identity;
+          const lines = [t('Upstream version') + ' · ' + build.upstream_version];
+          if (build.fork_commit) lines.push('Git · ' + build.fork_commit);
+          if (build.package_payload_sha256) lines.push('SHA-256 · ' + build.package_payload_sha256);
+          if (build.package_source_modified) lines.push(t('Package built with local changes'));
+          $('studioCurrentVersion').title = lines.join('\n');
+        }
         cardTurntablesAvailable = status.features?.includes('library_turntable') === true;
         syncCapabilities(status);
         ready = status.ready;

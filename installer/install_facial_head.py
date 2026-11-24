@@ -101,8 +101,8 @@ def environment(folder):
     with tempfile.TemporaryDirectory(dir=folder, prefix='pip-') as temp:
         work_env.update(TEMP=temp, TMP=temp, TMPDIR=temp)
         subprocess.run([str(interpreter), '-I', '-m', 'pip', '--isolated', 'install',
-                        '--no-cache-dir', '--only-binary=:all:', '-r',
-                        str(INSTALLER / 'requirements-facial-head.txt')], check=True, env=work_env)
+                        '--no-cache-dir', '--only-binary=:all:', '--require-hashes', '--no-deps', '-r',
+                        str(INSTALLER / 'locks/facial-head-win-cp311.txt')], check=True, env=work_env)
 
 
 def install(root):

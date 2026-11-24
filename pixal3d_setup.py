@@ -118,7 +118,8 @@ def install_dependencies(local_assets):
         target = Path(work) / 'deps'
         subprocess.run([
             str(uv), 'pip', 'install', '--python', sys.executable, '--target', str(target),
-            '--no-deps', '--only-binary', ':all:', '-r', str(LOCKFILE),
+            '--no-deps', '--only-binary', ':all:', '--require-hashes', '-r',
+            str(LOCKFILE.parent / 'locks/pixal3d-win-cp311.txt'),
         ], env=env, check=True)
         write(target / marker.name, lock)
         target.rename(deps)

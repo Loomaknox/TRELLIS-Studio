@@ -1,0 +1,56 @@
+name: Release candidate on Windows hardware
+on:
+  push:
+    tags: ['v*-rc*', 'v*-preview*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  hardware:
+    if: github.ref_type == 'tag'
+    runs-on: [self-hosted, Windows, X64, trellis-qualification]
+    environment: release-qualification
+    timeout-minutes: 150
+    env:
+      TRELLIS_QA_ROOT: ${{ vars.TRELLIS_QA_ROOT }}
+      TRELLIS_QA_UNITY: ${{ vars.TRELLIS_QA_UNITY }}
+      TRELLIS_QA_UNREAL: ${{ vars.TRELLIS_QA_UNREAL }}
+      TRELLIS_QA_FBX: ${{ vars.TRELLIS_QA_FBX }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Verify installed candidate, CUDA and WSL
+        shell: pwsh
+        run: |
+          $root=(Resolve-Path -LiteralPath $env:TRELLIS_QA_ROOT).Path
+          $receipt=Get-Content -Raw -LiteralPath (Join-Path $root 'bundled-web.json') | ConvertFrom-Json
+          if ($receipt.fork_commit -cne (git rev-parse HEAD) -or $receipt.source_modified -ne $false) { throw 'Install this exact candidate on the qualification runner first.' }
+          & (Join-Path $root 'Install-Studio.ps1') -VerifyOnly -NoLaunch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & (Join-Path $root 'Install-Studio.ps1') -VerifyOnly -RigOnly -NoLaunch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Reimport in Unity
+        shell: pwsh
+        run: |
+          & (Join-Path $env:TRELLIS_QA_ROOT '.venv/Scripts/python.exe') -B tests/unity_reimport.py $env:TRELLIS_QA_UNITY
+          exit $LASTEXITCODE
+      - name: Import the delivered animated FBX in Unreal
+        shell: pwsh
+        run: |
+          $run=(New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP ('trellis-unreal-'+[guid]::NewGuid().ToString('N')))).FullName
+          try {
+            $project=Join-Path $run 'Qualification.uproject'
+            '{"FileVersion":3,"Plugins":[{"Name":"PythonScriptPlugin","Enabled":true}]}' | Set-Content -LiteralPath $project -Encoding utf8NoBOM
+            $env:TRELLIS_QA_UNREAL_REPORT=Join-Path $run 'result.json'
+            $script=(Resolve-Path tests/unreal_release_import.py).Path
+            if (-not (Test-Path -LiteralPath $env:TRELLIS_QA_FBX -PathType Leaf)) { throw 'Supply the animated FBX delivered by the candidate.' }
+            & $env:TRELLIS_QA_UNREAL $project -Unattended -NullRHI -NoSound "-ExecutePythonScript=$script"
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $env:TRELLIS_QA_UNREAL_REPORT)) { throw 'Unreal FBX validation failed.' }
+            Get-Content -Raw -LiteralPath $env:TRELLIS_QA_UNREAL_REPORT
+          } finally {
+            $owned=Get-Item -LiteralPath $run
+            if ($owned.Parent.FullName -eq (Resolve-Path -LiteralPath $env:RUNNER_TEMP).Path -and $owned.Name -cmatch '^trellis-unreal-[a-f0-9]{32}$') {
+              Remove-Item -LiteralPath $owned.FullName -Recurse -Force
+            }
+          }

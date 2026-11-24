@@ -10,7 +10,8 @@ the source installation uses 7860 and 7861.
 
 **Open TRELLIS.cmd** starts the API and a loopback-only Streamable HTTP bridge:
 
-`http://127.0.0.1:7861/mcp`
+- Windows Setup opens `http://127.0.0.1:7871/mcp`.
+- From a source checkout, use `http://127.0.0.1:7861/mcp`.
 
 Its health endpoint is `/health`. The launcher reuses an existing compatible
 bridge and leaves unrelated port owners untouched. A previously running bridge

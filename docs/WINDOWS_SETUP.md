@@ -180,6 +180,22 @@ configuration.
 
 ## Build and qualify
 
+### Install Workshop offline
+
+On a connected preparation machine, run `python installer/prepare_offline_workshop.py MEDIA` from the matching source revision. Copy the generated directory and the Windows installer to the offline machine. Compare the setup executable's SHA-256 with the digest published through your trusted release channel. When the release is signed, verify its Authenticode signer and timestamp.
+
+In PowerShell, set `$env:TRELLIS_OFFLINE_WORKSHOP_MEDIA` to the absolute directory containing the media. Launch the verified installer from the same shell and select **Workshop only**. Bootstrap validates the two animation archives, the Python and uv archives, and every wheel against the packaged manifest before provisioning. A missing or changed file stops the installation. The packaged viewer works without Node.js. GPU generation and WSL rigging have separate runtime and model requirements.
+
+For repair of an existing packaged viewer, run `./Install-Studio.ps1 -OfflineWorkshopMedia 'E:\Studio-media' -NoLaunch`. Add `-VerifyOnly` to check the media, installed libraries, and standard animation sources. Keep the previous installer, its matching media and a verified collection backup to restore the previous Workshop in a separate directory.
+
+### Identify and qualify a candidate
+
+Hover over the version in the Studio header or read `build_identity` in `/api/status`. The upstream application version, Git commit, and SHA-256 of the packaged payload identify different things. Historical installers can only supply the fields recorded when built. The SHA-256 of the installer executable is published in `SHA256SUMS.txt`.
+
+Pull requests run the lightweight test suite. Candidate tags such as `v3.15.1-rc1` trigger hardware qualification on a trusted Windows runner labeled `trellis-qualification`. Configure the protected `release-qualification` environment with the matching test installation in `TRELLIS_QA_ROOT`, Unity and Unreal Editor executable paths in `TRELLIS_QA_UNITY` and `TRELLIS_QA_UNREAL`, and the candidate's delivered animated FBX in `TRELLIS_QA_FBX`. Missing hardware or a missing importer verdict keeps the candidate unqualified. Verify a clean Windows installation, restoration on a second Server host and rollback before distribution.
+
+The maintainer can sign a clean build with `Build-Setup.ps1 -SigningThumbprint <thumbprint> -TimestampServer <https-url>`. The certificate must be available in the current user's Windows certificate store. The builder verifies the signature before calculating the executable's distribution checksum.
+
 Build the public installer from a clean checkout of the merged `main` commit.
 Install Python 3.11 or newer, Node.js and obtain
 [NSIS 3.13](https://nsis.sourceforge.io/Download). Then run:

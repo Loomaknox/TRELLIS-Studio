@@ -1,5 +1,5 @@
 param([switch]$SkipRig,[switch]$NoLaunch,[switch]$Plan,[switch]$VerifyOnly,[switch]$AcceptDinoV3License,[string]$WslDistribution='Ubuntu-22.04',[switch]$WorkshopOnly,[switch]$RigOnly,
-      [switch]$WithKimodo,[switch]$AcceptKimodoModelLicenses,[string]$KimodoDistribution='')
+      [switch]$WithKimodo,[switch]$AcceptKimodoModelLicenses,[string]$KimodoDistribution='',[string]$OfflineWorkshopMedia)
 $ErrorActionPreference='Stop'
 $taskRoot=$PSScriptRoot
 $env:PYTHONUTF8='1'
@@ -10,6 +10,26 @@ $env:UV_MANAGED_PYTHON='1'
 if (-not [Environment]::Is64BitOperatingSystem) { throw '64-bit Windows is required.' }
 $taskManifest=Get-Content -LiteralPath (Join-Path $taskRoot 'installer\manifest.json') -Raw | ConvertFrom-Json
 if ($Plan) { $taskManifest | ConvertTo-Json -Depth 8;return }
+if ($WorkshopOnly -and -not $OfflineWorkshopMedia) { $OfflineWorkshopMedia=$env:TRELLIS_OFFLINE_WORKSHOP_MEDIA }
+if ($OfflineWorkshopMedia) {
+    if ($RigOnly -or $WithKimodo) { throw 'Offline Workshop media supports the Workshop and MCP components.' }
+    . (Join-Path $taskRoot 'installer/windows/Offline-Workshop.ps1')
+    $offline=Initialize-OfflineWorkshop -Root $taskRoot -Media $OfflineWorkshopMedia -VerifyOnly:$VerifyOnly
+    $env:UV_OFFLINE='true'
+    $env:UV_NO_INDEX='true'
+    $env:UV_PYTHON_DOWNLOADS='never'
+    $env:UV_FIND_LINKS=([uri]($offline.Media+[IO.Path]::DirectorySeparatorChar)).AbsoluteUri
+    $taskArgs=@('-B',(Join-Path $taskRoot 'installer/setup.py'),'--uv',$offline.Uv,'--workshop-only')
+    if ($VerifyOnly) { $taskArgs+='--verify-only' }
+    & $offline.Python @taskArgs
+    if ($LASTEXITCODE -ne 0) { throw 'Offline Workshop installation or verification failed.' }
+    $animationArgs=@('-B',(Join-Path $taskRoot 'installer/setup.py'),'--animations-only')
+    if ($VerifyOnly) { $animationArgs+='--verify-only' }
+    & $offline.Python @animationArgs
+    if ($LASTEXITCODE -ne 0) { throw 'Offline animation library verification failed.' }
+    if (-not $NoLaunch -and -not $VerifyOnly) { & (Join-Path $taskRoot 'Start-Studio.ps1') }
+    return
+}
 if ($WithKimodo -and $VerifyOnly) { throw 'Choose either component installation or VerifyOnly. Kimodo installation cannot run in verification mode.' }
 if ($WithKimodo) { & (Join-Path $taskRoot 'installer\windows\check-idle.ps1') -InstallRoot $taskRoot -IgnoreCurrentProcess }
 if (-not $WorkshopOnly -and -not $RigOnly -and -not $VerifyOnly -and -not $AcceptDinoV3License) {

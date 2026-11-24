@@ -2,7 +2,6 @@ name: Pull request checks
 
 on:
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
@@ -34,8 +33,9 @@ jobs:
 
       - name: Test packaging, versions, installers and Server storage
         run: |
-          python -m pip install --only-binary=:all: cryptography==50.0.2
+          python -m pip install --only-binary=:all: --require-hashes --no-deps -r installer/locks/ci-crypto.txt
           python -S -B tests/public_packaging.py
+          python -S -B tests/distribution_integrity.py
           python -S -B tests/studio_release.py
           python -S -B tests/collection_sync.py
           python -S -B tests/hi3d_weights.py

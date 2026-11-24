@@ -75,7 +75,8 @@ def install_dependencies():
     with tempfile.TemporaryDirectory(prefix='deps-', dir=COMPONENT) as pending:
         staged = Path(pending) / 'dependencies'
         command = [str(uv), 'pip', 'install', '--python', sys.executable, '--target', str(staged),
-                   '--only-binary', ':all:', '--no-deps', '-r', str(LOCK)]
+                   '--only-binary', ':all:', '--no-deps', '--require-hashes', '-r',
+                   str(INSTALLER / 'locks/hi3d-win-cp311.txt')]
         subprocess.run(command, check=True, env={**os.environ, 'UV_CACHE_DIR': str(COMPONENT / 'uv-cache')})
         write(staged / marker.name, lock)
         staged.rename(target)

@@ -3,10 +3,19 @@ param(
     [string]$OutputDirectory,
     [string]$Python = 'python',
     [switch]$KeepStage,
-    [switch]$Preview
+    [switch]$Preview,
+    [string]$SigningThumbprint,
+    [uri]$TimestampServer
 )
 $ErrorActionPreference='Stop'
 $taskRoot=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$taskForkCommit=(& git -C $taskRoot rev-parse --verify HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $taskForkCommit -cnotmatch '^[a-f0-9]{40}$') { throw 'Cannot identify the source commit.' }
+$taskDirty=[bool](& git -C $taskRoot status --porcelain --untracked-files=normal)
+if ($LASTEXITCODE -ne 0 -or ($SigningThumbprint -and $taskDirty)) { throw 'A signed release requires a verified, clean checkout.' }
+if ($SigningThumbprint -and (-not $TimestampServer -or $TimestampServer.Scheme -cne 'https')) {
+    throw 'A signed release requires an HTTPS timestamp server.'
+}
 if (-not $OutputDirectory) {
     $OutputDirectory=Join-Path $taskRoot $(if ($Preview) {'Builds\Windows\Preview'} else {'Builds\Windows'})
 }
@@ -38,6 +47,10 @@ $taskFiles=@($taskFiles | Sort-Object -Unique | Where-Object {
         $_ -cmatch '^third_party/assetfurnace/image_to_3dlab/(__init__|photo_paint|view_align)\.py$'))
 })
 $taskRequired=@('app.py','package.json','installer/setup.py','installer/windows/check-idle.ps1','installer/windows/Launch.cmd','installer/windows/Launch-Installed.ps1','installer/windows/Manage-Shortcuts.ps1','installer/windows/trellis-studio.ico','Start-Studio.ps1','web/studio.html','animations/library.json','unity/TrellisPackageImporter.cs')
+$taskRequired+=@('installer/prepare_offline_workshop.py','installer/windows/Offline-Workshop.ps1','installer/locks/offline-workshop-win-cp311.json',
+    'installer/locks/workshop-win-cp311.txt','installer/locks/mcp-win-cp311.txt','installer/locks/foundation-win-cp311.txt',
+    'installer/locks/torch28-cu128-win-cp311.txt','installer/locks/utils3d-build.json','installer/locks/facial-head-win-cp311.txt',
+    'installer/locks/hi3d-win-cp311.txt','installer/locks/pixal3d-win-cp311.txt')
 $taskRequired+=@('server_app.py','server_runtime.py','server_store.py','server_factors.py','server_setup.py','Start-Server.ps1','Stop-Server.ps1','Open TRELLIS Server.cmd',
     'installer/windows/Configure-Server.ps1','web/server.html','web/server.css','web/server.js','web/server-shell.js','docs/SERVER.md')
 $taskRequired+=@('installer/windows/StudioTray.cs','installer/windows/Build-Tray.ps1','installer/windows/Server-Control.ps1',
@@ -150,7 +163,7 @@ try {
     $taskRevision=[IO.Path]::Combine($taskStage,'revision.txt')
     [IO.File]::WriteAllLines($taskRevision,$taskChecks,[Text.UTF8Encoding]::new($false))
     $taskRevisionHash=(Get-FileHash -LiteralPath $taskRevision -Algorithm SHA256).Hash.ToLowerInvariant()
-    [IO.File]::WriteAllText((Join-Path $taskPayload 'bundled-web.json'),(@{ source_revision=$taskRevisionHash; version=$taskPackage.version } | ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $taskPayload 'bundled-web.json'),(@{ source_revision=$taskRevisionHash; version=$taskPackage.version; fork_commit=$taskForkCommit; source_modified=$taskDirty } | ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
     $taskFiles+=@('bundled-web.json')
     $taskInstall=[Collections.Generic.List[string]]::new()
     $taskUninstall=[Collections.Generic.List[string]]::new()
@@ -182,12 +195,18 @@ try {
     if ($Preview) { $taskVariant+='/DSETUP_PREVIEW' }
     & $Compiler /V3 /INPUTCHARSET UTF8 @taskVariant "/DOUTPUT_EXE=$taskOut" "/DPAYLOAD_ROOT=$taskPayload" "/DINSTALL_FILES=$taskInstallPath" "/DUNINSTALL_FILES=$taskUninstallPath" "/DSTUDIO_VERSION=$($taskPackage.version)" (Join-Path $PSScriptRoot 'StudioSetup.nsi')
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $taskOut)) { throw 'NSIS did not produce the installer.' }
+    if ($SigningThumbprint) {
+        if ($SigningThumbprint -notmatch '^[0-9a-fA-F]{40}$') { throw 'Invalid signing certificate thumbprint.' }
+        $taskCert=Get-Item -LiteralPath ("Cert:\CurrentUser\My\"+$SigningThumbprint) -ErrorAction Stop
+        $signature=Set-AuthenticodeSignature -FilePath $taskOut -Certificate $taskCert -HashAlgorithm SHA256 -TimestampServer $TimestampServer.AbsoluteUri
+        if ($signature.Status -ne 'Valid') { throw ('Signing verification failed: '+$signature.Status) }
+    }
     $taskFinal=Join-Path $OutputDirectory $taskName
     Copy-Item -LiteralPath $taskOut -Destination $taskFinal
     $taskHash=(Get-FileHash -LiteralPath $taskFinal -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText((Join-Path $OutputDirectory 'SHA256SUMS.txt'),"$taskHash  $taskName`n",[Text.UTF8Encoding]::new($false))
     Copy-Item -LiteralPath $taskRevision -Destination (Join-Path $OutputDirectory 'payload-sha256.txt')
-    Write-Output "Installer (unsigned): $taskFinal"
+    Write-Output "Installer: $taskFinal"
     if ($KeepStage) { Write-Output "Build stage: $taskStage" }
 } finally {
     # This folder was allocated by this invocation. Preserve it on request for QA.

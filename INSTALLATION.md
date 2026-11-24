@@ -268,9 +268,12 @@ Re-running the optional installer verifies existing downloads and repairs the se
 Double-click **Open TRELLIS.cmd** or **Ouvrir TRELLIS.cmd**. The launcher checks
 UniRig and Blender, starts/reuses the local services and opens Studio:
 
-- UI/API: `http://127.0.0.1:7860`
-- MCP HTTP: `http://127.0.0.1:7861/mcp`
-- Reference: `http://127.0.0.1:7860/developers`
+| Installation | UI / API | MCP HTTP | Developer reference |
+|---|---|---|---|
+| Source checkout | `http://127.0.0.1:7860` | `http://127.0.0.1:7861/mcp` | `http://127.0.0.1:7860/developers` |
+| Windows Setup | `http://127.0.0.1:7870` | `http://127.0.0.1:7871/mcp` | `http://127.0.0.1:7870/developers` |
+
+TRELLIS Server has its own configured origin. The default loopback backend listens on 7862. The reverse-proxy configuration uses a private backend on 7863.
 
 If the launch fails, the command window stays open with the error. You can also run **Open TRELLIS.cmd** from an existing Command Prompt.
 
