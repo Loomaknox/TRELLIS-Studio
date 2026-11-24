@@ -91,7 +91,13 @@ def export_provenance(settings, result, inherited=None):
         requested = 'multiview'
     engine = workflow.get('engine') or result.get('engine') or base.get('used_engine')
     pipeline = result.get('pipeline_type') or base.get('pipeline')
-    used = workflow.get('texture_method') or result.get('texture_method') or base.get('used_texture')
+    declared = result.get('texture_method')
+    # Some old workers saved the selected optional pass even when no execution receipt survived.
+    if declared in ('multiview', 'ultratex') and not requested:
+        requested = declared
+    used = workflow.get('texture_method') or (declared if declared == 'trellis' else None) or base.get('used_texture')
+    if declared in ('multiview', 'ultratex') and not workflow.get('texture_method'):
+        used = None
     fallbacks = list(base.get('fallbacks') or [])
     if fields(plan.get('fallback')) and plan['fallback'] not in fallbacks:
         fallbacks.append(plan['fallback'])

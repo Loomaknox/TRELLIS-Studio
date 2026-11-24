@@ -149,6 +149,9 @@ def print_batch(work, library):
 def legacy(library):
     data = export_provenance({}, dict(workflow='legacy',finishing=[]))
     assert data['missing_evidence']==['engine','texture','runtime_revision'] and not data['submission_pins']
+    optional = export_provenance({},dict(texture_method='ultratex'))
+    assert optional['requested_texture']=='ultratex' and optional['used_texture'] is None
+    assert not optional['component_conditions']
     folder = asset(library,'e',source_kind='rig',parent_id='../other-account')
     assert export_lineage(folder,json.loads((folder/'settings.json').read_text()))['status']=='invalid_or_cyclic'
     pinned = export_provenance({}, dict(finishing=dict(multiview_texture_refinement=dict(state='applied',
