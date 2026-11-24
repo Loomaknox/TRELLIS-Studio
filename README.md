@@ -11,6 +11,12 @@ TRELLIS Studio is an independent community application built around **Microsoft 
 
 > **Windows x64 preview.** The upstream maintainer tested Full Studio installation, generation and uninstallation on Windows 11 with an RTX 4070 Ti (12 GB VRAM). Installation verifies components, but output quality, deformation and target-engine suitability still need visual review. The Studio code is MIT; model and dependency licenses are separate, particularly DINOv3.
 
+## Batch generation and reimport in this fork
+
+In **Queue → Prepare batch → Settings**, choose TRELLIS.2 or single-image Pixal3D for each reference. Desktop exposes TOPOS for humanoids at 1024³ with native PBR and compatible mesh finishing. The library pauses polling when its tab is hidden.
+
+Collection transfers verify the archive before publishing it. Unity terrain reimports preserve local sculpting and paint, and motion edits recalculate obstacle contacts against the exported clip. See the [Server recovery guide](docs/SERVER.md) and [dependency review](SECURITY.md) before updating a multi-user installation.
+
 ## What was tested in the 3.15.1 fork
 
 On Windows, open Studio from its desktop or Start menu shortcut. The optional **Enhance face (TOPOS)** setting reconstructs eyelids and eyes as part of generation. [Install or remove TOPOS](docs/FACIAL_HEAD.md).

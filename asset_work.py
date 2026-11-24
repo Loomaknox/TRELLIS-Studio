@@ -6,6 +6,7 @@ from animation_diagnostics import require_valid_animation
 from studio_workspace import read,write,checkpoint
 from animation_edits import FILES,recover
 from lod_animations import prepare as prepare_lod_clips
+from motion_guides import sync_guides
 
 ROOT=Path(__file__).resolve().parent;JOB=Path(sys.argv[1]).resolve();request=read(JOB/'work-request.json');started=time.time();editing=request['operation']=='motion';stage=JOB/('.animation-'+uuid.uuid4().hex) if editing else JOB
 def status(state,label,progress,**extra):write(JOB/'status.json',dict(state=state,stage=label,progress=progress,operation='animation' if editing else request['operation'],elapsed=round(time.time()-started,1),result=request.get('result'),**extra))
@@ -16,6 +17,8 @@ try:
     subprocess.run([str(find_blender()),'--background','--factory-startup','--disable-autoexec','--threads','4','--python-exit-code','1','--python',str(ROOT/'work_blender.py'),'--',str(stage)],check=True,timeout=1800,stdout=sys.stdout,stderr=subprocess.STDOUT)
     validate_glb(stage/'model.glb');result={**request.get('result',{}),**read(stage/'work-result.json'),'revision':time.time_ns()}
     if editing:
+        sync_guides(stage,result)
+        write(stage/'motion-report.json',result['motion_report'])
         require_valid_animation(stage/'model.glb', clips={result['motion_report']['clip']},
                                 mapping=result.get('humanoid_mapping'))
     write(stage/'result.json',result)

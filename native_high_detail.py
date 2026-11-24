@@ -172,8 +172,9 @@ def _prepare_image(path, *, padding, remove_background, max_size):
         image = ImageOps.exif_transpose(original).convert('RGBA')
     if remove_background:
         from rembg import remove
-
-        image = remove(image)
+        from reference_preparation import _new_background_session
+        session = _new_background_session(Path(os.environ['U2NET_HOME']) / 'u2net.onnx')
+        image = remove(image, session=session)
     scale = min(1, max_size / max(image.size))
     if scale < 1:
         image = image.resize((int(image.width * scale), int(image.height * scale)), Image.Resampling.LANCZOS)

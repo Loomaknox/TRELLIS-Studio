@@ -1,3 +1,4 @@
+import {faceRestriction} from './single-image-recipe.js';
 import {formatLocale,t} from './i18n.js';
 // Recipes are persisted by the local server, independently from object history.
 import {detailRefinements} from './hd-master-finishing.js?v=detail-refinement-native';
@@ -197,15 +198,8 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       facialHeadReason='';
       return;
     }
-    if(!headCapability.ready){
-      facialHeadReason=headCapability.reason || 'Install the optional face reconstruction component.';
-    }else if($('assetType').value!=='humanoid' || Number($('resolution').value)!==1024){
-      facialHeadReason='Choose TRELLIS.2 Single image, a humanoid and 1024 resolution for face enhancement.';
-    }else if(textureMethod.value!=='trellis' || !['','direct','none'].includes(finishing)){
-      facialHeadReason='Choose Native PBR and direct or standard mesh finishing for face enhancement.';
-    }else{
-      facialHeadReason='';
-    }
+    facialHeadReason = faceRestriction(headCapability, {engine: 'trellis2', type: $('assetType').value,
+      resolution: $('resolution').value, texture: textureMethod.value, finishing});
     // A restored recipe can still be switched off after uninstalling its runtime.
     facialHead.disabled=!!facialHeadReason && !facialHead.checked;
     $('facialHeadHelp').textContent=t(facialHeadReason || 'Use a front-facing T- or A-pose. Rebuilds the face before native PBR texturing.');

@@ -1,10 +1,11 @@
 """Loopback-only local asset studio. No remote inference or hosted dependencies."""
 from pathlib import Path
-from studio_workspace import ID, finishing_source, read as read_workspace_json
+from studio_workspace import ID, finishing_source, job_status, read as read_workspace_json
 from studio_version import VERSION
 from studio_release import UI_REVISION, release_status, render_studio_version
 from contextlib import asynccontextmanager
 from tempfile import TemporaryDirectory
+from threading import Lock as ThreadLock
 import asyncio, base64, hashlib, io, json, os, re, shutil, subprocess, sys, time, uuid
 from urllib.parse import urlparse
 from typing import Annotated
@@ -12,6 +13,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
+from collection_sync import CollectionHistory, index as collection_index
 from collection_preview import CollectionPreviews, preview_image, preview_record
 from generation_options import (normalize_options, options_for_job, schema as generation_schema,
                                 DEFAULT_PROFILE, DEFAULT_GENERATION, GENERATION_PRESETS, GAME_D_ADVANCED, PROFILE_ADVANCED,
@@ -84,6 +86,8 @@ SHUTTING_DOWN = False
 EXPORTING = set()
 EXPORT_PROCESS = None
 EXPORT_TASK = None
+EXPORT_SETTLED = None
+EXPORT_STATE_LOCK = ThreadLock()
 EXPORT_LOG = None
 EXPORT_ROOT = Path(WORKSPACE_CONFIG.get('exports', workspace_environment.get('TRELLIS_EXPORT_DIR',str(ROOT/'exports')))).resolve()
 RIG_PILOT = Path(workspace_environment.get('TRELLIS_RIG_PILOT_DIR', str(ROOT / 'UniRig' / 'tests' / 'tira' / 'delivery'))).resolve()
@@ -186,8 +190,10 @@ def job_record(folder):
         publication_pending = WORKSPACE_CONFIG.get('publication_pending')
         pending = publication_pending is not None and publication_pending(folder.name)
         settings = json.loads((folder / 'settings.json').read_text(encoding='utf-8'))
+        if not isinstance(settings, dict):
+            return None
         status_path = folder / 'status.json'
-        data = json.loads(status_path.read_text(encoding='utf-8')) if status_path.exists() else {'state':'queued','stage':'Starting','progress':0}
+        data = job_status(folder, {'state':'queued','stage':'Starting','progress':0})
         finalizing = pending and data['state'] == 'done'
         if finalizing:
             # Server publication follows worker exit and quota reconciliation.
@@ -368,8 +374,21 @@ def enabled_rig_profiles():
     return [profile for profile in RIG_PROFILES if profile in configured]
 
 
+COLLECTION_HISTORY = CollectionHistory()
+
+
+@app.get('/api/collection/sync')
+def sync_collection(since: str = '', watch: str = '', review_after: str | None = None):
+    watched = watch.split(',') if watch else []
+    if len(watched) > 3 or any(not ID.fullmatch(key) for key in watched) or (since and not re.fullmatch('[0-9a-f]{24}', since)):
+        raise HTTPException(400, 'Invalid collection change request.')
+    if review_after and not ID.fullmatch(review_after):
+        raise HTTPException(400, 'Invalid collection change request.')
+    return COLLECTION_HISTORY.changes(OUTPUT, job_record, since, watched, review_after)
+
+
 @app.get('/api/status')
-def status():
+def status(collection_hint: bool = False):
     ready = (ROOT / 'models' / 'trellis2' / 'pipeline.json').exists() and (ROOT / 'engine' / 'MODELS' / 'dinov3' / 'model.safetensors').exists()
     preview_error=guided_install_failure('trellis')
     ready=ready and not preview_error
@@ -382,7 +401,8 @@ def status():
     }
     usage = resources(ROOT, OUTPUT)
     multiview, ultratex = multiview_texture_capability(), ultratex_texture_capability()
-    return dict(ready=ready, gpu=GPU_DESCRIPTION, ram_free_gib=usage['ram_free_gib'], resources=usage,
+    return dict(**({'collection_revision': collection_index(OUTPUT)[0]} if collection_hint else {}),
+                ready=ready, gpu=GPU_DESCRIPTION, ram_free_gib=usage['ram_free_gib'], resources=usage,
                 preview_active=COLLECTION_PREVIEWS.rendering,
                 active=ACTIVE if PROCESS is not None and PROCESS.poll() is None else TERRAIN_ACTIVE,
                 export_active=EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None,
@@ -872,7 +892,7 @@ def stage_animation_operation(source, record, request, revision, generated=False
     root.mkdir(parents=True, exist_ok=True)
     for entry in STUDIO.workspace.queue['items']:
         pending = root / entry['id']
-        state = read_workspace_json(pending/'status.json', {}).get('state')
+        state = job_status(pending).get('state')
         if state in ('queued', 'running', 'ready'):
             current = read_workspace_json(pending/'operation.json', {})
             if current.get('model_id') == source.name:
@@ -1067,7 +1087,7 @@ async def remove_animation(identifier: str, request: Request):
 @app.get('/api/animation-operations/{identifier}')
 def animation_operation(identifier: str):
     folder = animation_operation_path(identifier)
-    state = read_workspace_json(folder/'status.json', {})
+    state = job_status(folder)
     operation = read_workspace_json(folder/'operation.json', {})
     if state.get('state') == 'ready':
         state = dict(state='running', stage='Saving animations to model', progress=98, operation='animation')
@@ -1385,9 +1405,15 @@ def export_folder(identifier):
     return folder
 
 def refresh_export():
-    if EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is not None and EXPORT_TASK:
-        request=json.loads((EXPORT_ROOT/EXPORT_TASK/'request.json').read_text(encoding='utf-8'))
-        EXPORTING.difference_update(request['ids'])
+    global EXPORT_SETTLED
+    process,identifier=EXPORT_PROCESS,EXPORT_TASK
+    if process is not None and identifier and identifier!=EXPORT_SETTLED and process.poll() is not None:
+        request=json.loads((EXPORT_ROOT/identifier/'request.json').read_text(encoding='utf-8'))
+        if process is EXPORT_PROCESS and identifier==EXPORT_TASK:EXPORTING.difference_update(request['ids'])
+        if request.get('clean_staging'):
+            from studio_transfer import cleanup_export_staging
+            if not cleanup_export_staging(EXPORT_ROOT/identifier):return
+        EXPORT_SETTLED=identifier
 
 def stop_export():
     if EXPORT_PROCESS is None or EXPORT_PROCESS.poll() is not None:return
@@ -1443,6 +1469,7 @@ async def create_export(request: Request):
     global EXPORT_PROCESS,EXPORT_TASK,EXPORT_LOG
     from export_preflight import options, verified_hashes
     from target_export import TARGETS
+    from studio_transfer import snapshot_export,cleanup_export_staging
     async with LOCK:
         try:
             data=await request.json();target=data.get('target');ids=validate_ids(data.get('ids'),500 if target=='library' else 50)
@@ -1469,48 +1496,66 @@ async def create_export(request: Request):
             assets.append((folder,record))
         if sum((p/'model.glb').stat().st_size for p,_ in assets)>5*1024**3:raise HTTPException(400,'Export fewer models at once (5 GB input limit).')
         identifier=uuid.uuid4().hex;task=EXPORT_ROOT/identifier;task.mkdir(parents=True)
-        for folder,record in assets:
-            snapshot=task/'sources'/folder.name;snapshot.mkdir(parents=True)
-            for name in ('model.glb','model.stl','print-report.json'):
-                path=folder/name
-                if path.is_file():
-                    shutil.copy2(path,snapshot/name)
-            for name,key in [('settings.json','settings'),('metadata.json','metadata')]:write_json(snapshot/name,record[key])
-            if (folder/'Diagnostics/report.json').is_file():shutil.copy2(folder/'Diagnostics/report.json',snapshot/'diagnostics.json')
-        if target=='library':
-            for folder,record in assets:
-                snapshot=task/'sources'/folder.name
-                shutil.copytree(folder,snapshot,dirs_exist_ok=True,ignore=shutil.ignore_patterns('Blender','rig-work','before-animations','.*','*.log','*.tmp','*.py','*.pid',*(() if data.get('include_revisions') else ('Revisions',))))
-                write_json(snapshot/'metadata.json',record['metadata'])
-        else:
-            for folder,record in assets:
-                snapshot=task/'sources'/folder.name
-                for child in ('LODs','Collisions'):
-                    if (folder/child).is_dir():shutil.copytree(folder/child,snapshot/child)
-                for filename in ('lod-manifest.json','physics.json','motion-report.json'):
-                    if (folder/filename).is_file():shutil.copy2(folder/filename,snapshot/filename)
-        write_json(task/'request.json',dict(ids=ids,target=target,created=time.time(),include_revisions=bool(data.get('include_revisions')),workspace=STUDIO.workspace.data,profiles=PROFILES.list(),preflight=preflight))
-        write_json(task/'status.json',dict(state='queued',progress=0,stage='Preparing export',target=target,count=len(ids)))
-        if EXPORT_LOG:EXPORT_LOG.close()
-        EXPORT_LOG=(task/'export.log').open('w',encoding='utf-8');env=os.environ.copy();env['PYTHONUTF8']='1'
-        EXPORT_PROCESS=subprocess.Popen([sys.executable,'-u',str(ROOT/'export_worker.py'),str(task)],cwd=ROOT,env=env,
-            stdout=EXPORT_LOG,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        preparation=asyncio.create_task(asyncio.to_thread(snapshot_export,assets,task,target,bool(data.get('include_revisions'))))
+        try:
+            await asyncio.shield(preparation)
+            write_json(task/'request.json',dict(ids=ids,target=target,created=time.time(),clean_staging=True,include_revisions=bool(data.get('include_revisions')),workspace=STUDIO.workspace.data,profiles=PROFILES.list(),preflight=preflight))
+            write_json(task/'status.json',dict(state='queued',progress=0,stage='Preparing export',target=target,count=len(ids)))
+            if EXPORT_LOG:EXPORT_LOG.close()
+            EXPORT_LOG=(task/'export.log').open('w',encoding='utf-8');env=os.environ.copy();env['PYTHONUTF8']='1'
+            EXPORT_PROCESS=subprocess.Popen([sys.executable,'-u',str(ROOT/'export_worker.py'),str(task)],cwd=ROOT,env=env,
+                stdout=EXPORT_LOG,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        except asyncio.CancelledError:
+            try:await preparation
+            finally:await asyncio.to_thread(cleanup_export_staging,task)
+            raise
+        except (OSError,ValueError) as error:
+            if EXPORT_LOG:EXPORT_LOG.close()
+            await asyncio.to_thread(cleanup_export_staging,task)
+            raise HTTPException(507 if isinstance(error,OSError) and error.errno==28 else 400,str(error))
         EXPORT_TASK=identifier;EXPORTING.update(ids)
         return dict(id=identifier)
 
+def finished_export_status(folder, cancelled=False):
+    # Called under EXPORT_STATE_LOCK, only after the process has stopped.
+    from zlib import error as CompressionError
+    from zipfile import BadZipFile
+    from studio_transfer import cleanup_export_staging,published_export
+    data=job_status(folder)
+    if data.get('state') not in ('queued','running'):return data
+    request=read_workspace_json(folder/'request.json',{})
+    if request.get('clean_staging'):cleanup_export_staging(folder)
+    try:published=published_export(folder,request)
+    except (OSError, EOFError, ValueError, KeyError, TypeError, BadZipFile, CompressionError) as error:
+        data.update(state='error',stage='Export failed; original models preserved',progress=0,error=str(error))
+    else:
+        if published:data.update(published)
+        elif cancelled:data.update(state='cancelled',stage='Export cancelled; original models preserved',progress=0)
+        else:data.update(state='error',stage='Export interrupted',error='The export process stopped. Original models are unchanged.')
+    write_json(folder/'status.json',data)
+    return data
+
 @app.get('/api/exports/{identifier}')
 def export_status(identifier: str):
-    folder=export_folder(identifier);refresh_export();data=json.loads((folder/'status.json').read_text(encoding='utf-8'))
-    if data['state'] in ('queued','running') and (identifier!=EXPORT_TASK or EXPORT_PROCESS is None or EXPORT_PROCESS.poll() is not None):
-        data.update(state='error',stage='Export interrupted',error='The export process stopped. Original models are unchanged.');write_json(folder/'status.json',data)
+    folder=export_folder(identifier)
+    refresh_export()
+    with EXPORT_STATE_LOCK:
+        active=identifier==EXPORT_TASK and EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None
+        data=job_status(folder) if active else finished_export_status(folder)
     return dict(data,id=identifier)
 
 @app.post('/api/exports/{identifier}/cancel')
 async def cancel_export(identifier: str):
     async with LOCK:
         folder=export_folder(identifier)
-        if identifier==EXPORT_TASK and EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None:
-            await asyncio.to_thread(stop_export);write_json(folder/'status.json',dict(state='cancelled',progress=0,stage='Export cancelled; original models preserved'))
+        def cancel_if_running():
+            with EXPORT_STATE_LOCK:
+                if identifier!=EXPORT_TASK or EXPORT_PROCESS is None:return
+                if job_status(folder).get('state') not in ('queued','running'):return
+                running=EXPORT_PROCESS.poll() is None
+                if running:stop_export()
+                finished_export_status(folder,cancelled=running)
+        await asyncio.to_thread(cancel_if_running)
         return dict(ok=True)
 
 @app.get('/api/exports/{identifier}/download')

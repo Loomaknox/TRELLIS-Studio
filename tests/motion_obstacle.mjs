@@ -5,6 +5,27 @@ import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {createObstaclePreview, motionObstacles, obstacleFraming, playPreviewAction} from '../web/motion-obstacle.js';
 
+test('the edited vault plays with its retimed palm in the Studio preview', {skip: !process.env.TRELLIS_EDITED_VAULT}, async () => {
+  const bytes = await readFile(process.env.TRELLIS_EDITED_VAULT);
+  const gltf = await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset+bytes.byteLength),'');
+  const index = gltf.animations.findIndex(c => c.name === 'TS_side_vault_2.0s');
+  const clip = gltf.animations[index];
+  const box = motionObstacles(gltf)[index];
+  const contact = gltf.parser.json.animations[index].extras.trellis_contact;
+  const hand = gltf.scene.getObjectByName(THREE.PropertyBinding.sanitizeNodeName(contact.bone));
+  const mixer = new THREE.AnimationMixer(gltf.scene);
+  playPreviewAction(mixer.clipAction(clip),true);
+  const marker = createObstaclePreview(gltf.scene.parent ?? new THREE.Scene());
+  marker.set(gltf.scene,box);
+  assert.ok(marker.heading.distanceTo(new THREE.Vector3(...box.heading).normalize())<1e-6);
+  for (let i=0; i<=48; ++i) {
+    mixer.setTime(THREE.MathUtils.lerp(...contact.interval_s,i/48));
+    const palm = hand.localToWorld(new THREE.Vector3(...contact.palm_offset));
+    assert.ok(palm.distanceTo(new THREE.Vector3(...contact.palm_target))<.045);
+  }
+  marker.clear();
+});
+
 test('the library preview plays the actual vault and places the palm on its crate', async () => {
   const library = JSON.parse(await readFile(new URL('../animations/library.json', import.meta.url)));
   const recipe = library.find(clip => clip.id === 'side_vault');

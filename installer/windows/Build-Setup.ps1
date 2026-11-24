@@ -38,7 +38,7 @@ $taskFiles=@($taskFiles | Sort-Object -Unique | Where-Object {
         $_ -cmatch '^third_party/assetfurnace/image_to_3dlab/(__init__|photo_paint|view_align)\.py$'))
 })
 $taskRequired=@('app.py','package.json','installer/setup.py','installer/windows/check-idle.ps1','installer/windows/Launch.cmd','installer/windows/Launch-Installed.ps1','installer/windows/Manage-Shortcuts.ps1','installer/windows/trellis-studio.ico','Start-Studio.ps1','web/studio.html','animations/library.json','unity/TrellisPackageImporter.cs')
-$taskRequired+=@('server_app.py','server_runtime.py','server_store.py','server_setup.py','Start-Server.ps1','Stop-Server.ps1','Open TRELLIS Server.cmd',
+$taskRequired+=@('server_app.py','server_runtime.py','server_store.py','server_factors.py','server_setup.py','Start-Server.ps1','Stop-Server.ps1','Open TRELLIS Server.cmd',
     'installer/windows/Configure-Server.ps1','web/server.html','web/server.css','web/server.js','web/server-shell.js','docs/SERVER.md')
 $taskRequired+=@('installer/windows/StudioTray.cs','installer/windows/Build-Tray.ps1','installer/windows/Server-Control.ps1',
     'installer/windows/Tray-Control.ps1','installer/windows/Configure-Firewall.ps1','installer/install_caddy.py','installer/caddy-manifest.json','installer/audit_public.py')
@@ -76,7 +76,7 @@ $taskRequired+=@('native_ultratex/options.py','native_ultratex/existing_mesh.py'
 $taskRequired+=@('rig_profiles_blender.py','creature_rig.py','creature_motion.py','creature_verification.py',
     'UniRig/apply-creature.py','web/creature-rig-editor.js','web/creature-rig-viewer.js',
     'creature_motion_edit.py','web/creature-motions.js')
-$taskRequired+=@('collection_preview.py','collection_preview_renderer.py','web/collection-previews.js',
+$taskRequired+=@('motion_guides.py','collection_sync.py','web/studio-poll.js','web/single-image-recipe.js','collection_preview.py','collection_preview_renderer.py','web/collection-previews.js',
     'web/collection-preview-capture.js','web/collection-preview-render.js')
 $taskRequired+=@('figure_master_repair.py','ultratex_runtime.py','ultratex_worker.py','web/texture-methods.js',
     'installer/install_ultratex.py','installer/ultratex-manifest.json','installer/requirements-ultratex-comfy.txt',

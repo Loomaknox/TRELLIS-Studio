@@ -97,7 +97,9 @@ async def check(app):
             body['preflight'] = {'budget': result['budget'], 'source_hashes': {identifier: digest}}
         task = (await app.create_export(request(body)))['id']
         app.EXPORT_PROCESS.wait(timeout=30)
-        return app.export_status(task), app.EXPORT_ROOT / task / 'package.zip'
+        status=app.export_status(task)
+        assert all(not (app.EXPORT_ROOT/task/name).exists() for name in ('sources','package','package.zip.tmp'))
+        return status, app.EXPORT_ROOT / task / 'package.zip'
 
     # Same size and mtime still require a fresh diagnostic hash and a new export check.
     old_digest = model['source_glb_sha256']

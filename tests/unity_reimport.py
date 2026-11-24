@@ -17,7 +17,18 @@ import trimesh
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from target_export import export_asset
+from glb_data import node_transforms, read
+from target_export import conversion_glb, export_asset
+
+
+def terrain_fixture(folder):
+    folder.mkdir(parents=True)
+    (folder / "terrain-manifest.json").write_text(json.dumps(dict(
+        name=folder.name, raw="heightmap.raw", resolution=33, size_m=10, height_m=5
+    )), encoding="utf-8")
+    (folder / "heightmap.raw").write_bytes(bytes(33*33*2))
+    for name in ("Soil", "Rock", "Grass", "SoilNormal", "RockNormal", "GrassNormal", "Splatmap"):
+        Image.new("RGB", (4, 4), (255, 0, 0)).save(folder / (name + ".png"))
 
 
 def make_package(work, name, identifier, parent, *, width, colour, node_name):
@@ -27,14 +38,19 @@ def make_package(work, name, identifier, parent, *, width, colour, node_name):
     mesh.visual = trimesh.visual.TextureVisuals(
         uv=np.zeros((len(mesh.vertices), 2)),
         material=trimesh.visual.material.PBRMaterial(
-            name="Paint", baseColorTexture=Image.new("RGBA", (4, 4), colour)
+            name="Paint", baseColorTexture=Image.new("RGBA", (4, 4), colour),
+            alphaMode="MASK", alphaCutoff=.2, occlusionTexture=Image.new("RGB", (4, 4), (39, 211, 87)),
         ),
     )
     scene = trimesh.Scene()
     scene.add_geometry(mesh, node_name=node_name, geom_name=node_name + "Mesh")
     (source / "model.glb").write_bytes(scene.export(file_type="glb"))
     (source / "LODs").mkdir()
-    (source / "LODs" / "LOD1.glb").write_bytes(scene.export(file_type="glb"))
+    document, binary = read(source / "model.glb")
+    document["materials"][0]["occlusionTexture"]["strength"] = .34
+    conversion_glb(document, binary, source / "model.glb")
+    document["materials"][0]["alphaCutoff"] = .8
+    conversion_glb(document, binary, source / "LODs/LOD1.glb")
     (source / "lod-manifest.json").write_text(
         json.dumps(dict(levels=[dict(level=0), dict(level=1, file="LOD1.glb")],
                         screen_heights=[0.6, 0.2])), encoding="utf-8"
@@ -51,7 +67,7 @@ def make_package(work, name, identifier, parent, *, width, colour, node_name):
     return destination
 
 
-def run(editor, crouch_model=None, mapping_file=None):
+def run(editor, crouch_model=None, mapping_file=None, vault=False, vault_model=None):
     with tempfile.TemporaryDirectory(prefix="trellis-unity-reimport-") as temporary:
         work = Path(temporary)
         installed = make_package(work, "Initial", "a" * 32, "", width=1, colour="red", node_name="Body")
@@ -67,10 +83,42 @@ def run(editor, crouch_model=None, mapping_file=None):
         editor_dir = project / "Assets" / "Editor"
         editor_dir.mkdir(parents=True)
         shutil.copy2(ROOT / "unity" / "TrellisPackageImporter.cs", editor_dir)
+        shutil.copy2(ROOT / "unity" / "TrellisTerrainImporter.cs", editor_dir)
+        for name in ("A", "B", "C"):
+            terrain_fixture(project / "Assets" / "Terrains" / name)
         shutil.copy2(ROOT / "tests" / "unity_reimport_editor.cs", editor_dir)
         shutil.copytree(installed, project / "Assets" / "Installed")
+        legacy = project / "Assets" / "LegacyFactors"
+        shutil.copytree(work / "packages" / "Incompatible", legacy)
+        for manifest_path in legacy.rglob("studio-export.json"):
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            for surface in manifest["materials"]:
+                for key in ("has_mask_occlusion_factors","occlusion_strength","alpha_cutoff"):
+                    surface.pop(key)
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        if vault:
+            from motion_vault_edit import edit_vault
+            source = work / "sources" / ("d" * 32)
+            status, item = edit_vault(source, source=vault_model)
+            assert status == 'verified'
+            (source/"metadata.json").write_text("{}")
+            exported = export_asset(source, work/"packages/Vault", "unity")
+            shutil.copytree(work/"packages/Vault", project/"Assets/Vault")
+            assert exported['motion_root'] and exported['unity_baked_contacts']
+            document, _ = read(source / "model.glb")
+            _, matrix = node_transforms(document)
+            indices = {n.get("name"): i for i,n in enumerate(document["nodes"])}
+            def xyz(value):
+                return dict(zip(("x","y","z"),map(float,value)))
+            mapping = json.loads((source/"result.json").read_text())["humanoid_mapping"]
+            anchors = [dict(name=mapping[role], point=xyz(matrix(indices[mapping[role]])[:3,3]))
+                       for role in ("right_hand","left_hand","head","right_toe")]
+            contact = item["contact"]
+            expected = dict(clip=item["clip"], bone=contact["bone"], anchors=anchors,
+                            bind=xyz(contact["palm_bind"]), target=xyz(contact["palm_target"]),
+                            interval=contact["interval_s"])
+            (work/"vault.json").write_text(json.dumps(expected))
         if crouch_model:
-            from glb_data import read
             source = work / "sources" / ("f" * 32)
             source.mkdir()
             shutil.copyfile(crouch_model, source / "model.glb")
@@ -90,21 +138,30 @@ def run(editor, crouch_model=None, mapping_file=None):
                             hips=[mapping[side+'_leg'] for side in ('left','right')])
             (work / "crouch.json").write_text(json.dumps(expected), encoding="utf-8")
         (project / "Packages").mkdir()
-        (project / "Packages" / "manifest.json").write_text('{"dependencies":{}}', encoding="utf-8")
+        dependencies = {"com.unity.modules.terrain": "1.0.0", "com.unity.modules.terrainphysics": "1.0.0",
+                        "com.unity.modules.animation": "1.0.0", "com.unity.modules.physics": "1.0.0",
+                        "com.unity.modules.jsonserialize": "1.0.0", "com.unity.modules.imageconversion": "1.0.0"}
+        urp = editor.parent / "Data/Resources/PackageManager/BuiltInPackages/com.unity.render-pipelines.universal/package.json"
+        if urp.is_file():
+            dependencies["com.unity.render-pipelines.universal"] = json.loads(urp.read_text())["version"]
+        (project / "Packages" / "manifest.json").write_text(json.dumps({"dependencies": dependencies}), encoding="utf-8")
         log = work / "unity.log"
         result = subprocess.run(
-            [str(editor), "-batchmode", "-nographics", "-quit", "-projectPath", str(project),
+            [str(editor), "-batchmode", "-nographics", *([] if vault else ["-quit"]), "-projectPath", str(project),
              "-logFile", str(log), "-executeMethod", "TrellisStudio.ReimportRegression.Run"],
-            timeout=600 if crouch_model else 180, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=600, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         report = log.read_text(encoding="utf-8", errors="replace")
-        markers = ["TRELLIS REIMPORT PASS"]
+        markers = ["TRELLIS REIMPORT PASS", "TRELLIS TERRAIN PASS", "TRELLIS MATERIAL PASS"]
         if crouch_model:
             markers.append("TRELLIS CHARACTER PASS")
+        if vault:
+            markers.append("TRELLIS VAULT PASS")
         if result.returncode or any(marker not in report for marker in markers):
-            print(report[-15000:])
+            errors = [line for line in report.splitlines() if "Exception:" in line or "error CS" in line or line.startswith("TRELLIS ")]
+            print("\n".join(errors[-20:]) or report[-3000:])
             raise SystemExit("Unity reimport regression failed.")
-        print("\n".join(markers))
+        print("\n".join(next(line for line in report.splitlines() if marker in line) for marker in markers))
 
 
 if __name__ == "__main__":
@@ -112,7 +169,9 @@ if __name__ == "__main__":
     parser.add_argument("unity", type=Path)
     parser.add_argument("--crouch-model", type=Path)
     parser.add_argument("--mapping", type=Path)
+    parser.add_argument("--vault", action="store_true")
+    parser.add_argument("--vault-model", type=Path)
     args = parser.parse_args()
     if bool(args.crouch_model) != bool(args.mapping):
         parser.error("--crouch-model and --mapping must be supplied together")
-    run(args.unity.resolve(strict=True), args.crouch_model, args.mapping)
+    run(args.unity.resolve(strict=True), args.crouch_model, args.mapping, args.vault or args.vault_model, args.vault_model)

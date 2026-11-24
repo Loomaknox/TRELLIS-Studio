@@ -1,4 +1,8 @@
 export default {
+  "The palm contact was checked on the edited animation.": "L’appui de la paume a été vérifié sur l’animation modifiée.",
+  "The trim excludes the palm contact. The obstacle guide was removed.": "La coupe exclut l’appui de la paume. Le guide de l’obstacle a été retiré.",
+  "Changing root travel invalidated the palm contact. The obstacle guide was removed.": "Le déplacement de la racine a changé. Le guide de l’obstacle a été retiré car l’appui de la paume a changé.",
+  "The edited palm contact could not be verified. The obstacle guide was removed.": "L’appui de la paume n’a pas pu être vérifié après modification. Le guide de l’obstacle a été retiré.",
   "A side vault requires both hands, arms, feet and legs on a humanoid rig.": "Le franchissement latéral nécessite un squelette humanoïde dont les deux bras, mains, jambes et pieds sont identifiés.",
   "The shoulder line is degenerate for this side vault.": "Les épaules sont trop proches pour déterminer l’orientation du franchissement. Vérifiez leurs repères.",
   "The supporting palm cannot be located on this rig.": "Impossible de repérer la paume d’appui sur ce squelette.",

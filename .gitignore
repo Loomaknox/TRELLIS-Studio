@@ -40,6 +40,7 @@
 !/normal_glb.py
 !/generation_profiles.py
 !/figure_master_repair.py
+!/collection_sync.py
 !/collection_preview.py
 !/collection_preview_renderer.py
 !/glb_data.py
@@ -66,6 +67,7 @@
 !/server_app.py
 !/server_runtime.py
 !/server_store.py
+!/server_factors.py
 !/server_setup.py
 !/studio_assets.py
 !/studio_import.py
@@ -218,6 +220,8 @@
 !/web/presentation-studio.js
 !/web/print-copy.js
 !/web/profiles.js
+!/web/single-image-recipe.js
+!/web/studio-poll.js
 !/web/queue-studio.js
 !/web/studio-panels.css
 !/web/studio-tools.css
@@ -452,8 +456,14 @@
 !/web/fr-server.js
 !/web/language-selector.js
 !/web/language-selector.css
+!/tests/queue_recipe_browser.py
+!/tests/queue_recipe_browser.js
+!/tests/studio_poll.mjs
+!/tests/collection_sync.py
 !/tests/i18n.mjs
 !/tests/motion_obstacle.mjs
+!/motion_guides.py
+!/tests/motion_vault_edit.py
 !/tests/creature_tentacles.py
 !/tests/creature_swim.py
 !/docs/RELEASE_3.12.0.md
@@ -559,3 +569,4 @@
 !/tests/facial_head_color.py
 !/tests/facial_head_installer.py
 !/docs/FACIAL_HEAD.md
+!/tests/workspace_recovery.py

@@ -8,6 +8,12 @@ TRELLIS Studio est une application communautaire indépendante qui s’appuie su
 
 Les calculs s’exécutent sur la machine qui héberge Studio, où restent les images de référence et les modèles. **Desktop** est destiné à un seul utilisateur. **Server** donne à chaque compte approuvé sa propre bibliothèque et permet un accès par le réseau local ou par un domaine avec HTTPS.
 
+## Correctifs du fork 3.15.1
+
+Dans **File → Préparer un lot → Réglages**, chaque image peut utiliser TRELLIS.2 ou Pixal3D mono-image. Pour activer TOPOS, choisissez un humanoïde en 1024³, les textures PBR natives et une finition directe ou standard. La file indique le moteur et les incompatibilités. La consultation de la collection se met en veille quand l’onglet est masqué.
+
+Les transferts vérifient le contenu de l’archive avant publication. L’importateur Unity protège les terrains peints ou sculptés lors des réimports. L’atelier de mouvement recalcule les repères d’appui après une modification du clip. Les prérequis et la sauvegarde des facteurs d’authentification du mode Serveur sont détaillés dans le guide. [Guide Serveur](docs/SERVER.md) · [Suivi des dépendances](SECURITY.md)
+
 ## Interface en français
 
 Sous Windows, le raccourci **TRELLIS Studio** du bureau ou du menu Démarrer ouvre l’interface. Le module facultatif **Améliorer le visage (TOPOS)** reconstruit les paupières et les yeux pendant la génération. [Installation et désinstallation de TOPOS](docs/FACIAL_HEAD.md)

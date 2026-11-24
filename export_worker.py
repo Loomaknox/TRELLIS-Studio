@@ -3,6 +3,7 @@ from pathlib import Path
 import json,re,shutil,sys,time,traceback,zipfile
 from target_export import export_asset,TARGETS
 from studio_workspace import write
+from studio_transfer import cleanup_export_staging
 
 ROOT=Path(__file__).resolve().parent;TASK=Path(sys.argv[1]);request=json.loads((TASK/'request.json').read_text(encoding='utf-8'));start=time.time()
 def status(state,stage,progress,**extra):
@@ -32,7 +33,13 @@ try:
     with zipfile.ZipFile(TASK/'package.zip.tmp','w',zipfile.ZIP_DEFLATED) as archive:
         for path in package.rglob('*'):
             if path.is_file():archive.write(path,path.relative_to(package))
+    with zipfile.ZipFile(TASK/'package.zip.tmp') as archive:
+        if archive.testzip() is not None:raise ValueError('Export package failed the integrity check.')
+        if json.loads(archive.read('export-manifest.json')).get('models')!=items:
+            raise ValueError('Invalid export manifest.')
     (TASK/'package.zip.tmp').replace(TASK/'package.zip')
     status('done','Export ready',100,bytes=(TASK/'package.zip').stat().st_size,items=items)
 except Exception as error:
     traceback.print_exc();status('error','Export failed; original models preserved',0,error=str(error))
+finally:
+    if request.get('clean_staging'):cleanup_export_staging(TASK)

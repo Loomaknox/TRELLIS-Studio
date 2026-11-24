@@ -34,11 +34,13 @@ jobs:
 
       - name: Test packaging, versions, installers and Server storage
         run: |
+          python -m pip install --only-binary=:all: cryptography==50.0.2
           python -S -B tests/public_packaging.py
           python -S -B tests/studio_release.py
+          python -S -B tests/collection_sync.py
           python -S -B tests/hi3d_weights.py
           python -S -B tests/kimodo_installer.py
-          python -S -B tests/server_store.py
+          python -B tests/server_store.py
           python -S -B tests/comfy_profiles.py
           python -S -B tests/native_game_profile.py
           python -S -B tests/native_game_geometry.py
@@ -59,4 +61,4 @@ jobs:
           npm run check
           node --check web/workflow-graph.js
           node --check web/standard-workflow-graph.js
-          node --test tests/hologram_viewer.mjs tests/texture-projection-geometry.mjs tests/texture-projection-auto-align.mjs tests/workflow_topology.mjs
+          node --test tests/i18n.mjs tests/studio_poll.mjs tests/hologram_viewer.mjs tests/texture-projection-geometry.mjs tests/texture-projection-auto-align.mjs tests/workflow_topology.mjs

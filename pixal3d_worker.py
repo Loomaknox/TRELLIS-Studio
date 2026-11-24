@@ -62,9 +62,10 @@ def prepared_views(job, views, reviewed=False):
             if alpha.getextrema()[0] >= 128:
                 if not (ROOT / 'models' / 'rembg' / 'u2net.onnx').is_file():
                     raise RuntimeError('Background removal needs the Studio U2Net model. Use transparent images or reinstall Studio.')
-                from rembg import new_session, remove
+                from rembg import remove
+                from reference_preparation import _new_background_session
                 if session is None:
-                    session = new_session('u2net', providers=['CPUExecutionProvider'])
+                    session = _new_background_session(ROOT / 'models' / 'rembg' / 'u2net.onnx')
                 image = remove(image, session=session).convert('RGBA')
             cutouts[view['role']] = pixal_silhouette(image, view['role'])
         del session

@@ -1,6 +1,8 @@
 """TRELLIS Server account and accounting regressions against a disposable database."""
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import os
+import sqlite3
 import sys
 from tempfile import TemporaryDirectory
 from threading import Barrier
@@ -9,6 +11,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from server_store import Store, StoreError, totp_step
+from server_factors import FactorProtector
 
 PASSWORD = 'Example password 3'
 
@@ -61,7 +64,7 @@ def run():
         assert store.list_api_tokens(user) == []
         assert store.list_api_tokens(other) == [{key: value for key, value in credential.items() if key != 'token'}]
         with store.connect() as database:
-            assert database.execute('PRAGMA user_version').fetchone()[0] == 2
+            assert database.execute('PRAGMA user_version').fetchone()[0] == 3
             assert personal_token not in str(tuple(database.execute('SELECT * FROM api_tokens').fetchone()))
         expect_error(lambda: store.authenticate_api(personal_token[:-1] + ('B' if personal_token[-1] == 'A' else 'A')), 401)
         expect_error(lambda: store.revoke_api_token(user, credential['id']), 404)
@@ -124,10 +127,17 @@ def run():
 
         setup = store.begin_totp(user, PASSWORD)
         assert setup['uri'].startswith('otpauth://totp/')
+        with store.connect() as database:
+            pending, = database.execute('SELECT pending_totp FROM users WHERE id=?', (user,)).fetchone()
+        assert setup['secret'] not in pending and store.factors.open(pending, user) == setup['secret']
         # RFC 6238 SHA-1 reference key and code at epoch 59, truncated to six digits.
         assert totp_step('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', '287082', now=59) == 1
         with patch('server_store.totp_step', return_value=1):
             codes = store.confirm_totp(user, '123456')
+        store = Store(path)
+        with store.connect() as database:
+            active, pending = database.execute('SELECT totp_secret,pending_totp FROM users WHERE id=?', (user,)).fetchone()
+        assert pending is None and setup['secret'] not in active and store.factors.open(active, user) == setup['secret']
         expect_error(lambda: store.authenticate(token), 401)
         expect_error(lambda: store.login('artist@example.test', PASSWORD), 401, 'mfa_required')
         token = store.login('artist@example.test', PASSWORD, codes[0])['token']
@@ -156,8 +166,65 @@ def run():
         assert recovery['actor_id'] is None and recovery['target_id'] == admin
         assert replacement not in str(recovery)
 
-    print('PASS: account isolation, quota reservations, concurrent credits, local recovery and personal API tokens')
+    print('PASS: account isolation, quota reservations, concurrent credits, local recovery, encrypted enrollment and personal API tokens')
+
+
+def migration():
+    with TemporaryDirectory(prefix='trellis-server-vault-') as directory:
+        path = Path(directory) / 'catalog.sqlite3'
+        store = Store(path)
+        admin = store.bootstrap_admin(profile('Admin'), PASSWORD)['id']
+        user = store.register(profile('Artist'), PASSWORD)['id']
+        seed = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
+        with store.transaction() as connection:
+            connection.execute('UPDATE users SET totp_secret=? WHERE id=?', (seed, admin))
+            connection.execute('UPDATE users SET pending_totp=? WHERE id=?', (seed, user))
+            connection.execute('PRAGMA user_version=2')
+        with patch.object(FactorProtector, 'seal', side_effect=RuntimeError('fixture')):
+            try:
+                Store(path)
+            except RuntimeError as error:
+                assert str(error) == 'fixture'
+            else:
+                raise AssertionError('Failed migration published')
+        with sqlite3.connect(path) as connection:
+            assert connection.execute('PRAGMA user_version').fetchone()[0] == 2
+            assert connection.execute('SELECT totp_secret FROM users WHERE id=?', (admin,)).fetchone()[0] == seed
+        connection.close()
+        store = Store(path)
+        for entry in path.parent.glob('catalog.sqlite3*'):
+            assert seed.encode() not in entry.read_bytes()
+        with store.connect() as connection:
+            active = connection.execute('SELECT totp_secret FROM users WHERE id=?', (admin,)).fetchone()[0]
+            pending = connection.execute('SELECT pending_totp FROM users WHERE id=?', (user,)).fetchone()[0]
+        assert active != pending and store.factors.open(active, admin) == store.factors.open(pending, user) == seed
+        destination = FactorProtector.configured()
+        if destination.key_file is not None:
+            from cryptography.fernet import Fernet
+            second_key = path.parent / 'second-key'
+            with os.fdopen(os.open(second_key, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600), 'wb') as target:
+                target.write(Fernet.generate_key())
+            destination = FactorProtector(second_key)
+        store.rotate_factor_key(destination)
+        with store.connect() as connection:
+            new = connection.execute('SELECT totp_secret FROM users WHERE id=?', (admin,)).fetchone()[0]
+        assert new != active and destination.open(new, admin) == seed
+        if destination.key_file is not None:
+            with patch.dict(os.environ, TRELLIS_SERVER_TOTP_KEY_FILE=str(destination.key_file)):
+                assert Store(path).factors.open(new, admin) == seed
+    print('PASS: v2 migration, rollback, ciphertext at rest and offline rewrap')
 
 
 if __name__ == '__main__':
-    run()
+    if os.name == 'nt':
+        run()
+        migration()
+    else:
+        from cryptography.fernet import Fernet
+        with TemporaryDirectory(prefix='trellis-private-test-key-') as directory:
+            key = Path(directory) / 'key'
+            with os.fdopen(os.open(key, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600), 'wb') as target:
+                target.write(Fernet.generate_key())
+            with patch.dict(os.environ, TRELLIS_SERVER_TOTP_KEY_FILE=str(key)):
+                run()
+                migration()

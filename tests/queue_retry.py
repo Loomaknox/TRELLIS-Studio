@@ -47,6 +47,9 @@ def run():
             return {entry.name: entry.read_bytes() for entry in folder.iterdir()}
 
         app.STUDIO.workspace.queue['paused'] = True
+        corrupt='d'*32
+        fixture(corrupt, [])
+        (app.OUTPUT/corrupt/'status.json').write_bytes(b'{"state":')
         mono = fixture(MONO, ['input.png', 'prepared.png', 'conditioning.png'],
                        remove_bg=True, reference_edits={'front': {'keep': []}})
         pixal = fixture(PIXAL, ['input.png', 'input-left.png', 'input-back.png', 'prepared.png', 'prepared-left.png'],
@@ -89,6 +92,7 @@ def run():
                         break
                     time.sleep(.05)
                 assert server.started
+                assert queued(corrupt)['stage']=='Unreadable job status'
                 assert queued(MONO)['error'] == 'CUDA out of memory (fixture)'
                 retry(MONO, 400, data='malformed JSON')
                 retry(MONO, 400, json={'resolution': 1536})
@@ -100,7 +104,7 @@ def run():
                 retry(PIXAL, 400, json={'resolution': 512})
                 missing = retry(PIXAL, 409, json={})
                 assert 'prepared-back.png' in missing['detail']
-                assert {folder.name for folder in app.OUTPUT.iterdir()} == {MONO, PIXAL, LEGACY}
+                assert {folder.name for folder in app.OUTPUT.iterdir()} == {MONO, PIXAL, LEGACY, corrupt}
 
                 mono_retry = retry(MONO, json={'resolution': 512, 'texture_size': 1024, 'triangles': TRIANGLE_MAX,
                                               'height_m': 1.2, 'priority': 2, 'mesh_mode': 'direct',
@@ -132,6 +136,7 @@ def run():
                         break
                     time.sleep(.05)
                 assert len(calls) == 3, calls
+                assert (app.OUTPUT/corrupt/'status.json').read_bytes()==b'{"state":'
                 mono_call, pixal_call = (next(call for call in calls if call[0] == source) for source in (MONO, PIXAL))
                 assert mono_call[1] == 'worker.py' and pixal_call[1] == 'pixal3d_worker.py'
                 assert mono_call[2]['pipeline_type'] == '512' and mono_call[2]['height_m'] == 1.2

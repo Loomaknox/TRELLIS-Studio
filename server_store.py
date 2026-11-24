@@ -12,6 +12,7 @@ import struct
 import time
 from urllib.parse import quote, urlsplit
 import uuid
+from server_factors import FactorProtector
 
 
 DEFAULT_DISK_LIMIT = 5 * 1024**3
@@ -131,10 +132,11 @@ def totp_step(secret, code, now=None):
 class Store:
     def __init__(self, path):
         self.path = Path(path)
+        self.factors = FactorProtector.configured()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
             version = connection.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0, 1, 2):
+            if version not in (0, 1, 2, 3):
                 raise StoreError('This catalog needs a newer TRELLIS Server version.', 503)
             connection.execute('PRAGMA journal_mode=WAL')
             connection.executescript('''
@@ -171,9 +173,50 @@ class Store:
                 CREATE TABLE IF NOT EXISTS audit (
                     id INTEGER PRIMARY KEY, actor_id TEXT, target_id TEXT,
                     action TEXT NOT NULL, details TEXT NOT NULL, created REAL NOT NULL);
-                PRAGMA user_version=2;
-                COMMIT;
+                CREATE TABLE IF NOT EXISTS catalog_maintenance (name TEXT PRIMARY KEY);
             ''')
+            # Re-read under the writer lock. A second worker may already have migrated.
+            version = connection.execute('PRAGMA user_version').fetchone()[0]
+            if version not in (0, 1, 2, 3):
+                raise StoreError('This catalog needs a newer TRELLIS Server version.', 503)
+            if version < 3:
+                self._rewrite_factors(connection, self.factors, legacy=True)
+                if version in (1, 2):
+                    connection.execute("INSERT OR IGNORE INTO catalog_maintenance VALUES ('retire_plaintext')")
+                connection.execute('PRAGMA user_version=3')
+            connection.commit()
+            if connection.execute("SELECT 1 FROM catalog_maintenance WHERE name='retire_plaintext'").fetchone():
+                # Rewrite free pages too. Keep the flag until old WAL frames have gone.
+                connection.execute('VACUUM')
+                busy, _, _ = connection.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()
+                if busy:
+                    raise StoreError('Close other Server database readers and restart to finish vault migration.', 503)
+                connection.execute("DELETE FROM catalog_maintenance WHERE name='retire_plaintext'")
+                connection.commit()
+
+    def _rewrite_factors(self, connection, destination, *, legacy=False):
+        for user in connection.execute('SELECT id,totp_secret,pending_totp FROM users '
+                                       'WHERE totp_secret IS NOT NULL OR pending_totp IS NOT NULL'):
+            values = []
+            for value in (user['totp_secret'], user['pending_totp']):
+                if value:
+                    original = value if legacy else self.factors.open(value, user['id'])
+                    # Validate the historical seed before publishing any migration.
+                    if not base64.b32decode(original):
+                        raise ValueError('Invalid authenticator seed in the catalog.')
+                    value = destination.seal(original, user['id'])
+                    if destination.open(value, user['id']) != original:
+                        raise RuntimeError('Authenticator vault verification failed.')
+                values.append(value)
+            connection.execute('UPDATE users SET totp_secret=?,pending_totp=? WHERE id=?', (*values, user['id']))
+
+    def rotate_factor_key(self, destination):
+        sample = base64.b32encode(secrets.token_bytes(20)).decode()
+        if destination.open(destination.seal(sample, 'rotation-check'), 'rotation-check') != sample:
+            raise RuntimeError('Authenticator destination verification failed.')
+        with self.transaction() as connection:
+            self._rewrite_factors(connection, destination)
+        self.factors = destination
 
     @contextmanager
     def connect(self):
@@ -181,6 +224,7 @@ class Store:
         try:
             connection.row_factory = sqlite3.Row
             connection.execute('PRAGMA foreign_keys=ON')
+            connection.execute('PRAGMA secure_delete=ON')
             connection.execute('PRAGMA busy_timeout=15000')
             yield connection
         finally:
@@ -378,7 +422,8 @@ class Store:
             return
         if not code:
             raise StoreError('Enter your authentication code.', 401, 'mfa_required')
-        step = totp_step(user['totp_secret'], code)
+        step = (totp_step(self.factors.open(user['totp_secret'], user['id']), code)
+                if isinstance(code, str) and re.fullmatch(r'[0-9]{6}', code) else None)
         if step is not None and step > user['totp_last_step']:
             connection.execute('UPDATE users SET totp_last_step=? WHERE id=?', (step, user['id']))
             return
@@ -527,7 +572,7 @@ class Store:
                 raise StoreError('Current password is incorrect.', 403)
             if user['totp_secret']:
                 raise StoreError('Disable the existing authenticator first.', 409)
-            connection.execute('UPDATE users SET pending_totp=? WHERE id=?', (secret, identifier))
+            connection.execute('UPDATE users SET pending_totp=? WHERE id=?', (self.factors.seal(secret, identifier), identifier))
             uri = 'otpauth://totp/' + quote('TRELLIS Studio:' + user['email'], safe='')
             return dict(secret=secret, uri=uri + '?secret=' + secret + '&issuer=TRELLIS%20Studio&algorithm=SHA1&digits=6&period=30')
 
@@ -535,7 +580,7 @@ class Store:
         with self.transaction() as connection:
             user = self._user(connection, identifier, active=True)
             secret = user['pending_totp']
-            step = totp_step(secret, code) if secret else None
+            step = totp_step(self.factors.open(secret, identifier), code) if secret else None
             if step is None:
                 raise StoreError('Enter the current code from the authenticator.')
             codes = [secrets.token_hex(8) for _ in range(10)]

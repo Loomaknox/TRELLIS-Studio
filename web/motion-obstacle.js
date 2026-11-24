@@ -59,8 +59,9 @@ export function createObstaclePreview(scene) {
   return {
     get active() { return Boolean(marker); },
     get heading() {
-      if (!marker || !vector(descriptor.travel)) return null;
-      return new THREE.Vector3(...descriptor.travel).transformDirection(marker.matrix);
+      const heading = descriptor?.heading ?? descriptor?.travel;
+      if (!marker || !vector(heading)) return null;
+      return new THREE.Vector3(...heading).transformDirection(marker.matrix);
     },
     clear, sync,
     hide() { if (marker) marker.visible = false; },
@@ -75,7 +76,8 @@ export function createObstaclePreview(scene) {
       const geometry = new THREE.BoxGeometry(...box.size);
       const crate = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({color:0x986637, roughness:.86}));
       crate.position.fromArray(box.center);
-      if (vector(box.travel)) crate.rotation.y = Math.atan2(box.travel[0],box.travel[2]);
+      const heading = box.heading ?? box.travel;
+      if (vector(heading)) crate.rotation.y = Math.atan2(heading[0],heading[2]);
       crate.receiveShadow = true;
       const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({color:0x49311f}));
       crate.add(edges);

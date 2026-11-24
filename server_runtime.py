@@ -19,7 +19,7 @@ from collection_preview import CollectionPreviews, save_preview
 from generation_options import GENERATION_PRESETS
 from generation_profiles import COMFY_INPUT_FILES, STANDALONE_PROFILES
 from server_store import StoreError
-from studio_workspace import ID, finishing_source, read, write
+from studio_workspace import ID, finishing_source, job_status, read, write
 
 
 ROOT = Path(__file__).resolve().parent
@@ -176,7 +176,7 @@ class PrivateStudio:
         if self.workspace.queue.get('paused'):
             return []
         return [entry for entry in self.workspace.ordered() if not entry.get('held') and not entry.get('cancelled')
-                and read(self.job_folder(entry['id']) / 'status.json', {}).get('state') == 'queued']
+                and job_status(self.job_folder(entry['id'])).get('state') == 'queued']
 
     def is_animation_operation(self, identifier):
         folder = self.animation_operations / identifier
@@ -237,7 +237,7 @@ class ServerRuntime:
                 for entry in workspace.workspace.queue['items']:
                     folder = workspace.job_folder(entry['id'])
                     status = folder / 'status.json'
-                    if entry['id'] not in admitted and read(status, {}).get('state') == 'queued':
+                    if entry['id'] not in admitted and job_status(folder).get('state') == 'queued':
                         write(status, dict(state='error', stage='Interrupted before queue admission', progress=0))
                         if folder.parent == workspace.animation_operations:
                             await self.trim_animation_operation(workspace, folder)
@@ -416,7 +416,7 @@ class ServerRuntime:
                     await asyncio.to_thread(remove_child, folder, path)
 
     async def reconcile_animation(self, workspace, row, folder):
-        state = read(folder/'status.json', {})
+        state = job_status(folder)
         process = workspace.studio.PROCESS
         active = workspace.studio.ACTIVE == folder.name and process and process.poll() is None
         used = await self.usage(workspace.user_id)
@@ -428,6 +428,14 @@ class ServerRuntime:
         if active:
             await asyncio.to_thread(workspace.studio.stop_worker)
 
+        if state.get('status_unreadable') and not over:
+            # Keep the operation files available for recovery, including the
+            # original status. Only release its scheduler reservation.
+            self.store.finish_job(workspace.user_id, folder.name, 'error')
+            if workspace.active == folder.name:
+                workspace.active = None
+            return
+
         operation = read(folder/'operation.json', {})
         model_id = operation.get('model_id', '')
         source = workspace.outputs / model_id if ID.fullmatch(model_id) else None
@@ -435,7 +443,7 @@ class ServerRuntime:
             source = None
         marker = source/'animation-transaction.json' if source else None
         committed = (source and not marker.is_file()
-                     and read(source/'status.json', {}).get('last_animation_operation') == folder.name)
+                     and job_status(source).get('last_animation_operation') == folder.name)
         terminal = state.get('state')
         if (terminal == 'ready' and not over) or committed:
             try:
@@ -478,7 +486,7 @@ class ServerRuntime:
                 continue
             export = (workspace.exports / job_id).is_dir()
             folder = workspace.exports/job_id if export else workspace.job_folder(job_id)
-            state = read(folder / 'status.json', {})
+            state = job_status(folder)
             process = workspace.studio.EXPORT_PROCESS if export else workspace.studio.PROCESS
             active = (workspace.studio.EXPORT_TASK if export else workspace.studio.ACTIVE) == job_id and process and process.poll() is None
             used = await self.usage(workspace.user_id) if active or state.get('state') in TERMINAL else user['disk_used_bytes']
@@ -499,6 +507,8 @@ class ServerRuntime:
                     await asyncio.to_thread(remove_child, folder, folder / name)
                 used = await self.usage(workspace.user_id)
                 over = limit is not None and used + max(0, user['storage_reserved_bytes'] - row['reserve_bytes']) > limit
+                if not over:
+                    state = await asyncio.to_thread(workspace.studio.export_status, job_id)
             terminal = state.get('state', 'error')
             trim = False
             if not export and folder.is_dir():
@@ -516,7 +526,7 @@ class ServerRuntime:
                     elif trim:
                         await self.trim_failed(workspace, folder)
                 terminal = 'error'
-            elif terminal != 'done' and trim:
+            elif terminal != 'done' and trim and not state.get('status_unreadable'):
                 await self.trim_failed(workspace, folder)
             self.store.finish_job(workspace.user_id, job_id, terminal)
             await self.usage(workspace.user_id)
@@ -595,7 +605,7 @@ class ServerRuntime:
             job = workspace.job_folder(row['id'])
             if not job.is_dir():
                 job = workspace.exports / row['id']
-            status = read(job / 'status.json', {})
+            status = job_status(job)
             name = read(job/'operation.json', {}).get('name')
             if not name:
                 name = read(job / 'metadata.json', {}).get('display_name', read(job / 'settings.json', {}).get('name', 'Export'))

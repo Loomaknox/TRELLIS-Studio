@@ -1,3 +1,4 @@
+import {collectionDue, mergeCollection, visiblePoll} from './studio-poll.js';
 import {formatLocale,t} from './i18n.js';
 import {createObstaclePreview, motionObstacles, obstacleFraming, playPreviewAction} from './motion-obstacle.js';
 import {runtimeSummary} from './workbench-ui.js?v=stability';
@@ -34,7 +35,7 @@ const cardMenu=createCardMenu({version:reuseJob,remove:requestDelete,details:ope
 const labels={done:t('Completed'),running:t('Generating'),error:t('Failed'),cancelled:t('Cancelled'),queued:t('Queued')},reviews={review:t('To review'),retouch:t('Needs changes'),retained:t('Retained'),rejected:t('Rejected')};
 let studioTools,viewerLighting,viewerStage,hologramViewer,workbench,rigSetupViewer,creatureRigViewer;
 let selectedId=null,loadedId=null,loadingId=null,activeId=null,records=[],busy=false,ready=false,shutDown=false,features=false;
-let page=0,trashMode=false,trashRecords=[],metadataId=null,inspectId=null,inspectVersion=0,textureOpen=false,refreshing=false;
+let page=0,trashMode=false,trashRecords=[],metadataId=null,inspectId=null,inspectVersion=0,textureOpen=false;
 let submittingGeneration=false,restoringReferences=false;
 let boneDots=null;const boneDotMatrix=new THREE.Matrix4(),boneDotPosition=new THREE.Vector3();
 let loadedRevision=null;
@@ -847,8 +848,94 @@ refinishForm.onsubmit = async event => {
 };
 
 async function refreshLog(){if(!selectedId)return;try{const d=await api(`/api/jobs/${selectedId}/log`);$('log').textContent=d.text||t('No log entries yet.');}catch{}}
-async function refresh(){if(shutDown||refreshing)return;refreshing=true;try{const[status,jobs]=await Promise.all([api('/api/status'),api('/api/jobs')]);features=!!status.studio_version;cardTurntablesAvailable=status.features?.includes('library_turntable')===true;syncCapabilities(status);ready=status.ready;activeId=status.active;busy=!!activeId;records=jobs;if(pendingSelection){const pending=records.find(j=>j.id===pendingSelection);if(pending?.state==='done'){if(pending.operation_error)errorAt('animationNotice',pending.operation_error);selectedId=pendingSelection;pendingSelection=null;metadataId=null;inspectId=null;}else if(pending&&['error','cancelled'].includes(pending.state)){errorAt('animationNotice',isStoppedRig(pending)?rigJobError(pending):pending.error||pending.stage);pendingSelection=null;}}if(selectedId&&!records.some(j=>j.id===selectedId)){selectedId=null;metadataId=null;inspectId=null;++inspectVersion;}syncVersionNotice(status);const stage=jobs.find(job=>job.id===activeId)?.stage;const summary=runtimeSummary(status,stage);$('runtime').textContent=ready?summary:t('WORKSHOP · generation engine not installed')+' · '+summary;$('runtime').title=$('runtime').textContent;workbench?.queue.setRuntime(status,stage);$('hardware').textContent=status.gpu||t('Local compute');updateButtons();renderNavigation();renderSelected();renderLibrary();if(document.querySelector('.journal').open)refreshLog();refreshRigPreview();}catch(error){console.error('Studio refresh failed:',error);$('runtime').textContent=t('Disconnected · restart TRELLIS');ready=false;multiview.setCapabilities({message:t('Studio is disconnected. Restart TRELLIS Studio.')});updateButtons();}finally{refreshing=false;}}
-$('shutdown').onclick=async()=>{try{await api('/api/shutdown',{method:'POST'});shutDown=true;ready=false;busy=false;renderer?.setAnimationLoop(null);generationWait.dispose();clearModel();hologramViewer?.dispose();renderer?.dispose();$('notice').textContent=t('Run Open TRELLIS.cmd to restart the studio.');$('runtime').textContent=t('STUDIO STOPPED');$('shutdown').disabled=true;downloads(null);$('downloadHeight').hidden=true;updateButtons();}catch(e){errorAt('notice',e);}};
+let lastRevision, collectionOrder = [], reviewAfter = '', reviewing = false, lastCollectionRead = 0, currentRefresh = null, needsRefresh = false;
+const studioPoll = visiblePoll(() => refresh(false), () => busy || pendingSelection ? 3000 : 12000);
+
+async function refresh(force = true) {
+  if (shutDown) return;
+  if (currentRefresh) {
+    if (force) needsRefresh = true;
+    return currentRefresh;
+  }
+  currentRefresh = (async () => {
+    do {
+      needsRefresh = false;
+      try {
+        const status = await api('/api/status?collection_hint=true');
+        const collectionChanged = !status.collection_revision || collectionDue({force: force || reviewing, active: status.active, wasActive: activeId,
+          pending: pendingSelection, revision: status.collection_revision, previous: lastRevision,
+          age: Date.now() - lastCollectionRead});
+        let jobs = records;
+        if (collectionChanged) {
+          const checkNested = reviewing || Date.now() - lastCollectionRead >= 60000;
+          if (status.collection_revision) {
+            const watch = [...new Set([status.active, activeId, pendingSelection].filter(Boolean))];
+            const query = new URLSearchParams({since: force ? '' : lastRevision || '', watch: watch.join(',')});
+            if (checkNested && !force && lastRevision) query.set('review_after', reviewAfter);
+            const delta = await api('/api/collection/sync?' + query);
+            if (delta.order) collectionOrder = delta.order;
+            jobs = mergeCollection(records, delta, collectionOrder);
+            lastRevision = delta.revision;
+            if (delta.full || delta.review_after != null) {
+              reviewAfter = delta.review_after || '';
+              reviewing = !!reviewAfter;
+              if (!reviewing) lastCollectionRead = Date.now();
+            }
+          } else {
+            jobs = await api('/api/jobs');
+            lastCollectionRead = Date.now();
+          }
+        }
+        features = !!status.studio_version;
+        cardTurntablesAvailable = status.features?.includes('library_turntable') === true;
+        syncCapabilities(status);
+        ready = status.ready;
+        activeId = status.active;
+        busy = !!activeId;
+        records = jobs;
+        if (pendingSelection) {
+          const pending = records.find(job => job.id === pendingSelection);
+          if (pending?.state === 'done') {
+            if (pending.operation_error) errorAt('animationNotice', pending.operation_error);
+            selectedId = pendingSelection;
+            pendingSelection = metadataId = inspectId = null;
+          } else if (pending && ['error', 'cancelled'].includes(pending.state)) {
+            errorAt('animationNotice', isStoppedRig(pending) ? rigJobError(pending) : pending.error || pending.stage);
+            pendingSelection = null;
+          }
+        }
+        if (selectedId && !records.some(job => job.id === selectedId)) {
+          selectedId = metadataId = inspectId = null;
+          ++inspectVersion;
+        }
+        syncVersionNotice(status);
+        const stage = jobs.find(job => job.id === activeId)?.stage;
+        const summary = runtimeSummary(status, stage);
+        $('runtime').textContent = ready ? summary : t('WORKSHOP · generation engine not installed') + ' · ' + summary;
+        $('runtime').title = $('runtime').textContent;
+        workbench?.queue.setRuntime(status, stage);
+        $('hardware').textContent = status.gpu || t('Local compute');
+        updateButtons();
+        if (collectionChanged) {
+          renderNavigation();
+          renderSelected();
+          renderLibrary();
+          refreshRigPreview();
+        }
+        if (document.querySelector('.journal').open) refreshLog();
+      } catch (error) {
+        console.error('Studio refresh failed:', error);
+        $('runtime').textContent = t('Disconnected · restart TRELLIS');
+        ready = false;
+        multiview.setCapabilities({message: t('Studio is disconnected. Restart TRELLIS Studio.')});
+        updateButtons();
+      }
+      force = needsRefresh;
+    } while (needsRefresh && !shutDown);
+  })().finally(() => { currentRefresh = null; });
+  return currentRefresh;
+}
+$('shutdown').onclick=async()=>{try{await api('/api/shutdown',{method:'POST'});shutDown=true;studioPoll.stop();ready=false;busy=false;renderer?.setAnimationLoop(null);generationWait.dispose();clearModel();hologramViewer?.dispose();renderer?.dispose();$('notice').textContent=t('Run Open TRELLIS.cmd to restart the studio.');$('runtime').textContent=t('STUDIO STOPPED');$('shutdown').disabled=true;downloads(null);$('downloadHeight').hidden=true;updateButtons();}catch(e){errorAt('notice',e);}};
 function showCollection(details){$('libraryView').hidden=details;$('inspectorPanel').hidden=!details;$('collectionPanel').classList.toggle('details-open',details);}
 function openDetails(j) {
   if (!j) return;
@@ -906,7 +993,7 @@ async function loadRigSource(id){
 animationStudio=await createAnimationStudio({api,getJob:jobOf,isBusy:()=>busy,startJob:startStudioJob,refresh,rigSetup:rigSetupViewer,creatureViewer:creatureRigViewer,getClips:loadedAnimationClips,playClip:playAnimationClip,loadRigSource,
   openDiagnostics:id=>studioTools.diagnostics.open(records.find(record=>record.id===id))});createModelImport({api,startJob:startStudioJob});
 workbench=await createStudioWorkbench({api,getRecords:()=>records,getJob:jobOf,refresh,startJob:startStudioJob,renderLibrary,tools:studioTools,canUseCardTurntables:()=>cardTurntablesAvailable,labelAnimation:name=>animationStudio?.label(name)||name,getViewer:()=>({scene,renderer,camera,controls,model,loadedId,lighting:viewerLighting})});
-document.querySelector('.journal').addEventListener('toggle',refreshLog);await refresh();const entry=new URLSearchParams(location.search),entryModel=entry.get('model');if(entryModel&&records.some(j=>j.id===entryModel))selectJob(entryModel);if(entry.get('workspace')==='animation')openAnimationStudio();if(entry.get('workspace')==='details'&&jobOf())openDetails(jobOf());const comparison=records.find(j=>j.id===entry.get('compare')&&j.state==='done');if(comparison&&jobOf()?.state==='done')studioTools.compare.open(jobOf(),comparison,{focus:entry.get('focus')});setInterval(refresh,3000);
+document.querySelector('.journal').addEventListener('toggle',refreshLog);await refresh();const entry=new URLSearchParams(location.search),entryModel=entry.get('model');if(entryModel&&records.some(j=>j.id===entryModel))selectJob(entryModel);if(entry.get('workspace')==='animation')openAnimationStudio();if(entry.get('workspace')==='details'&&jobOf())openDetails(jobOf());const comparison=records.find(j=>j.id===entry.get('compare')&&j.state==='done');if(comparison&&jobOf()?.state==='done')studioTools.compare.open(jobOf(),comparison,{focus:entry.get('focus')});studioPoll.start();
 
 function setupClips(gltf){
  clipObstacles=motionObstacles(gltf,jobOf()?.result);

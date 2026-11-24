@@ -1,3 +1,4 @@
+import {singleImageCapability} from './single-image-recipe.js';
 import {t} from './i18n.js';
 const $ = id => document.getElementById(id);
 const roles = ['front', 'left', 'back', 'right'];
@@ -37,11 +38,8 @@ export function createMultiviewInputs({ changed, invalid }) {
   const countViews = () => activeRoles().filter(role => slots.get(role).file).length;
 
   function capability(value) {
-    const explicit = status.generation_methods?.[value];
-    if (explicit) return explicit;
-    if (value === 'pixal3d') return status.pixal3d;
-    if (value === 'pixal3d_single') return status.pixal3d?.single_image;
-    return status.ready === undefined ? null : {ready: status.ready, message: status.message};
+    return value === 'pixal3d' ? status.generation_methods?.pixal3d ?? status.pixal3d
+      : singleImageCapability(status, value);
   }
 
   function syncPicker(slot) {

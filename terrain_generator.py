@@ -121,7 +121,8 @@ def generate_terrain(folder, settings):
     editor = bundle/'Editor'
     editor.mkdir(exist_ok=True)
     shutil.copy2(ROOT/'unity/TrellisTerrainImporter.cs',editor/'TrellisTerrainImporter.cs')
-    (bundle/'LIRE-TERRAIN.txt').write_text('Copy TRELLIS into Assets, wait for compilation, then select Tools > TRELLIS > Import Unity terrains.\n'
+    (bundle/'LIRE-TERRAIN.txt').write_text('Copy TRELLIS into Assets, wait for compilation, select a terrain-manifest.json or its folder in Project, then choose Tools > TRELLIS > Import Unity terrains.\n'
+        'Existing terrain assets are skipped. To replace local sculpting, paint, layer settings and prefab, select one manifest and choose Rebuild selected terrain from source.\n'
         'Creates TerrainData, three TerrainLayers, a Terrain Lit material and a prefab with a TerrainCollider.\n'
         'RAW: unsigned 16-bit little-endian; rows are ordered by z, then x.\n'
         'The GLB is a 32,768-triangle preview, rather than native TerrainData.\n'

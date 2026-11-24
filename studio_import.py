@@ -86,7 +86,14 @@ def rewrite_animation_names(source, destination, names, *, clip_extras=None):
         if clip.get('name') in names:
             clip['name'] = names[clip['name']]
         if clip_extras and clip.get('name') in clip_extras:
-            clip.setdefault('extras', {}).update(clip_extras[clip['name']])
+            extras = clip.setdefault('extras', {})
+            for key, value in clip_extras[clip['name']].items():
+                if value is None:
+                    extras.pop(key, None)
+                else:
+                    extras[key] = value
+            if not extras:
+                clip.pop('extras')
     descriptor = json.dumps(data, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
     descriptor += b' ' * (-len(descriptor) % 4)
     raw = source.read_bytes()

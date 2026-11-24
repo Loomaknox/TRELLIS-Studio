@@ -686,12 +686,26 @@ def main():
     parser.add_argument('--port', type=int)
     parser.add_argument('--setup-only', action='store_true')
     parser.add_argument('--setup-token-file', type=Path)
-    parser.add_argument('--recover-admin', metavar='EMAIL')
+    maintenance = parser.add_mutually_exclusive_group()
+    maintenance.add_argument('--recover-admin', metavar='EMAIL')
+    maintenance.add_argument('--rotate-totp-key', metavar='KEYFILE',
+                             help='Offline: rewrap enrolled and pending factors with an existing private Fernet key, or windows-dpapi.')
     args = parser.parse_args()
     settings = read(args.config, {}) if args.config else {}
     directory = Path(args.data_dir or settings.get('data_dir') or ROOT / 'server-data').resolve()
     if ROOT.is_relative_to(directory) or any(directory.is_relative_to(ROOT / name) for name in ('outputs', 'trash', 'exports', 'web', 'config', 'models', 'engine', '.venv')):
         parser.error('Choose a separate server data folder.')
+    if args.rotate_totp_key:
+        from server_factors import FactorProtector
+        if not (directory / 'server.sqlite3').is_file():
+            parser.error('No Server catalog exists in the configured data directory.')
+        if args.rotate_totp_key == 'windows-dpapi' and os.name != 'nt':
+            parser.error('Windows DPAPI requires Windows.')
+        target = FactorProtector(None if args.rotate_totp_key == 'windows-dpapi' else args.rotate_totp_key)
+        with exclusive_instance(directory):
+            Store(directory / 'server.sqlite3').rotate_factor_key(target)
+        print('Factors rewrapped. Set the Server key configuration to the destination before restart.')
+        return
     if args.recover_admin:
         # Recovery is local and offline, including when a certificate file is unavailable.
         with exclusive_instance(directory):

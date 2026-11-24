@@ -47,3 +47,28 @@ prompts, URLs or logs. Redact private paths and tokens in support requests.
 
 For a security concern, use GitHub's private vulnerability reporting when enabled
 for this repository. Avoid posting exploit details or secrets in public issues.
+
+### Dependency review, 24 November 2026
+
+The Windows Desktop requirements select certifi 2026.11.20, filelock 4.3.1,
+opentelemetry-api 1.45.2 and Pillow 13.0.0. Validation includes the certificate
+bundle, local locking, span initialization, PNG/JPEG/WebP decode and alpha.
+The TOPOS private installer selects setuptools 84.2.1. Re-run the component
+repair to update an existing environment. [PyPI advisories for certifi](https://pypi.org/pypi/certifi/2026.7.22/json),
+[filelock](https://pypi.org/pypi/filelock/3.32.3/json),
+[OpenTelemetry](https://pypi.org/pypi/opentelemetry-api/1.45.1/json),
+[Pillow](https://pypi.org/pypi/pillow/12.3.0/json) and
+[setuptools](https://pypi.org/pypi/setuptools/79.0.1/json).
+
+The following distributions still match published advisories. Inference and
+repair should be restricted to trusted models and an operator-controlled
+environment, especially before enabling a network-accessible Server.
+
+| Component | Reachable path and controls | Remaining qualification |
+| --- | --- | --- |
+| rembg 2.0.69 (Desktop), 2.0.75 (native High Detail) | Studio passes a Pillow image and a fixed local U2Net ONNX session. The Studio server does not start rembg's HTTP service, expose its CLI, or accept an ONNX model URL. The installer checks the U2Net weights against its manifest. | The corrected rembg 2.0.82 requires NumPy ≥2.3 and Pillow <13. Version 2.0.88 accepts Pillow 13 but still requires NumPy ≥2.3. Desktop uses 2.2.6 and the High Detail native stack uses 1.26.4. Qualify a separate segmentation environment or compatible native builds. [Advisories](https://pypi.org/pypi/rembg/2.0.69/json) |
+| torch 2.8.0+cu128 | Studio reads its own generation cache and known model paths with weights-only loading. Installation verifies the pinned native assets. | Upgrade torch together with its CUDA wheels, xformers and compiled extensions. Retest load, inference and export on each supported GPU family. [Advisories](https://pypi.org/pypi/torch/2.8.0/json) |
+| transformers 4.57.3 (Desktop) | Studio generation and TOPOS use local encoder directories and offline Hugging Face settings. Model download and component repair remain trusted-operator operations. | Cross-version qualification covers the DINO encoder, local configuration formats and TOPOS, including the independently versioned High Detail overlay. [Advisories](https://pypi.org/pypi/transformers/4.57.3/json) |
+
+See the [Server recovery guide](docs/SERVER.md#authenticator-vault-and-backups)
+for the schema 3 authenticator vault, key backup and offline rotation.
