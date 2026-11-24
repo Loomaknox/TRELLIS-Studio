@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import native_game_finish
 import native_game_geometry
 import native_pixal3d
 from installer import install_native_game_geometry as provision
@@ -68,26 +69,117 @@ class NativeGeometryOptionsTests(unittest.TestCase):
             work = root / 'finishing'
             raw = root / 'decoded.npz'
             raw.touch()
-            progress = []
+            progress, quad_progress, wtivo_progress = [], [], []
 
             @contextmanager
             def process(command, *, cwd, **_):
                 self.assertEqual(cwd, root)
+                self.assertEqual(command[4:6], ['-X', 'utf8'])
                 config = Path(command[command.index('--options') + 1])
                 received = json.loads(config.read_text(encoding='utf-8'))
                 self.assertEqual(received, {stage: options[stage] for stage in GAME_ASSET_FINISHING})
                 work.mkdir()
                 (work / 'summary.json').write_text('{"triangles": 7512}', encoding='utf-8')
-                yield SimpleNamespace(stdout=['FINISH_PROGRESS Decimating the low mesh\n'],
-                                      wait=lambda: 0, poll=lambda: 0)
+                yield SimpleNamespace(stdout=[
+                    'FINISH_PROGRESS Reconstructing the mesh with QuadDC\n',
+                    'FINISH_QUAD_PROGRESS Filtering inner faces with QuadDC (1/3 batches complete)\n',
+                    'FINISH_PROGRESS Closing the mesh with WTiVo\n',
+                    'FINISH_WTIVO_PROGRESS WTiVo · Building tetrahedra · 0m 32s elapsed · 40m limit\n',
+                    'FINISH_PROGRESS Preparing high- and low-poly meshes with LODTailor\n',
+                ], wait=lambda: 0, poll=lambda: 0)
 
             with (patch.object(native_game_geometry, '_runtime', return_value={'python': Path(sys.executable)}),
                   patch.object(native_game_geometry.subprocess, 'Popen', side_effect=process)):
-                surface, receipt = native_game_geometry.finish_geometry(raw, work, progress.append, options=options)
+                surface, receipt = native_game_geometry.finish_geometry(
+                    raw, work, progress.append, options=options, quad_progress=quad_progress.append,
+                    wtivo_progress=wtivo_progress.append)
             self.assertEqual(surface, work / 'uv-bake/normal-ready.glb')
             self.assertEqual(receipt, {'triangles': 7512})
-            self.assertEqual(progress, ['Decimating the low mesh'])
+            self.assertEqual(progress, ['Reconstructing the mesh with QuadDC', 'Closing the mesh with WTiVo',
+                                        'Preparing high- and low-poly meshes with LODTailor'])
+            self.assertEqual(quad_progress, ['Filtering inner faces with QuadDC (1/3 batches complete)'])
+            self.assertEqual(wtivo_progress, ['WTiVo · Building tetrahedra · 0m 32s elapsed · 40m limit'])
             self.assertEqual(sorted(path.name for path in root.iterdir()), ['decoded.npz', 'finishing'])
+
+    def test_vertex_merge_preserves_the_baked_surface_for_ultratex(self):
+        options = settings(PROFILE)
+        cases = (
+            (12_000, 12_000, 2, 2, False),
+            (12_000, 12_000, 12_000, 11_998, False),
+            (12_000, 11_998, 11_998, 11_998, True),
+            (12_000, 12_000, 12_000, 12_000, True),
+        )
+        for baked_total, baked_usable, welded_total, welded_usable, keep_weld in cases:
+            with self.subTest(welded_total=welded_total, welded_usable=welded_usable, keep_weld=keep_weld):
+                with TemporaryDirectory(prefix='native-merge-') as folder:
+                    work = Path(folder) / 'uv-bake'
+                    low = {'vertices': [], 'faces': range(baked_total)}
+                    baked = work / 'baked.glb'
+
+                    def bake(*_args, **_kwargs):
+                        baked.write_bytes(b'baked mesh, UVs and normal map')
+                        return baked, {'warnings': ['Bake warning']}
+
+                    def weld(_toolkit, source, output, **_kwargs):
+                        self.assertEqual(source, baked)
+                        output.write_bytes(b'welded mesh')
+
+                    reports = [dict(triangles=baked_total, surface_triangles=baked_usable, normal_size=2048),
+                               dict(triangles=welded_total, surface_triangles=welded_usable, normal_size=2048)]
+                    with (patch.object(native_game_finish, '_step', side_effect=lambda node, *_: options[node]),
+                          patch.object(native_game_finish, 'write_character_glb'),
+                          patch.object(native_game_finish, 'unwrap_character_uv', return_value=low),
+                          patch.object(native_game_finish, 'bake_normal_atlas', side_effect=bake),
+                          patch.object(native_game_finish, 'texture_safe_merge', side_effect=weld),
+                          patch.object(native_game_finish, '_normal_ready_model', side_effect=reports),
+                          patch('builtins.print')):
+                        model, receipt = native_game_finish.finish_reduced_character(
+                            None, None, None, work, donor=low, low=low, device='cpu')
+
+                    self.assertEqual(model, work / 'normal-ready.glb')
+                    self.assertEqual(model.read_bytes(), b'welded mesh' if keep_weld else b'baked mesh, UVs and normal map')
+                    self.assertEqual(receipt['triangles'], welded_total if keep_weld else baked_total)
+                    self.assertEqual(receipt['welded_triangles'], welded_total)
+                    self.assertEqual(receipt['warnings'][0], 'Bake warning')
+                    self.assertEqual(len(receipt['warnings']), 1 if keep_weld else 2)
+
+    def test_quad_filter_reports_completed_batches_and_remaining_time(self):
+        with TemporaryDirectory(prefix='native-quad-progress-') as folder:
+            source = Path(folder) / 'remeshing.py'
+            source.write_text(
+                'def reconstruct_mesh_dc_quad(points):\n'
+                '    device, chunk_size = "cuda:0", 2\n'
+                '    def chunked_sdf_raystab(pts):\n'
+                '        N = len(pts)\n'
+                '        result = []\n'
+                '        for i in range(0, N, chunk_size):\n'
+                '            result.extend(query(pts[i:i + chunk_size]))\n'
+                '        return result\n'
+                '    return chunked_sdf_raystab(points)\n', encoding='utf-8')
+            events = []
+
+            def query(points):
+                events.append(tuple(points))
+                return points
+
+            def synchronize(device):
+                self.assertEqual(device, 'cuda:0')
+                events.append('synchronized')
+
+            remeshing = SimpleNamespace(query=query, torch=SimpleNamespace(cuda=SimpleNamespace(
+                synchronize=synchronize)))
+            reconstruct = native_game_finish._quad_reconstruction_with_progress(remeshing, source, events.append)
+            with patch.object(native_game_finish.time, 'perf_counter', side_effect=[10, 14, 18]):
+                self.assertEqual(reconstruct([1, 2, 3, 4, 5]), [1, 2, 3, 4, 5])
+            self.assertEqual(events, [
+                'Filtering inner faces with QuadDC (0/3 batches complete)',
+                'synchronized', (1, 2), 'synchronized',
+                'Filtering inner faces with QuadDC (1/3 batches complete, about 6 s remaining)',
+                (3, 4), 'synchronized',
+                'Filtering inner faces with QuadDC (2/3 batches complete, about 2 s remaining)',
+                (5,), 'synchronized',
+                'Filtering inner faces with QuadDC (3/3 batches complete)',
+            ])
 
     def test_mask_worker_needs_only_birefnet_and_runs_offline_on_cpu(self):
         with TemporaryDirectory(prefix='native-mask-contract-') as folder:

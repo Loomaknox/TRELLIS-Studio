@@ -22,7 +22,8 @@ from generation_options import (normalize_options, options_for_job, schema as ge
                                 validate_post_refinement_texturing)
 from asset_taxonomy import ASSET_TYPES, SYSTEM_TYPES, schema as taxonomy_schema
 from generation_profiles import (COMFY_INPUT_FILES, COMFY_PROFILES, STANDALONE_PROFILES, WORKFLOW_PROFILES,
-                                 DETAIL_STUDY, DENSE_MASTER_DESCRIPTION, PROPS_PROFILE, STARTUP_PROFILE, ProfileStore, builtin_profiles)
+                                 DETAIL_STUDY, DENSE_MASTER_DESCRIPTION, PROPS_PROFILE, STARTUP_PROFILE, ProfileStore,
+                                 builtin_profiles, workflow_descriptor)
 from native_workflow_options import geometry_backend as workflow_geometry, settings as workflow_settings, summary as workflow_summary
 from gpu_runtime import guided_install
 from studio_import import FORMATS, MAX_BYTES, find_blender, validate_glb, copy_version
@@ -865,35 +866,64 @@ def generation_options_schema():
 @app.get('/api/profiles')
 def profiles_list():
     try:
-        available = [profile for profile in PROFILES.list() if profile['id'] != HUMANOID_EXPERIMENTAL]
-        for profile in available:
-            if 'workflow' in profile:
-                profile['workflow'].update(workflow_capability(profile['id']))
-                profile['workflow']['advanced'] = workflow_advanced_capabilities(profile)
-                if profile['id'] == 'high_detail_native':
-                    material = next(stage for stage in profile['workflow']['advanced'] if stage['id'] == '25')
-                    defaults = {field['name']: field['default'] for field in material['fields']}
-                    size = defaults['ultratex_size'] if defaults['texture_method'] == 'ultratex' else defaults['texture_size']
-                    profile['settings'].update(texture_method=defaults['texture_method'], texture_size=size)
-                    profile['workflow']['texture_size'] = size
+        descriptions = {}
+        availability = {}
+        available = [profile_response(profile, descriptions, availability)
+                     for profile in PROFILES.list() if profile['id'] != HUMANOID_EXPERIMENTAL]
         startup = next(profile for profile in available if profile['id'] == STARTUP_PROFILE)
         startup_id = STARTUP_PROFILE if startup['workflow']['available'] else PROPS_PROFILE
         return {'default_profile': DEFAULT_PROFILE, 'startup_profile': startup_id, 'profiles': available}
     except ValueError as error: raise HTTPException(422, str(error))
 
-def workflow_capability(profile_id):
+def profile_response(profile, descriptions, availability):
+    settings = profile['settings']
+    preset = settings['preset']
+    if preset not in STANDALONE_PROFILES:
+        return profile
+    if preset not in descriptions:
+        descriptor = workflow_descriptor(preset)
+        descriptor['advanced'] = workflow_advanced_capabilities(preset, descriptor['advanced'])
+        descriptor['custom_profiles'] = True
+        descriptor.update(workflow_capability(preset))
+        descriptions[preset] = descriptor
+    workflow = dict(descriptions[preset])
+    settings = dict(settings)
+    if 'workflow_options' in settings:
+        options = workflow_settings(preset, settings['workflow_options'])
+        summary = workflow_summary(preset, options)
+        summary.pop('seed')
+        settings.update(summary)
+        workflow.update(resolution=summary['resolution'], target_faces=summary['triangles'],
+                        texture_size=summary['texture_size'])
+        key = (preset, summary['geometry_backend'], summary['texture_method'])
+        if key not in availability:
+            availability[key] = workflow_capability(*key)
+        workflow.update(availability[key])
+    elif preset == 'high_detail_native':
+        material = next(stage for stage in workflow['advanced'] if stage['id'] == '25')
+        defaults = {field['name']: field['default'] for field in material['fields']}
+        size = defaults['ultratex_size'] if defaults['texture_method'] == 'ultratex' else defaults['texture_size']
+        settings.update(texture_method=defaults['texture_method'], texture_size=size)
+        workflow['texture_size'] = size
+    return {**profile, 'settings': settings, 'workflow': workflow}
+
+
+def workflow_capability(profile_id, backend=None, texture_method=None):
     if profile_id == 'high_detail_native':
-        from native_high_detail import runtime_status
-        return runtime_status()
+        from native_high_detail import TRELLIS_GEOMETRY, runtime_status, ultratex_status
+        capability = runtime_status(geometry_backend=backend or TRELLIS_GEOMETRY)
+        if capability['available'] and texture_method == 'ultratex':
+            return ultratex_status()
+        return capability
     if profile_id == 'game_asset_native':
         from native_game_profile import runtime_status
-        return runtime_status()
+        return runtime_status(backend or 'pixal3d')
     return dict(available=False, reason='Choose a current standalone profile.')
 
-def workflow_advanced_capabilities(profile):
+def workflow_advanced_capabilities(profile_id, stages):
     from copy import deepcopy
 
-    stages = deepcopy(profile['workflow']['advanced'])
+    stages = deepcopy(stages)
     for stage in stages:
         for field in stage['fields']:
             for choice in field.get('choices', ()):
@@ -905,42 +935,27 @@ def workflow_advanced_capabilities(profile):
                     choice.update(ultratex_status())
                     if choice['available']:
                         field['default'] = choice['value']
-                if profile['id'] == 'game_asset_native' and stage['id'] == '316' and field['name'] == 'value':
+                if profile_id == 'game_asset_native' and stage['id'] == '316' and field['name'] == 'value':
                     from native_game_profile import runtime_status
                     choice.update(runtime_status('trellis2' if choice['value'] else 'pixal3d'))
     return stages
 
 
-def require_workflow(profile_id):
-    capability = workflow_capability(profile_id)
-    if not capability['available']:
-        raise HTTPException(503, capability['reason'])
-
-
 def require_workflow_options(profile_id, options):
     backend = workflow_geometry(profile_id, options)
-    if profile_id == 'high_detail_native' and options['25']['texture_method'] == 'ultratex':
-        from native_high_detail import ultratex_status
-        capability = ultratex_status()
-        if not capability['available']:
-            raise HTTPException(503, capability['reason'])
+    texture_method = options['25']['texture_method'] if profile_id == 'high_detail_native' else None
+    capability = workflow_capability(profile_id, backend, texture_method)
+    if not capability['available']:
+        raise HTTPException(503, capability['reason'])
     if profile_id == 'high_detail_native' and backend == 'pixal3d':
-        from native_high_detail import DEFAULTS, runtime_status
-        capability = runtime_status(geometry_backend=backend)
-        if not capability['available']:
-            raise HTTPException(503, capability['reason'])
+        from native_high_detail import DEFAULTS
         if options['17'] != DEFAULTS['17']:
             raise HTTPException(422, 'First TRELLIS.2 pass settings apply to TRELLIS.2 GGUF geometry only.')
-    if profile_id == 'game_asset_native' and backend == 'trellis2':
-        from native_game_profile import runtime_status
-        capability = runtime_status(backend)
-        if not capability['available']:
-            raise HTTPException(503, capability['reason'])
 
-def new_workflow_options(profile_id, overrides):
-    """Select the local default for new submissions. Saved jobs carry their own recipe."""
-    options = workflow_settings(profile_id, overrides)
-    if profile_id == 'high_detail_native':
+def new_workflow_options(profile_id, overrides, *, saved=None):
+    """Use local defaults for new submissions and saved settings for named recipes."""
+    options = workflow_settings(profile_id, overrides, saved=saved)
+    if profile_id == 'high_detail_native' and saved is None:
         material = options['25']
         if 'texture_method' not in (overrides or {}).get('25', {}) and not material['bake_on_vertices']:
             from native_high_detail import ultratex_status
@@ -955,10 +970,10 @@ async def save_profile(request, identifier=None):
     async with LOCK:
         try:
             raw = await request.body()
-            if len(raw) > 16000: raise ValueError('Profile is too large.')
-            return PROFILES.save(json.loads(raw), identifier)
+            if len(raw) > 26000: raise ValueError('Profile is too large.')
+            return profile_response(PROFILES.save(json.loads(raw), identifier), {}, {})
         except KeyError: raise HTTPException(404, 'Profile not found.')
-        except (ValueError, TypeError) as error: raise HTTPException(400, str(error))
+        except (ValueError, TypeError, OverflowError) as error: raise HTTPException(400, str(error))
 
 @app.post('/api/profiles', status_code=201)
 async def create_profile(request: Request):
@@ -1445,7 +1460,7 @@ async def generate_multiview(
             raise HTTPException(422, str(error)) from error
         if saved_profile is None:
             raise HTTPException(400, 'Unknown generation profile. Choose a profile advertised by Studio.')
-        if saved_profile['id'] in WORKFLOW_PROFILES:
+        if saved_profile['settings']['preset'] in WORKFLOW_PROFILES:
             raise HTTPException(400, 'This profile uses one reference image.')
         profile = dict(saved_profile['settings'], id=saved_profile['id'], name=saved_profile['name'],
                        keep_finishing_source=saved_profile.get('keep_finishing_source', False))
@@ -1558,20 +1573,19 @@ async def generate_multiview(
 
 
 async def generate_workflow(image, workflow_id, *, options, name, height_m, asset_type, reference_prompt,
-                            parent_id, queue_only, queue_priority, queue_hold):
+                            parent_id, queue_only, queue_priority, queue_hold, profile=None):
     if (not 0.01 <= height_m <= 100 or asset_type not in ASSET_TYPES or len(name) > 80
             or len(reference_prompt) > 6000 or not -2 <= queue_priority <= 2):
         raise HTTPException(400, 'Invalid generation settings.')
-    require_workflow(workflow_id)
     require_workflow_options(workflow_id, options)
     source, content, extension = await read_generation_image(image, restrict_formats=True, preserve_original=True)
     if source.getchannel('A').getextrema()[1] == 0:
         raise HTTPException(400, 'Image is fully transparent.')
-    recipe = STANDALONE_PROFILES[workflow_id]
+    profile = profile or {'id': workflow_id, 'name': STANDALONE_PROFILES[workflow_id]['name']}
     safe_name = re.sub(r'[^A-Za-z0-9_-]+', '-', name.strip()).strip('-')[:50] or 'Object'
     filename = 'workflow-input' + extension
     settings = dict(name=safe_name, preset=workflow_id, workflow_id=workflow_id, workflow_input=filename,
-                    profile=dict(id=workflow_id, name=recipe['name']), engine='studio_workflow', view_mode='single',
+                    profile=dict(id=profile['id'], name=profile['name']), engine='studio_workflow', view_mode='single',
                     pipeline_type=workflow_id, height_m=height_m, asset_type=asset_type,
                     workflow_options=options,
                     settings_version=4, created=time.time(), **workflow_summary(workflow_id, options))
@@ -1624,12 +1638,21 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
                    workflow_options: Annotated[str, Form()] = ''):
     if WORKSPACE_CONFIG:
         queue_only = True
+    profile = None
+    if profile_id.startswith('user_'):
+        try: profile = next((p for p in PROFILES.list() if p['id'] == profile_id), None)
+        except ValueError as error: raise HTTPException(422, str(error)) from error
+        if profile is None: raise HTTPException(400, 'Profile not found; reload profiles.')
     workflow_id = profile_id if profile_id in WORKFLOW_PROFILES else preset if preset in WORKFLOW_PROFILES else None
+    custom_workflow = profile is not None and profile['settings']['preset'] in STANDALONE_PROFILES
+    if custom_workflow:
+        workflow_id = profile['settings']['preset']
     if workflow_id:
         if workflow_id in COMFY_PROFILES:
             raise HTTPException(409, 'Choose a current generation profile in Studio.')
         recipe = STANDALONE_PROFILES[workflow_id]
-        if (preset not in (DEFAULT_PROFILE, workflow_id) or profile_id not in ('', workflow_id)
+        selected_id = profile_id if custom_workflow else workflow_id
+        if (preset not in (DEFAULT_PROFILE, workflow_id) or profile_id not in ('', selected_id)
                 or engine != 'trellis2' or seed not in (None, recipe['seed']) or not remove_bg
                 or triangles not in (0, recipe['target_faces']) or texture_size not in (0, recipe['texture_size'])
                 or resolution not in (None, recipe['resolution']) or texture_method not in (None, recipe['texture_method'])
@@ -1640,12 +1663,13 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
         try:
             if len(workflow_options) > 24000:
                 raise ValueError('Workflow settings are too large.')
-            options = new_workflow_options(workflow_id, json.loads(workflow_options) if workflow_options else {})
+            saved = profile['settings']['workflow_options'] if custom_workflow else None
+            options = new_workflow_options(workflow_id, json.loads(workflow_options) if workflow_options else {}, saved=saved)
         except (TypeError, ValueError, OverflowError) as error:
             raise HTTPException(400, str(error)) from error
         return await generate_workflow(image, workflow_id, options=options, name=name, height_m=height_m, asset_type=asset_type,
                                        reference_prompt=reference_prompt, parent_id=parent_id, queue_only=queue_only,
-                                       queue_priority=queue_priority, queue_hold=queue_hold)
+                                       queue_priority=queue_priority, queue_hold=queue_hold, profile=profile)
     if workflow_options:
         raise HTTPException(400, 'Choose a profile that uses workflow settings.')
     seed = 42 if seed is None else seed
@@ -1703,11 +1727,11 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
     except (ValueError,TypeError) as error:
         raise HTTPException(400,str(error))
     base_profile = next((p for p in builtin_profiles() if p['id'] == preset), None) if cache_required else None
-    profile = base_profile
-    if profile_id:
+    if profile_id and profile is None:
         try: profile = next((p for p in PROFILES.list() if p['id'] == profile_id), None)
         except ValueError as error: raise HTTPException(422, str(error))
         if profile is None: raise HTTPException(400, 'Profile not found; reload profiles.')
+    profile = profile or base_profile
     require_create_master_finishing(master_finishing)
     require_texture_method(texture_method)
     if retexture_after_refinement:

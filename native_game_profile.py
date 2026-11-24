@@ -103,9 +103,13 @@ def run_profile(image_path, output_path, job_dir, options=None, progress=None):
         raw_mesh = scratch / 'decoded.npz'
         np.savez(raw_mesh, vertices=vertices, faces=faces)
         del vertices, faces
-        milestones = iter((55, 61, 67, 74, 78, 81))
+        quad_percent = 55
+        wtivo_percent = 61
+        milestones = iter((quad_percent, wtivo_percent, 67, 74, 78, 81))
         normal_mesh, finish = finish_geometry(raw_mesh, scratch / 'finishing',
-                                              lambda label: progress(label, next(milestones, 81)), options=options)
+                                              lambda label: progress(label, next(milestones, 81)), options=options,
+                                              quad_progress=lambda label: progress(label, quad_percent),
+                                              wtivo_progress=lambda label: progress(label, wtivo_percent))
         texture = texture_mesh(normal_mesh, reference, mask, output, scratch / 'texture',
                                lambda label: progress(label, 84), options=options)
     name = 'PiXal3D' if backend == 'pixal3d' else 'TRELLIS.2'

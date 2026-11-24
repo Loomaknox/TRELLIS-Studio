@@ -3,6 +3,7 @@ from contextlib import redirect_stdout
 import hashlib
 from io import StringIO
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -58,7 +59,7 @@ class WTiVoTests(unittest.TestCase):
         self.assertEqual(command[:7], [str(self.python), '-I', '-B', '-u', '-X', 'utf8', str(self.script)])
         self.assertEqual(cwd.resolve().parent, self.job.resolve())
         self.assertEqual(Path(env['TMP']), cwd)
-        self.assertEqual(kwargs['timeout'], 1800)
+        self.assertEqual(kwargs['timeout'], 2400)
 
         def path(option):
             result = Path(command[command.index(option) + 1])
@@ -139,13 +140,44 @@ class WTiVoTests(unittest.TestCase):
         self.configure()
         log = StringIO()
         output = f'{self.source}\nTetrahedralizing + exporting neighbors...\n'.encode()
-        failure = subprocess.TimeoutExpired([], 1800, output=output)
+        failure = subprocess.TimeoutExpired([], 2400, output=output)
         with (patch.object(wtivo.subprocess, 'run', side_effect=failure), redirect_stdout(log),
-              self.assertRaisesRegex(wtivo.WTiVoTimeout, 'exceeded 30 minutes at 1024')):
+              self.assertRaisesRegex(wtivo.WTiVoTimeout, 'exceeded 40 minutes at 1024')):
             wtivo.reconstruct(self.root, self.job, self.vertices, self.faces)
         self.assertIn('Tetrahedralizing + exporting neighbors...', log.getvalue())
         self.assertNotIn(str(self.source), log.getvalue())
         self.assertFalse(list(self.job.iterdir()))
+
+    def test_progress_is_reported_before_native_stage_finishes(self):
+        acknowledged = self.job / 'observed'
+        code = '''
+from pathlib import Path
+import time
+print('Tetrahedralizing + exporting neighbors...', flush=True)
+while not Path('observed').exists():
+    time.sleep(0.02)
+print('Done', flush=True)
+'''
+        updates = []
+
+        def progress(label):
+            updates.append(label)
+            if 'Building tetrahedra' in label:
+                acknowledged.touch()
+
+        result = wtivo._run_with_progress([sys.executable, '-B', '-u', '-c', code], self.job, os.environ,
+                                          progress, timeout=8)
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue(result.stdout.rstrip().endswith('Done'))
+        self.assertTrue(any('Building tetrahedra' in label and 'elapsed' in label for label in updates))
+
+    def test_progress_deadline_preserves_native_log_during_a_silent_stage(self):
+        code = "import time; print('Tetrahedralizing + exporting neighbors...', flush=True); time.sleep(12)"
+        with self.assertRaises(subprocess.TimeoutExpired) as raised:
+            wtivo._run_with_progress([sys.executable, '-B', '-u', '-c', code], self.job, os.environ,
+                                     lambda _label: None, timeout=2)
+        self.assertEqual(raised.exception.timeout, 2)
+        self.assertIn(b'Tetrahedralizing + exporting neighbors...', raised.exception.output)
 
 
 if __name__ == '__main__':

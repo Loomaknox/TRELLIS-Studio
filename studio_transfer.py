@@ -4,6 +4,7 @@ import hashlib,json,re,shutil,stat,uuid,zipfile
 from studio_workspace import read,write,ID
 from studio_import import validate_glb
 from studio_version import VERSION
+from generation_profiles import MAX_CUSTOM_PROFILES, STANDALONE_PROFILES, builtin_profiles, validate_recipe
 
 EXTENSIONS={'.json','.glb','.blend','.png','.jpg','.jpeg','.webp','.stl','.fbx','.obj','.ply','.raw','.mtl','.webm'}
 EXCLUDED={'Blender','rig-work','before-animations','__pycache__'}
@@ -59,7 +60,8 @@ def inspect(path):
                 if cursor in seen:raise ValueError('Cyclic model lineage.')
                 seen.add(cursor);cursor=parents[cursor]
         workspace=data.get('workspace',{});folders=workspace.get('folders',[]);views=workspace.get('views',[]);profiles=data.get('profiles',[])
-        if not isinstance(folders,list) or len(folders)>500 or not isinstance(views,list) or len(views)>100 or not isinstance(profiles,list) or len(profiles)>102:raise ValueError('Invalid workspace catalogue.')
+        profile_limit = MAX_CUSTOM_PROFILES + len(builtin_profiles())
+        if not isinstance(folders,list) or len(folders)>500 or not isinstance(views,list) or len(views)>100 or not isinstance(profiles,list) or len(profiles)>profile_limit:raise ValueError('Invalid workspace catalogue.')
         from studio_workspace import name
         catalog={f['id']:f for f in folders}
         if len(catalog)!=len(folders):raise ValueError('Duplicate folder IDs.')
@@ -73,8 +75,16 @@ def inspect(path):
         for v in views:
             name(v['name'])
             if any(not isinstance(v.get(k),str) or len(v[k])>160 for k in ('query','filter','folder_id')) or v['folder_id'] not in {'*','',*catalog}:raise ValueError('Invalid saved view.')
-        from generation_profiles import validate_recipe
-        for p in profiles:validate_recipe(dict(name=p['name'],settings=p['settings']))
+        for profile in profiles:
+            if (not isinstance(profile, dict) or not isinstance(profile.get('settings'), dict)
+                    or not isinstance(profile.get('id'), str)):
+                raise ValueError('Invalid generation profile in workspace catalogue.')
+            identifier = profile.get('id')
+            settings = profile['settings']
+            # Built-in workflow snapshots are references to the installed recipes, not custom graph overrides.
+            if profile.get('builtin') is True and identifier in STANDALONE_PROFILES and settings.get('preset') == identifier:
+                continue
+            validate_recipe(dict(name=profile.get('name'), settings=settings))
         expected={'trellis-collection.json'}
         for entry in data['files']:
             p=PurePosixPath(entry['path'])

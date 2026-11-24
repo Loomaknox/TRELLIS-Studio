@@ -6,11 +6,15 @@ Create opens with **High Detail** when its local geometry runtime is ready, with
 
 Select **Open workflow graph** to display connected nodes in the central workspace. Drag the grid to pan, scroll to zoom, and expand a node to edit its parameters directly. The graph and the form share the same values. Escape or **Close workflow graph** returns to the 3D preview. **Figure Master** and **High Detail (Props)** have a shorter graph with the sections used by Studio's standard pipeline. Their nodes edit the same settings as Advanced Settings, and **Save a copy** stores the resulting recipe.
 
+Use **Save a copy** to name your own **Game Asset** or **High Detail** recipe. It stores the geometry engine and workflow settings. The reference image, model name, height and seeds belong to each generation. Select the saved recipe to restore its settings, or choose **Edit this profile** to update it. Existing jobs retain the recipe they used.
+
 **High Detail** uses TRELLIS.2 4B GGUF Q4_K_M, 1024 cascade, a second shape pass, two QuadDC and MeshLib iterations, and a target of 2,000,000 triangles. **Geometry engine** selects the first mesh generator. With PiXal3D, Studio generates the first mesh at 1536 and uses the same QuadDC, refinement and material stages afterward. Seed values are saved per stage. Model scale and ground placement are applied as a scene transform to the completed GLB. When UltraTex is installed, new runs default to the same 2K multiview pass as Game Asset, applied to the finished High Detail mesh and its existing UVs. Under **Texturing → Texture generation**, **TRELLIS.2 PBR** uses a 4K atlas and 25 texture steps by default. Saved generations retain the method in their recorded recipe.
 
 High Detail runs in the Studio worker with an optional portable GGUF component and local model weights. The component uses the CUDA backend. The settings mark unavailable backends and inputs ignored by the upstream recipe. **High Detail (Props)** uses the earlier Studio recipe for objects.
 
 **Game Asset** takes an image through PiXal3D or TRELLIS.2 at 1536, QuadDC, WTiVo, LOD Tailor, PEC UV unwrapping and a 2K normal bake. UltraTex generates twelve colour views and six metal/roughness views by default. The target is 12,000 triangles. Advanced controls include reference framing, shape sampling, reconstruction, UVs, normal baking, and UltraTex settings for prompts, views, atlas and memory. Component names and options specific to the original graph host show the values required by the installed native runtime.
+
+During WTiVo, Studio shows the current operation, elapsed time and the 40-minute limit for that step. The full generation also includes shape generation, reduction, baking and texturing.
 
 The profile picker shows the availability of each verified local component. Game Asset uses an isolated Python environment, optional native geometry and UltraTex packages, local weights and the Blender installation already detected by Studio. Existing standard generation methods have their own component requirements.
 
