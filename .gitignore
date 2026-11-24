@@ -574,6 +574,14 @@
 !/tests/facial_head_color.py
 !/tests/facial_head_installer.py
 !/docs/FACIAL_HEAD.md
+!/docs/qualification/
+/docs/qualification/*
+!/docs/qualification/README.md
+!/docs/qualification/README.fr.md
+!/docs/qualification/aelis-detail.png
+!/docs/qualification/aelis-unity.mp4
+!/docs/qualification/elias-portrait.jpg
+!/docs/qualification/aelis-urp.jpg
 !/tests/workspace_recovery.py
 !/segmentation_runtime.py
 !/installer/install_segmentation.py
