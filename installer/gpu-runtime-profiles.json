@@ -29,6 +29,11 @@
     "minimum_vram_mib": 12000,
     "meshlib_license_revision": "df34d41cbdbeb8343aeecdfd5755a361e5dc291d"
   },
+  "high_detail_gguf": {
+    "device_names": ["NVIDIA GeForce RTX 5070 Ti"],
+    "compute_capabilities": ["12.0"],
+    "minimum_vram_mib": 15000
+  },
   "windows": {
     "torch28-cu128": {
       "driver_min": "570.65",

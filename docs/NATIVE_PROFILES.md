@@ -18,6 +18,8 @@ For completed native models, **Prepare → Texture Projection** uses the model's
 
 ## Windows Setup
 
+On a GeForce RTX 5070 Ti (16 GB), select **TRELLIS.2 image-to-3D → High Detail GGUF with native PBR**. Setup checks the selected GPU and asks for the MeshLib terms. In Create choose **High Detail → TRELLIS.2 GGUF → TRELLIS.2 PBR** to reproduce the qualified route. The combined Game Asset installation has a separate hardware policy.
+
 Select **TRELLIS.2 image-to-3D**, then **High Detail and Game Asset**. After you accept the FLUX.2 Klein 9B and MeshLib terms, Setup prepares PiXal3D and TRELLIS.2 geometry, mesh finishing and the native UltraTex runtime. The Studio worker runs these workflows locally. The **UltraTex · 2K preview** entry in Setup is a separate six-view compatibility component. Use **Repair or resume components** to finish an interrupted native installation. See the [Windows Setup guide](WINDOWS_SETUP.md#standalone-generation-profiles).
 
 ## Runtime configuration

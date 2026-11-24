@@ -36,6 +36,8 @@ Une seule génération a produit deux variantes, toutes deux avec des textures P
 
 ## Installer la version française sur Windows
 
+Sur une GeForce RTX 5070 Ti de 16 Go, l’installateur propose **TRELLIS.2 → High Detail GGUF avec les matériaux PBR natifs**. Après acceptation des conditions de MeshLib, retrouvez ce profil dans **Créer**. Pour reproduire la configuration testée, choisissez le moteur géométrique **TRELLIS.2 GGUF** et le texturage **TRELLIS.2 PBR**.
+
 Ce fork cible **Windows x64**. Sa branche par défaut, `main`, contient la version stabilisée. Télécharge et décompresse l’archive source ou clone le dépôt avec Git. Le mainteneur du projet d’origine publie ses propres exécutables Windows. [Archive ZIP du fork](https://github.com/Loomaknox/TRELLIS-Studio/archive/refs/heads/main.zip) · [Versions du projet d’origine](https://github.com/yoslo59/TRELLIS-Studio/releases)
 
 ```powershell

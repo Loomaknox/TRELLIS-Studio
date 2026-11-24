@@ -438,6 +438,7 @@ function Get-SetupNativeWorkflows([psobject]$Gpu) {
     }
     if ($Gpu.Compute -notin $policy.compute_capabilities -or $Gpu.MemoryMiB -lt [int]$policy.minimum_vram_mib) {
         $capabilities=$policy.compute_capabilities -join ', '
+        $result.MeshLibLicenseUrl="https://github.com/MeshInspector/MeshLib/blob/$($policy.meshlib_license_revision)/LICENSE"
         $result.Status=Get-SetupPreflightText 'The native workflows require a supported NVIDIA GPU (CUDA capability {0}) and at least {1} MiB of VRAM.' @($capabilities,$policy.minimum_vram_mib)
         return $result
     }
@@ -478,9 +479,11 @@ function Get-SetupInstallPlan([string]$Root) {
         try { $ultraTexAccepted=$state.licenses.ultratex -ceq (Read-SetupGpuManifest).ultratex.license_sha256 } catch { }
     }
     $nativeWorkflowsAccepted=$false
+    $meshLibAccepted=$false
     if ($state.licenses.meshlib) {
         try {
             $manifest=Read-SetupGpuManifest
+            $meshLibAccepted=$state.licenses.meshlib -ceq $manifest.native_workflows.meshlib_license_revision
             $nativeWorkflowsAccepted=($ultraTexAccepted -or
                 $state.licenses.native_workflows -ceq $manifest.ultratex.license_sha256) -and
                 $state.licenses.meshlib -ceq $manifest.native_workflows.meshlib_license_revision
@@ -491,6 +494,8 @@ function Get-SetupInstallPlan([string]$Root) {
         NativeWorkflowsDefault=(-not $saved -and -not $existingInstallation)
         NativeWorkflows='native-workflows' -in $requested
         NativeWorkflowsLicenseAccepted=$nativeWorkflowsAccepted
+        HighDetailGGUF='high-detail-gguf' -in $requested
+        MeshLibAccepted=$meshLibAccepted
         Trellis='trellis' -in $requested
         Pixal3D='pixal3d' -in $requested
         UniRig='unirig' -in $requested
@@ -515,9 +520,17 @@ function Get-SetupPreflight {
     if (-not $WslDistribution) { $WslDistribution=[string]$config.wsl_distribution }
     $blender=if ($PSBoundParameters.ContainsKey('BlenderPath')) { Test-SetupBlender -Path $BlenderPath } else { Find-SetupBlender -SavedPath ([string]$config.blender_path) }
     $gpu=Get-SetupGpu -RequestedUuid $GpuUuid -AllowReselect:$automaticGpu
+    $ggufSupported=$false
+    try {
+        $policy=(Read-SetupGpuManifest).high_detail_gguf
+        $ggufSupported=$gpu.Supported -and $gpu.Name -cin $policy.device_names -and
+            $gpu.Compute -in $policy.compute_capabilities -and [int]$policy.minimum_vram_mib -gt 0 -and
+            $gpu.MemoryMiB -ge [int]$policy.minimum_vram_mib
+    } catch { $ggufSupported=$false }
     return [pscustomobject][ordered]@{
         GPU=$gpu
         NativeWorkflows=(Get-SetupNativeWorkflows -Gpu $gpu)
+        HighDetailGGUF=[pscustomobject]@{Supported=[bool]$ggufSupported}
         Hi3D=(Get-SetupHi3d -Gpu $gpu)
         MultiviewTexture=(Get-SetupMultiviewTexture -Gpu $gpu)
         UltraTex=(Get-SetupUltraTex -Gpu $gpu)

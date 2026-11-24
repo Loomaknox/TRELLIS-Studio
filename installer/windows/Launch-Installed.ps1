@@ -12,6 +12,8 @@
     [switch]$AcceptUltraTexModelLicenses,
     [switch]$SkipUltraTex,
     [switch]$AcceptNativeWorkflowModelLicenses,
+    [switch]$AcceptHighDetailMeshLib,
+    [switch]$SkipHighDetailGGUF,
     [switch]$SkipNativeWorkflows,
     [switch]$Guided,
     [string]$Components='',
@@ -109,6 +111,7 @@ if ($Mode -ne 'Workshop' -or $taskNeedsWorkshop -or $WithKimodo) {
                 SkipMultiviewTexture=$SkipMultiviewTexture
                 AcceptUltraTexModelLicenses=$AcceptUltraTexModelLicenses; SkipUltraTex=$SkipUltraTex
                 AcceptNativeWorkflowModelLicenses=$AcceptNativeWorkflowModelLicenses
+                AcceptHighDetailMeshLib=$AcceptHighDetailMeshLib; SkipHighDetailGGUF=$SkipHighDetailGGUF
                 SkipNativeWorkflows=$SkipNativeWorkflows
                 Language=$(if ($taskFrench) {'fr'} else {'en'})
             }

@@ -35,9 +35,30 @@ def _verify_profile_availability():
             raise RuntimeError(f'{name}: {status["reason"]}')
 
 
-def run(root, *, verify_only=False, accept_ultratex=False, accept_meshlib=False):
+def high_detail_gguf(root, verify_only, accept_meshlib):
+    from gpu_runtime import load_profiles
+    from installer import install_native_high_detail
+    if not verify_only and not accept_meshlib:
+        raise RuntimeError('Accept the MeshLib terms before installing High Detail GGUF.')
+    select_gpu(root)
+    import torch
+    policy = load_profiles(root)['high_detail_gguf']
+    device = torch.cuda.get_device_properties(0)
+    if (device.name not in policy['device_names'] or
+            f'{device.major}.{device.minor}' not in policy['compute_capabilities'] or
+            device.total_memory // 2**20 < policy['minimum_vram_mib']):
+        raise RuntimeError('The selected GPU is outside the tested High Detail GGUF configuration.')
+    configure = install_native_high_detail.verify if verify_only else install_native_high_detail.install
+    return configure(root)
+
+
+def run(root, *, verify_only=False, accept_ultratex=False, accept_meshlib=False, gguf_only=False):
     if os.name != 'nt':
         raise RuntimeError('Native workflow Setup requires Windows x64.')
+    if gguf_only:
+        high_detail_gguf(root, verify_only, accept_meshlib)
+        print('High Detail GGUF ready.', flush=True)
+        return
     if not verify_only:
         if not accept_ultratex:
             raise RuntimeError('Accept the FLUX.2 license before installing the UltraTex checkpoints.')
@@ -69,6 +90,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=SOURCE)
     parser.add_argument('--verify-only', action='store_true')
+    parser.add_argument('--high-detail-gguf-only', action='store_true')
     parser.add_argument('--accept-ultratex-license', action='store_true')
     parser.add_argument('--accept-meshlib-license', action='store_true')
     args = parser.parse_args()
@@ -77,7 +99,7 @@ def main():
         parser.error('Run the copy of this script in the installation being configured.')
     try:
         run(root, verify_only=args.verify_only, accept_ultratex=args.accept_ultratex_license,
-            accept_meshlib=args.accept_meshlib_license)
+            accept_meshlib=args.accept_meshlib_license, gguf_only=args.high_detail_gguf_only)
     except (RuntimeError, OSError, ValueError, subprocess.CalledProcessError) as error:
         parser.exit(1, f'NATIVE WORKFLOWS SETUP STOPPED: {error}\n')
 

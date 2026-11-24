@@ -102,6 +102,10 @@ Var UltraTexCheckbox
 Var AcceptUltraTexLicenses
 Var UltraTexLicenseCheckbox
 Var InstallNativeWorkflows
+Var InstallHighDetailGGUF
+Var HighDetailGGUFSupported
+Var AcceptHighDetailMeshLib
+Var SkipHighDetailGGUF
 Var NativeWorkflowsDefault
 Var NativeWorkflowsSupported
 Var SkipNativeWorkflows
@@ -124,6 +128,7 @@ Page custom ShowInstallMode SaveInstallMode
 Page custom ShowHardware SaveHardware
 Page custom ShowComponentMode SaveComponentMode
 Page custom ShowNativeWorkflowOptions SaveNativeWorkflowOptions
+Page custom ShowHighDetailGGUFOptions SaveHighDetailGGUFOptions
 Page custom ShowHi3dOptions SaveHi3dOptions
 Page custom ShowMultiviewTextureOptions SaveMultiviewTextureOptions
 Page custom ShowUltraTexOptions SaveUltraTexOptions
@@ -281,6 +286,16 @@ LangString CheckSelectedEngines ${LANG_ENGLISH} "Setup checks each selected engi
 LangString CheckSelectedEngines ${LANG_FRENCH} "Chaque moteur sélectionné sera vérifié avant activation."
 LangString NativeTitle ${LANG_ENGLISH} "High Detail and Game Asset"
 LangString NativeTitle ${LANG_FRENCH} "High Detail et Game Asset"
+LangString GGUFTitle ${LANG_ENGLISH} "High Detail GGUF"
+LangString GGUFTitle ${LANG_FRENCH} "High Detail GGUF"
+LangString GGUFChoice ${LANG_ENGLISH} "Install High Detail GGUF with native PBR"
+LangString GGUFChoice ${LANG_FRENCH} "Installer High Detail GGUF avec les matériaux PBR natifs"
+LangString GGUFDescription ${LANG_ENGLISH} "Generate dense geometry and materials from one reference on the RTX 5070 Ti. Setup reuses the TRELLIS.2 foundation and verifies the geometry runtime."
+LangString GGUFDescription ${LANG_FRENCH} "Générez la géométrie dense et les matériaux à partir d’une référence sur la RTX 5070 Ti. L’installation réutilise TRELLIS.2 et vérifie le moteur géométrique."
+LangString GGUFConsent ${LANG_ENGLISH} "I have read and accept the MeshLib terms."
+LangString GGUFConsent ${LANG_FRENCH} "J’ai lu et j’accepte les conditions de MeshLib."
+LangString GGUFAcceptRequired ${LANG_ENGLISH} "Accept the MeshLib terms or clear the High Detail GGUF selection."
+LangString GGUFAcceptRequired ${LANG_FRENCH} "Acceptez les conditions de MeshLib ou décochez High Detail GGUF."
 LangString NativeSubtitle ${LANG_ENGLISH} "Install the native workflows with UltraTex for TRELLIS Studio."
 LangString NativeSubtitle ${LANG_FRENCH} "Installez les profils natifs avec UltraTex pour TRELLIS Studio."
 LangString ProbeIncomplete ${LANG_ENGLISH} "NVIDIA hardware could not be checked. You can continue with the other components."
@@ -376,6 +391,9 @@ Function .onInit
   StrCpy $SkipUltraTex "0"
   StrCpy $AcceptUltraTexLicenses "0"
   StrCpy $InstallNativeWorkflows "0"
+  StrCpy $InstallHighDetailGGUF "0"
+  StrCpy $AcceptHighDetailMeshLib "0"
+  StrCpy $SkipHighDetailGGUF "0"
   StrCpy $NativeWorkflowsDefault "0"
   StrCpy $SkipNativeWorkflows "0"
   StrCpy $AcceptNativeWorkflowLicenses "0"
@@ -491,6 +509,8 @@ Function ShowHardware
     ReadINIStr $InstallUltraTex "$PLUGINSDIR\preflight.ini" "Plan" "UltraTex"
     ReadINIStr $AcceptUltraTexLicenses "$PLUGINSDIR\preflight.ini" "Plan" "UltraTexLicenseAccepted"
     ReadINIStr $InstallNativeWorkflows "$PLUGINSDIR\preflight.ini" "Plan" "NativeWorkflows"
+    ReadINIStr $InstallHighDetailGGUF "$PLUGINSDIR\preflight.ini" "Plan" "HighDetailGGUF"
+    ReadINIStr $AcceptHighDetailMeshLib "$PLUGINSDIR\preflight.ini" "Plan" "MeshLibAccepted"
     ReadINIStr $NativeWorkflowsDefault "$PLUGINSDIR\preflight.ini" "Plan" "NativeWorkflowsDefault"
     ReadINIStr $AcceptNativeWorkflowLicenses "$PLUGINSDIR\preflight.ini" "Plan" "NativeWorkflowsLicenseAccepted"
     StrCpy $SkipNativeWorkflows "0"
@@ -737,6 +757,11 @@ Function OpenNativeWorkflowMeshLibLicense
 FunctionEnd
 
 Function ShowNativeWorkflowOptions
+  ReadINIStr $HighDetailGGUFSupported "$PLUGINSDIR\preflight.ini" "HighDetailGGUF" "Supported"
+  ${If} $HighDetailGGUFSupported == "1"
+    StrCpy $NativeWorkflowsSupported "0"
+    Abort
+  ${EndIf}
   ${If} $InstallTrellis != "1"
     StrCpy $SkipNativeWorkflows "0"
     Abort
@@ -806,6 +831,45 @@ Function SaveNativeWorkflowOptions
     StrCpy $SkipNativeWorkflows "1"
   ${ElseIf} $AcceptNativeWorkflowLicenses != "1"
     MessageBox MB_ICONEXCLAMATION "$(NativeLicenseRequired)" /SD IDOK
+    Abort
+  ${EndIf}
+FunctionEnd
+
+Function ShowHighDetailGGUFOptions
+  ${If} $InstallTrellis != "1"
+  ${OrIf} $HighDetailGGUFSupported != "1"
+    Abort
+  ${EndIf}
+  !insertmacro MUI_HEADER_TEXT "$(GGUFTitle)" "$(OptionalGpuSubtitle)"
+  nsDialogs::Create 1018
+  Pop $0
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+  ${NSD_CreateCheckbox} 0 3u 100% 15u "$(GGUFChoice)"
+  Pop $NativeWorkflowsCheckbox
+  ${NSD_OnClick} $NativeWorkflowsCheckbox NativeWorkflowChoiceChanged
+  ${NSD_CreateLabel} 13u 24u -13u 39u "$(GGUFDescription)"
+  Pop $0
+  ${NSD_CreateLink} 13u 68u 65% 12u "$(MeshLibTerms)"
+  Pop $0
+  ${NSD_OnClick} $0 OpenNativeWorkflowMeshLibLicense
+  ${NSD_CreateCheckbox} 0 88u 100% 22u "$(GGUFConsent)"
+  Pop $NativeWorkflowLicenseCheckbox
+  ${NSD_SetState} $NativeWorkflowsCheckbox $InstallHighDetailGGUF
+  ${NSD_SetState} $NativeWorkflowLicenseCheckbox $AcceptHighDetailMeshLib
+  EnableWindow $NativeWorkflowLicenseCheckbox $InstallHighDetailGGUF
+  nsDialogs::Show
+FunctionEnd
+
+Function SaveHighDetailGGUFOptions
+  ${NSD_GetState} $NativeWorkflowsCheckbox $InstallHighDetailGGUF
+  ${NSD_GetState} $NativeWorkflowLicenseCheckbox $AcceptHighDetailMeshLib
+  StrCpy $SkipHighDetailGGUF "0"
+  ${If} $InstallHighDetailGGUF != "1"
+    StrCpy $SkipHighDetailGGUF "1"
+  ${ElseIf} $AcceptHighDetailMeshLib != "1"
+    MessageBox MB_ICONEXCLAMATION "$(GGUFAcceptRequired)" /SD IDOK
     Abort
   ${EndIf}
 FunctionEnd
@@ -1221,6 +1285,10 @@ Section "${SETUP_NAME}"
     ${AndIf} $NativeWorkflowsSupported == "1"
       StrCpy $ComponentsArgument "$ComponentsArgument,native-workflows"
     ${EndIf}
+    ${If} $InstallHighDetailGGUF == "1"
+    ${AndIf} $HighDetailGGUFSupported == "1"
+      StrCpy $ComponentsArgument "$ComponentsArgument,high-detail-gguf"
+    ${EndIf}
   ${EndIf}
   ${If} $InstallPixal3D == "1"
     StrCpy $ComponentsArgument "$ComponentsArgument,pixal3d"
@@ -1270,6 +1338,14 @@ Section "${SETUP_NAME}"
     StrCpy $HardwareArguments "$HardwareArguments -AcceptNativeWorkflowModelLicenses"
   ${ElseIf} $SkipNativeWorkflows == "1"
     StrCpy $HardwareArguments "$HardwareArguments -SkipNativeWorkflows"
+  ${EndIf}
+  ${If} $InstallTrellis == "1"
+  ${AndIf} $InstallHighDetailGGUF == "1"
+  ${AndIf} $HighDetailGGUFSupported == "1"
+  ${AndIf} $AcceptHighDetailMeshLib == "1"
+    StrCpy $HardwareArguments "$HardwareArguments -AcceptHighDetailMeshLib"
+  ${ElseIf} $SkipHighDetailGGUF == "1"
+    StrCpy $HardwareArguments "$HardwareArguments -SkipHighDetailGGUF"
   ${EndIf}
   ${If} $InstallHi3d == "1"
   ${AndIf} $AcceptHi3dLicenses == "1"

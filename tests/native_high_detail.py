@@ -144,5 +144,28 @@ class HighDetailSettingsTests(unittest.TestCase):
         self.assertTrue(shell[2, 5, 5])
 
 
+class StandaloneSetupTests(unittest.TestCase):
+    def test_gguf_route_checks_license_and_selected_device(self):
+        from installer import install_native_high_detail
+        from installer.install_native_workflows import high_detail_gguf
+        def gpu(name):
+            return SimpleNamespace(name=name,major=12,minor=0,total_memory=16*2**30)
+        torch = SimpleNamespace(cuda=SimpleNamespace(get_device_properties=Mock(return_value=gpu('NVIDIA GeForce RTX 5070 Ti'))))
+        root = Path(__file__).resolve().parents[1]
+        with patch.dict(sys.modules, torch=torch), patch('installer.install_native_workflows.select_gpu'), \
+                patch.object(install_native_high_detail,'install') as install, patch.object(install_native_high_detail,'verify') as verify:
+            with self.assertRaisesRegex(RuntimeError, 'MeshLib'):
+                high_detail_gguf(root,False,False)
+            install.assert_not_called()
+            high_detail_gguf(root,False,True)
+            install.assert_called_once_with(root)
+            high_detail_gguf(root,True,False)
+            verify.assert_called_once_with(root)
+            torch.cuda.get_device_properties.return_value=gpu('unqualified SM 12.0 device')
+            with self.assertRaisesRegex(RuntimeError,'tested High Detail'):
+                high_detail_gguf(root,False,True)
+            install.assert_called_once()
+
+
 if __name__ == '__main__':
     unittest.main()

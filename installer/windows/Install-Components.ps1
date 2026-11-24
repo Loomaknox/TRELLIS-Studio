@@ -32,6 +32,9 @@ $guidedFrenchText=@{
     workshop='Atelier'
     animations='Animations standard'
     'native-workflows'='High Detail et Game Asset'
+    'high-detail-gguf'='High Detail GGUF'
+    'The selected GPU is outside the tested High Detail GGUF configuration.'="Le GPU sélectionné ne correspond pas à la configuration validée pour High Detail GGUF."
+    'MeshLib terms must be accepted to install High Detail GGUF.'="Vous devez accepter les conditions de MeshLib pour installer High Detail GGUF."
     'multiview-texture'='MV-Adapter'
     installing='en cours'
     deferred='reporté'
@@ -134,6 +137,8 @@ function Invoke-GuidedSetup {
         [switch]$AcceptUltraTexModelLicenses,
         [switch]$SkipUltraTex,
         [switch]$AcceptNativeWorkflowModelLicenses,
+        [switch]$AcceptHighDetailMeshLib,
+        [switch]$SkipHighDetailGGUF,
         [switch]$SkipNativeWorkflows,
         [ValidateSet('en','fr')][string]$Language='en'
     )
@@ -141,7 +146,7 @@ function Invoke-GuidedSetup {
     $env:UV_LINK_MODE='copy'
     $env:UV_NO_CACHE='1'
     . (Join-Path $PSScriptRoot 'Setup-Preflight.ps1')
-    $setupOrder=@('trellis','native-workflows','pixal3d','hi3d','multiview-texture','ultratex','unirig','kimodo')
+    $setupOrder=@('trellis','native-workflows','high-detail-gguf','pixal3d','hi3d','multiview-texture','ultratex','unirig','kimodo')
     $setupStatePath=Join-Path $InstallRoot 'config\component-install.json'
     $setupState=Read-GuidedSetupJson $setupStatePath
     if ($setupState.Count -and $setupState.schema -ne 1) { throw (Get-GuidedSetupText 'Unsupported component setup receipt. Existing settings were preserved.') }
@@ -163,6 +168,10 @@ function Invoke-GuidedSetup {
         $requested=@($requested | Where-Object { $_ -ne 'native-workflows' })
         $setupState.requested=@($setupState.requested | Where-Object { $_ -ne 'native-workflows' })
     }
+    if ($SkipHighDetailGGUF) {
+        $requested=@($requested | Where-Object { $_ -ne 'high-detail-gguf' })
+        $setupState.requested=@($setupState.requested | Where-Object { $_ -ne 'high-detail-gguf' })
+    }
     if ($SkipHi3d) {
         $requested=@($requested | Where-Object { $_ -ne 'hi3d' })
         $setupState.requested=@($setupState.requested | Where-Object { $_ -ne 'hi3d' })
@@ -178,7 +187,7 @@ function Invoke-GuidedSetup {
     foreach ($name in $requested) {
         if ($name -notin $setupOrder) { throw ((Get-GuidedSetupText 'Unknown setup component: {0}.') -f $name) }
     }
-    if (@($requested | Where-Object { $_ -in @('native-workflows','pixal3d','hi3d','multiview-texture','ultratex') }).Count) { $requested+=@('trellis') }
+    if (@($requested | Where-Object { $_ -in @('native-workflows','high-detail-gguf','pixal3d','hi3d','multiview-texture','ultratex') }).Count) { $requested+=@('trellis') }
     $selected=@($setupOrder | Where-Object {$_ -in $requested})
     $setupState.requested=@($setupOrder | Where-Object {$_ -in $selected -or $_ -in $setupState.requested})
     Save-GuidedSetupJson $setupStatePath $setupState
@@ -286,6 +295,21 @@ function Invoke-GuidedSetup {
         $nativeWorkflowInstall={Invoke-GuidedSetupCommand $nativePython $nativeWorkflowArgs}
         $nativeWorkflowVerify={Invoke-GuidedSetupCommand $nativePython ($nativeWorkflowArgs+@('--verify-only'))}
         Invoke-GuidedComponent 'native-workflows' $nativeWorkflowInstall $nativeWorkflowVerify $nativeWorkflowReason
+    }
+    if ('high-detail-gguf' -in $selected) {
+        $reason=''
+        $revision=(Read-SetupGpuManifest).native_workflows.meshlib_license_revision
+        if (-not $probe.HighDetailGGUF.Supported) { $reason='The selected GPU is outside the tested High Detail GGUF configuration.' }
+        elseif ($setupState.components.trellis.status -ne 'ready') { $reason='Verify TRELLIS.2 generation on the selected GPU first.' }
+        elseif ($revision -cnotmatch '^[a-f0-9]{40}$') { $reason='The pinned MeshLib terms could not be verified. Use the complete Setup package.' }
+        elseif ($AcceptHighDetailMeshLib) {
+            $setupState.licenses.meshlib=$revision
+            Save-GuidedSetupJson $setupStatePath $setupState
+        } elseif ($setupState.licenses.meshlib -cne $revision) { $reason='MeshLib terms must be accepted to install High Detail GGUF.' }
+        $ggufArgs=@('-B','-u',(Join-Path $InstallRoot 'installer/install_native_workflows.py'),'--high-detail-gguf-only','--root',$InstallRoot)
+        $installGGUF={Invoke-GuidedSetupCommand $nativePython ($ggufArgs+@('--accept-meshlib-license'))}
+        $verifyGGUF={Invoke-GuidedSetupCommand $nativePython ($ggufArgs+@('--verify-only'))}
+        Invoke-GuidedComponent 'high-detail-gguf' $installGGUF $verifyGGUF $reason
     }
     if ('pixal3d' -in $selected) {
         $pixalReason=if ($setupState.components.trellis.status -ne 'ready') {'Verify TRELLIS generation on the selected GPU first.'} else {''}
