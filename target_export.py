@@ -175,7 +175,7 @@ def export_asset(source,destination,target,notify=lambda fraction,stage:None,*,p
     notify(.96,'Verifying exported files')
     manifest['verification'] = verify_export(destination, manifest)
     (destination/'studio-export.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
-    lines=[f'TRELLIS Studio â€” {recipe["label"]} export','',f'Units: {recipe["units"]}; up: {recipe["up"]}; forward: {recipe["forward"]}.',
+    lines=[f'TRELLIS Studio — {recipe["label"]} export','',f'Units: {recipe["units"]}; up: {recipe["up"]}; forward: {recipe["forward"]}.',
       'The original GLB is included byte-for-byte. Its own coordinates are always Y up / metres.',
       f'Embedded source clips: {len(clips)}. Skeleton joints: {manifest["bones"]}.','']
     if target=='unity':
