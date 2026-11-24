@@ -17,9 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from asset_provenance import capture_generation, export_provenance
 from export_preflight import asset_report, options
-from glb_data import read
+from glb_data import read, image
 from print_prepare import verify_stl
 from studio_transfer import export_lineage, snapshot_export
+from studio_import import find_blender
 from studio_workspace import write
 from target_export import conversion_glb
 
@@ -60,6 +61,31 @@ def surface(path):
     conversion_glb(doc, buf, path)
 
 
+def verify_active_materials(path, manifest, archive, prefix):
+    document, binary = read(path)
+    active = {primitive['material'] for mesh in document['meshes'] for primitive in mesh['primitives']
+              if 'material' in primitive}
+    assert active
+    used_maps = {}
+    for index in sorted(active):
+        material = document['materials'][index]
+        maps = manifest['materials'][index]['maps']
+        assert manifest['materials'][index]['name'] == f'TS_Mat_{index:03d}'
+        used_maps[index] = maps
+        for fields, mapping in [(material.get('pbrMetallicRoughness',{}),
+                                 [('baseColorTexture','BaseColor'),('metallicRoughnessTexture','MetallicRoughness')]),
+                                (material,[('normalTexture','NormalOpenGL'),('occlusionTexture','Occlusion'),
+                                           ('emissiveTexture','Emissive')])]:
+            for gltf_key, package_name in mapping:
+                if gltf_key not in fields:
+                    continue
+                texture = document['textures'][fields[gltf_key]['index']]
+                embedded = image(document,binary,texture['source']).convert('RGBA')
+                delivered = Image.open(io.BytesIO(archive.read(prefix+maps[package_name]))).convert('RGBA')
+                assert embedded.size == delivered.size and embedded.tobytes() == delivered.tobytes(), (index, package_name)
+    return used_maps
+
+
 def materials(work, library, live):
     original = asset(library,'a',texture_method='trellis',engine='trellis2')
     derived = asset(library,'b',source_kind='multiview_texture_refinement',parent_id=original.name)
@@ -82,7 +108,17 @@ def materials(work, library, live):
     else:
         receipt = dict(state='applied',revisions={'runtime':'recorded-fixture'})
     write(derived/'result.json', dict(multiview_texture_refinement=dict(receipt, texture_method='ultratex')))
-    with package(work,'unity',[original,derived]) as archive:
+    # One GLB with two active materials independently exercises primitive-to-material lookup.
+    mixed = asset(library, '7', source_kind='import')
+    from retexture_worker import append_textures
+    document, binary = read(original/'model.glb')
+    append_textures(mixed/'model.glb', document, binary, Image.new('RGB',(32,32),'red'), Image.new('RGB',(32,32),'blue'))
+    document, binary = read(mixed/'model.glb')
+    primitives = document['meshes'][0]['primitives']
+    primitives.append(dict(primitives[0], material=0))
+    conversion_glb(document,binary,mixed/'model.glb')
+    expectations = {}
+    with package(work,'unity',[original,derived,mixed]) as archive:
         assert archive.testzip() is None
         for row in json.loads(archive.read('export-manifest.json'))['models']:
             prefix = row['file']+'/'
@@ -93,7 +129,15 @@ def materials(work, library, live):
             for entry in provenance['component_conditions']:
                 if document := entry.get('document'):
                     assert hashlib.sha256(archive.read(prefix+'Licenses/'+document)).hexdigest() == entry['sha256']
-            maps = manifest['materials'][0]['maps']
+            active = verify_active_materials(library/row['id']/'model.glb', manifest, archive, prefix)
+            delivered = Path(archive.extract(prefix+'model.fbx', work/'reimport'))
+            expectations[str(delivered)] = [manifest['materials'][i]['name'] for i in active]
+            if row['id'] == mixed.name:
+                assert set(active) == {0,1} and 'MetallicRoughness' in active[1]
+                print('PACKAGE two active materials, GLB and extracted PNG texels identical',flush=True)
+                continue
+            assert len(active) == 1
+            maps = next(iter(active.values()))
             assert Image.open(io.BytesIO(archive.read(prefix+maps['BaseColor']))).size == (2048,2048)
             assert provenance['fallbacks'][0]['stage']=='before_generation'
             assert provenance['submission_pins']['engine_source']
@@ -107,6 +151,21 @@ def materials(work, library, live):
             else:
                 assert provenance['requested_texture']=='multiview' and provenance['used_texture']=='trellis'
             print('PACKAGE',provenance['used_texture'],manifest['source_glb_sha256'],sorted(maps),flush=True)
+    config = work/'fbx-materials.json'
+    write(config, expectations)
+    checker = work/'fbx_materials.py'
+    checker.write_text("""import bpy, json, sys
+from pathlib import Path
+for filename, expected in json.loads(Path(sys.argv[-1]).read_text()).items():
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.import_scene.fbx(filepath=filename)
+    assigned = {obj.data.materials[face.material_index].name for obj in bpy.context.scene.objects
+                if obj.type == 'MESH' for face in obj.data.polygons}
+    assert assigned == set(expected), (filename, assigned, expected)
+    print('FBX active material slots:', sorted(assigned))
+""",encoding='utf-8')
+    subprocess.run([str(find_blender()),'--background','--factory-startup','--disable-autoexec',
+                    '--python-exit-code','1','--python',str(checker),'--',str(config)],check=True,timeout=120)
     if live:
         print('LIVE ULTRATEX',json.dumps(receipt,ensure_ascii=True),flush=True)
 
