@@ -53,22 +53,16 @@ def prepared_views(job, views, reviewed=False):
     from reference_preparation import PREPARED_VIEWS, frame_pixal, pixal_silhouette, premultiplied_rgb
 
     if not reviewed:
-        cutouts = {}
-        session = None
+        from segmentation_runtime import masks
+
+        sources = {}
         for view in views:
             with Image.open(job / view['file']) as original:
-                image = ImageOps.exif_transpose(original).convert('RGBA')
-            alpha = image.getchannel('A')
-            if alpha.getextrema()[0] >= 128:
-                if not (ROOT / 'models' / 'rembg' / 'u2net.onnx').is_file():
-                    raise RuntimeError('Background removal needs the Studio U2Net model. Use transparent images or reinstall Studio.')
-                from rembg import remove
-                from reference_preparation import _new_background_session
-                if session is None:
-                    session = _new_background_session(ROOT / 'models' / 'rembg' / 'u2net.onnx')
-                image = remove(image, session=session).convert('RGBA')
-            cutouts[view['role']] = pixal_silhouette(image, view['role'])
-        del session
+                sources[view['role']] = ImageOps.exif_transpose(original).convert('RGBA')
+        opaque = {role: image for role, image in sources.items() if image.getchannel('A').getextrema()[0] >= 128}
+        for (role, image), mask in zip(opaque.items(), masks(list(opaque.values()), ROOT / 'models' / 'rembg' / 'u2net.onnx')):
+            sources[role] = Image.composite(image, Image.new('RGBA', image.size), mask)
+        cutouts = {role: pixal_silhouette(image, role) for role, image in sources.items()}
         for role, frame in frame_pixal(cutouts).items():
             frame.save(job / PREPARED_VIEWS[role])
 

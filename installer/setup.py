@@ -257,6 +257,8 @@ def verify(rig=True,workshop_only=False):
     run(ROOT/'.mcp-venv/Scripts/python.exe','-c','from mcp.server import MCPServer;import httpx;print("MCP ready")')
     if not bundled_web():run('node','--check','web/studio.js')
     if workshop_only:return
+    from installer.install_segmentation import verify as verify_segmentation
+    verify_segmentation(ROOT)
     if guided_install(ROOT):
         run(python, '-B', '-c',
             "from pathlib import Path; from retexture_runtime import pipeline_config; pipeline_config(Path.cwd())",
@@ -327,6 +329,8 @@ def main():
     source('engine',manifest['sources']['engine'])
     python=ensure_venvs(args.uv)
     install_native_packages(args.uv,python,plan)
+    from installer.install_segmentation import install as install_segmentation
+    install_segmentation(ROOT,args.uv,python)
     run(args.uv,'pip','install','--python',ROOT/'.mcp-venv/Scripts/python.exe','-r',ROOT/'requirements-mcp-lock.txt')
     ensure_web()
     run(python,'-B',ROOT/'gpu_runtime.py',label='Checking the installed CUDA extensions before model downloads...',timeout=180)
@@ -335,6 +339,8 @@ def main():
     if not config.exists():config.write_text(json.dumps(dict(wsl_distribution=distribution),indent=2))
     if not args.skip_rig:install_rig(manifest,distribution)
     verify(rig=False)
+    from installer.install_segmentation import retire_previous_rembg
+    retire_previous_rembg(ROOT,args.uv,python,'.venv/Lib/site-packages','2.0.69')
     record_workshop()
     print('INSTALLATION COMPLETE. Open TRELLIS.cmd launches Studio and MCP.',flush=True)
 

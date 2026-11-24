@@ -193,7 +193,6 @@ with tempfile.TemporaryDirectory(prefix='studio-hd-smoke-') as temporary:
     import gguf
     import pymeshlab
     from meshlib import mrmeshnumpy, mrmeshpy
-    from rembg import remove
     from transformers import DINOv3ViTConfig
     from trellis2_gguf.pipelines.trellis2_image_to_3d import Trellis2ImageTo3DPipeline
     from xformers import _cpp_lib
@@ -217,6 +216,8 @@ with tempfile.TemporaryDirectory(prefix='studio-hd-smoke-') as temporary:
 def verify(root: Path):
     """Check the configured High Detail source, locked assets, and native imports."""
     root = Path(root).resolve(strict=True)
+    from installer.install_segmentation import verify as verify_segmentation
+    verify_segmentation(root)
     python = _toolchain(root)
     config = safe_path(root, CONFIG)
     runtime = _runtime(config)
@@ -241,6 +242,8 @@ def install(root: Path):
     """Install and exercise the native GGUF runtime before making it available."""
     root = Path(root).resolve(strict=True)
     python = _toolchain(root)
+    from installer.install_segmentation import install as install_segmentation, retire_previous_rembg
+    install_segmentation(root)
     config = safe_path(root, CONFIG)
     selected = _config()
     if config.exists() and json.loads(config.read_text(encoding='utf-8-sig')) != selected:
@@ -264,4 +267,5 @@ def install(root: Path):
             pending.rename(config)
     finally:
         pending.unlink(missing_ok=True)
+    retire_previous_rembg(root, safe_path(root, '.tools/uv/uv.exe'), python, TENSOR_PACKAGES, '2.0.75')
     return config

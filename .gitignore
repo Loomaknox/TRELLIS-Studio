@@ -570,3 +570,7 @@
 !/tests/facial_head_installer.py
 !/docs/FACIAL_HEAD.md
 !/tests/workspace_recovery.py
+!/segmentation_runtime.py
+!/installer/install_segmentation.py
+!/installer/requirements-segmentation.txt
+!/tests/segmentation_runtime.py

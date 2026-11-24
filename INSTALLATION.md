@@ -149,6 +149,13 @@ uses **rembg/U2-Net**, and TRELLIS generation's UV baking path uses its **MIT Py
 rasteriser**. Optional research-only upstream render packages and RMBG-2.0 weights
 are not installed by the Studio dependency selection.
 
+Windows generation Setup installs the CPU cutout engine in
+`.tools/segmentation/venv`. Reference previews, TRELLIS.2, Pixal3D and native
+High Detail share the local U2Net weights and this environment. An existing
+alpha mask can be used directly. To repair only the CPU environment from an
+installed Studio folder, run `.venv\Scripts\python.exe installer\install_segmentation.py`.
+Add `--verify-only` to check its installed packages.
+
 ### CPU texture projection and baked game copies
 
 The Workshop setup includes the CPU libraries for texture projection and

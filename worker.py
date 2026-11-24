@@ -52,12 +52,8 @@ def generate_source(torch):
         with Image.open(JOB / 'input.png') as original:
             image = ImageOps.exif_transpose(original).convert('RGBA')
         if settings.get('remove_bg') and image.getchannel('A').getextrema()[0] == 255:
-            from rembg import remove
-            from reference_preparation import _new_background_session
-            session = _new_background_session(ROOT / 'models' / 'rembg' / 'u2net.onnx')
-            image = remove(image, session=session)
-            del session
-            gc.collect()
+            from segmentation_runtime import cutout
+            image = cutout(image, ROOT / 'models' / 'rembg' / 'u2net.onnx')
         image.save(JOB / 'prepared.png')
     if settings.get('facial_head_enhancement') is True:
         from facial_head_generation import generate

@@ -8,15 +8,13 @@ from threading import Lock
 import numpy as np
 from PIL import Image, ImageDraw
 
+from segmentation_runtime import BackgroundRemovalError, masks
+
 
 PREPARED_VIEWS = {'front': 'prepared.png', 'left': 'prepared-left.png',
                   'back': 'prepared-back.png', 'right': 'prepared-right.png'}
 _MASK_CACHE = OrderedDict()
 _PREPARATION_LOCK = Lock()
-
-
-class BackgroundRemovalError(RuntimeError):
-    pass
 
 
 def parse_reference_edits(raw, roles):
@@ -53,63 +51,37 @@ def parse_reference_edits(raw, roles):
     return edits
 
 
-def _new_background_session(weights):
-    if not weights.is_file():
-        raise BackgroundRemovalError('Background removal needs the Studio U2Net model. Use transparent images or reinstall Studio.')
-    import onnxruntime as ort
-    from rembg.sessions.u2net import U2netSession
-
-    class LocalU2netSession(U2netSession):
-        @classmethod
-        def download_models(cls, *args, **kwargs):
-            return weights
-
-    options = ort.SessionOptions()
-    options.intra_op_num_threads = 4
-    return LocalU2netSession('u2net', options, providers=['CPUExecutionProvider'])
-
-
 def _automatic_cutouts(sources, weights, alpha_threshold, *, straight_alpha=False):
     cutouts = {}
-    session = None
+    pending = {}
+    keys = {}
+    selected = {}
     for role, source in sources.items():
         if source.getchannel('A').getextrema()[0] < alpha_threshold:
             cutouts[role] = source.copy()
             continue
         try:
-            key = (weights, weights.stat().st_mtime_ns, source.size,
-                   hashlib.sha256(source.tobytes()).digest())
-            mask = _MASK_CACHE.get(key)
-            if mask is None:
-                from onnxruntime.capi.onnxruntime_pybind11_state import (
-                    EngineError, EPFail, Fail, InvalidArgument, InvalidGraph, InvalidProtobuf,
-                    NoSuchFile, RuntimeException,
-                )
-                from rembg import remove
-                try:
-                    if session is None:
-                        session = _new_background_session(weights)
-                    mask = remove(source, session=session, only_mask=True)
-                except (EngineError, EPFail, Fail, InvalidArgument, InvalidGraph, InvalidProtobuf,
-                        NoSuchFile, RuntimeException) as error:
-                    raise BackgroundRemovalError(
-                        'The local U2Net model could not run. Reinstall the Studio model or use a transparent reference.'
-                    ) from error
-                _MASK_CACHE[key] = mask
-                if len(_MASK_CACHE) > 8:
-                    _MASK_CACHE.popitem(last=False)
-            else:
-                _MASK_CACHE.move_to_end(key)
-        except FileNotFoundError as error:
+            key = (weights, weights.stat().st_mtime_ns, source.size, hashlib.sha256(source.tobytes()).digest())
+        except OSError as error:
             raise BackgroundRemovalError('Background removal needs the Studio U2Net model. Use transparent images or reinstall Studio.') from error
-        except (ImportError, OSError) as error:
-            raise BackgroundRemovalError(f'Unable to run the local background remover: {error}') from error
+        keys[role] = key
+        if key in _MASK_CACHE:
+            _MASK_CACHE.move_to_end(key)
+            selected[key] = _MASK_CACHE[key]
+        else:
+            pending[key] = source
+    for key, mask in zip(pending, masks(list(pending.values()), weights)):
+        selected[key] = _MASK_CACHE[key] = mask
+        if len(_MASK_CACHE) > 8:
+            _MASK_CACHE.popitem(last=False)
+    for role, key in keys.items():
+        source = sources[role]
         if straight_alpha:
             cutouts[role] = source.copy()
-            cutouts[role].putalpha(mask)
+            cutouts[role].putalpha(selected[key])
         else:
-            cutouts[role] = Image.composite(source, Image.new('RGBA', source.size), mask)
-    return cutouts
+            cutouts[role] = Image.composite(source, Image.new('RGBA', source.size), selected[key])
+    return {role: cutouts[role] for role in sources}
 
 
 def _paint(cutout, source, strokes):

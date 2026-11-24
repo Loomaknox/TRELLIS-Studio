@@ -50,7 +50,6 @@ python-multipart==0.0.32
 PyYAML==6.0.3
 referencing==0.37.0
 regex==2026.9.29
-rembg==2.0.69
 requests==2.34.2
 rpds-py==2026.9.1
 safetensors==0.8.0

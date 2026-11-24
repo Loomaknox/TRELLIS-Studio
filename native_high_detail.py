@@ -170,11 +170,9 @@ def _prepare_image(path, *, padding, remove_background, max_size):
 
     with Image.open(path) as original:
         image = ImageOps.exif_transpose(original).convert('RGBA')
-    if remove_background:
-        from rembg import remove
-        from reference_preparation import _new_background_session
-        session = _new_background_session(Path(os.environ['U2NET_HOME']) / 'u2net.onnx')
-        image = remove(image, session=session)
+    if remove_background and image.getchannel('A').getextrema()[0] == 255:
+        from segmentation_runtime import cutout
+        image = cutout(image, Path(os.environ['U2NET_HOME']) / 'u2net.onnx')
     scale = min(1, max_size / max(image.size))
     if scale < 1:
         image = image.resize((int(image.width * scale), int(image.height * scale)), Image.Resampling.LANCZOS)
@@ -580,6 +578,8 @@ def run_profile(image_path, output_path, job_dir, options=None, progress=None, *
 
     if not torch.cuda.is_available():
         raise RuntimeError('The native High Detail profile requires CUDA.')
+    from gpu_runtime import configure_attention
+    configure_attention(torch)
     destination.parent.mkdir(parents=True, exist_ok=True)
     progress('Preparing the reference image', 42 if use_pixal else 8)
     reference = _prepare_image(ref, **stages['12'])
