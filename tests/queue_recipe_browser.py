@@ -50,18 +50,21 @@ def main():
         thread = Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            job = _WindowsBrowserJob([str(browser), '--headless=new', '--disable-gpu', '--disable-extensions',
-                '--disable-background-networking', '--no-first-run', '--no-default-browser-check',
-                '--user-data-dir=' + tmp, f'http://127.0.0.1:{server.server_port}/?lang=fr'])
-            try:
-                assert done.wait(35), 'Browser fixture did not complete'
-                assert results == ['PASS'], results
-            finally:
-                job.close()
+            for lang in ('fr','en'):
+                results.clear();done.clear()
+                job = _WindowsBrowserJob([str(browser), '--headless=new', '--disable-gpu', '--disable-extensions',
+                    '--disable-background-networking', '--no-first-run', '--no-default-browser-check',
+                    '--window-size=1280,900','--force-device-scale-factor=2',
+                    '--user-data-dir=' + str(Path(tmp)/lang), f'http://127.0.0.1:{server.server_port}/?lang={lang}'])
+                try:
+                    assert done.wait(35), 'Browser fixture did not complete'
+                    assert results == ['PASS'], results
+                finally:
+                    job.close()
         finally:
             server.shutdown()
             thread.join(5)
-    print('PASS real browser: two batch recipes, French export diagnostics, isolated browser closed.')
+    print('PASS real browser in French and English at 2x device scale: two recipes, restored focus and export diagnostics.')
 
 
 if __name__ == '__main__':

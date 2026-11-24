@@ -31,7 +31,7 @@ export function createCardMenu({version,remove,details,print,compare,diagnostics
   menu.addEventListener('toggle',e=>{if(e.newState==='closed')trigger?.setAttribute('aria-expanded','false');});
   for(const [action,handler]of Object.entries({details,print,compare,diagnostics,export:exportModel,history,folder,lod,game,refinish}))menu.querySelector(`[data-action=${action}]`).onclick=()=>{const selected=job;close();handler(selected);};
   menu.querySelector('[data-action=version]').onclick=()=>{const selected=job;close();version(selected);};
-  menu.querySelector('[data-action=remove]').onclick=()=>{const selected=job;close();remove(selected);};
+  menu.querySelector('[data-action=remove]').onclick=()=>{const selected=job;close();trigger?.focus({preventScroll:true});remove(selected);};
   menu.addEventListener('keydown',e=>{if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();const items=[...menu.querySelectorAll('button:not([hidden]):not(:disabled)')],i=items.indexOf(document.activeElement),next=e.key==='Home'?0:e.key==='End'?items.length-1:(i+(e.key==='ArrowDown'?1:-1)+items.length)%items.length;items[next]?.focus();}});
   addEventListener('resize',placeMenu);
   addEventListener('scroll',placeMenu,{passive:true});

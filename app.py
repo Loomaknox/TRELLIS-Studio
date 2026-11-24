@@ -1348,7 +1348,7 @@ async def diagnostics(identifier: str,force: bool=False,pose_surfaces: bool=Fals
         folder=job_path(identifier)
         if job_record(folder)['state']!='done':raise HTTPException(409,'Choose a completed model.')
         try:return await asyncio.to_thread(diagnose,folder,force,pose_surfaces=pose_surfaces)
-        except (ValueError,OSError,KeyError,TypeError) as error:raise HTTPException(422,'Unable to inspect this model: '+str(error))
+        except (ValueError,OSError,KeyError,TypeError) as error:raise HTTPException(422,'Unable to inspect this model: '+str(error),headers={'X-Trellis-Error':'diagnostics.unavailable'})
 
 @app.get('/api/jobs/{identifier}/diagnostics/report')
 def diagnostics_report(identifier: str,pose_surfaces: bool=False):
@@ -1838,7 +1838,7 @@ async def generate_multiview(
     if not runtime['ready']:
         raise HTTPException(503, runtime['message'])
     if reproject_face and not runtime['face_projection']['ready']:
-        raise HTTPException(503, runtime['face_projection']['message'])
+        raise HTTPException(503, runtime['face_projection']['message'], headers={'X-Trellis-Error':'reference.detector_missing'})
     require_create_master_finishing(master_finishing)
     sources = await reference_sources((image, left_image, back_image, right_image), 'pixal3d')
     azimuths = dict(front=0, left=side_angle, back=180, right=-side_angle)
@@ -2021,7 +2021,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
             raise HTTPException(400, 'Pixal3D Single image uses resolution 1024 and a 1K or 2K atlas.')
         remove_bg = True
     if reproject_face and not pixal:
-        raise HTTPException(400, 'Face reprojection requires Pixal3D.')
+        raise HTTPException(400, 'Face reprojection requires Pixal3D.', headers={'X-Trellis-Error':'reference.pixal_only'})
     # Legacy multipart profile_id is provenance; an edited base preset wins.
     experimental = preset == HUMANOID_EXPERIMENTAL
     cache_required = preset in (HUMANOID_EXPERIMENTAL, DENSE_MASTER, FIGURE_MASTER)
@@ -2085,7 +2085,7 @@ async def generate(image: UploadFile = File(...), name: str = Form('Object'), pr
         if not single_image.get('ready'):
             raise HTTPException(503, single_image.get('message', 'Install Pixal3D Single image.'))
         if reproject_face and not runtime['face_projection']['ready']:
-            raise HTTPException(503, runtime['face_projection']['message'])
+            raise HTTPException(503, runtime['face_projection']['message'], headers={'X-Trellis-Error':'reference.detector_missing'})
     if reference_edits:
         sources = await reference_sources((image,), engine)
         edits, cutouts, frames = await prepare_reference_uploads(sources, reference_edits, engine, remove_bg)

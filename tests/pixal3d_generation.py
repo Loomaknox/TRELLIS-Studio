@@ -249,6 +249,18 @@ app.SERVER.run()
             request('POST', f'/api/jobs/{object_job}/cancel')
             (root/'face-ready').touch()
             assert request('GET','/api/status').json()['pixal3d']['face_projection']['ready']
+            options=dict(engine='pixal3d_single',profile_id='game_d',seed=84,reproject_face=True)
+            direct=request('POST','/api/generate',200,files={'image':upload()},data={
+                **options,'preset':'game_d','asset_type':'humanoid','resolution':1024,'texture_size':1024,
+                'triangles':28000,'queue_only':'true'}).json()['id']
+            queued=request('POST','/api/queue/batch',201,files=[('images',upload())],data={'specifications':json.dumps([{
+                **options,'asset_type':'humanoid','resolution':1024,'texture_size':1024,'triangles':28000}])}).json()['ids'][0]
+            rest=request('POST','/api/v1/generations',202,json={**options,'upload_id':front,
+                'overrides':dict(asset_type='humanoid',resolution=1024,texture_size=1024,triangles=28000)}).json()['id']
+            settings=[request('GET',f'/api/jobs/{id}').json()['settings'] for id in (direct,queued,rest)]
+            for field in ('engine','view_mode','asset_type','preset','resolution','texture_size','seed','reproject_face','triangles','texture_method'):
+                assert all(item.get(field)==settings[0].get(field) for item in settings), (field,[s.get(field) for s in settings])
+            for id in (direct,queued,rest):request('POST',f'/api/jobs/{id}/cancel')
             api = request('POST','/api/v1/generations/multiview',202,json={
                 'upload_id':front, 'right_upload_id':right, 'parent_id':first, 'texture_size':1024, 'priority':2,
                 'reproject_face':True,

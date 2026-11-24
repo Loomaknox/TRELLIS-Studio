@@ -11,6 +11,14 @@ export function pixalRestriction(runtime, preset, finishing) {
   return '';
 }
 
+export function reprojectionRestriction(runtime, engine) {
+  if (!['pixal3d_single', 'pixal3d'].includes(engine)) return 'Face reprojection requires Pixal3D.';
+  const capability=engine==='pixal3d' ? runtime.generation_methods?.pixal3d ?? runtime.pixal3d : singleImageCapability(runtime,engine);
+  if(!capability?.ready)return capability?.message || 'This Pixal3D mode needs its optional runtime.';
+  const detector=runtime.pixal3d?.face_projection;
+  return detector?.ready?'':detector?.message || 'Face reprojection is unavailable.';
+}
+
 export function faceRestriction(capability, {engine, type, resolution, texture, finishing}) {
   if (!capability?.ready) return capability?.reason || 'Install the optional face reconstruction component.';
   if (engine !== 'trellis2' || type !== 'humanoid' || Number(resolution) !== 1024)

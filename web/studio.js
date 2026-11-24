@@ -1,5 +1,5 @@
 import {collectionDue, mergeCollection, visiblePoll} from './studio-poll.js';
-import {formatLocale,t} from './i18n.js';
+import {apiErrorMessage,formatLocale,t} from './i18n.js';
 import {createObstaclePreview, motionObstacles, obstacleFraming, playPreviewAction} from './motion-obstacle.js';
 import {runtimeSummary} from './workbench-ui.js?v=stability';
 import './language-selector.js';
@@ -118,7 +118,7 @@ profileControls=await createProfileControls(advancedControls,{
 });
 
 function node(tag,className,value){const el=document.createElement(tag);if(className)el.className=className;if(value!==undefined)el.textContent=value;return el;}
-async function api(url,options){const r=await fetch(url,options),v=await r.json();if(!r.ok)throw Error(typeof v.detail==='string'?v.detail:t('This operation is unavailable.'));return v;}
+async function api(url,options){const r=await fetch(url,options),v=await r.json();if(!r.ok)throw Error(apiErrorMessage(v.detail,r.headers.get('X-Trellis-Error')));return v;}
 function errorAt(id,e){$(id).textContent=t(e?.message||String(e));}
 function duration(s){if(!s)return '—';const m=Math.floor(s/60);s=Math.floor(s%60);return m?`${m} min ${String(s).padStart(2,'0')} s`:`${s} s`;}
 try{
@@ -131,6 +131,41 @@ try{
   obstaclePreview=createObstaclePreview(scene);
   hologramViewer=createHologramViewer(viewport,{camera});
   const stopRotation=()=>{rotating=false;$('rotate').setAttribute('aria-pressed','false');};
+  const canvas=renderer.domElement;
+  canvas.tabIndex=0;canvas.setAttribute('role','application');canvas.setAttribute('aria-label',t('3D model view'));
+  const instructions=document.createElement('span');
+  instructions.className='sr-only';instructions.id='viewportKeyboardHelp';
+  instructions.textContent=t('Arrow keys rotate the view. Plus and minus zoom. Home fits the character.');
+  viewport.append(instructions);canvas.setAttribute('aria-describedby',instructions.id);
+  canvas.setAttribute('aria-keyshortcuts','ArrowLeft ArrowRight ArrowUp ArrowDown Home + -');
+  const announcement=document.createElement('span');announcement.className='sr-only';announcement.setAttribute('role','status');viewport.append(announcement);
+  const motionPreference=matchMedia('(prefers-reduced-motion: reduce)');
+  const applyMotionPreference=()=>{controls.enableDamping=!motionPreference.matches;if(motionPreference.matches)stopRotation();};
+  applyMotionPreference();motionPreference.addEventListener('change',applyMotionPreference);
+  canvas.addEventListener('keydown',event=>{
+    if(!model||rigSetupViewer?.active||creatureRigViewer?.active||event.altKey||event.ctrlKey||event.metaKey)return;
+    const key=event.key;
+    if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','=','-','Home'].includes(key))return;
+    event.preventDefault();stopRotation();
+    const sphere=new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+    const step=Math.PI/18;
+    if(key==='Home'){fit();}
+    else {
+      if(key==='ArrowLeft')sphere.theta-=step;
+      if(key==='ArrowRight')sphere.theta+=step;
+      if(key==='ArrowUp')sphere.phi-=step;
+      if(key==='ArrowDown')sphere.phi+=step;
+      if(key==='-'||key==='+'||key==='=')sphere.radius*=key==='-'?1.15:1/1.15;
+      sphere.phi=THREE.MathUtils.clamp(sphere.phi,controls.minPolarAngle,controls.maxPolarAngle);
+      sphere.radius=THREE.MathUtils.clamp(sphere.radius,controls.minDistance,controls.maxDistance);
+      sphere.makeSafe();camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(sphere));
+      controls.update();setViewPreset();
+    }
+    const offset=camera.position.clone().sub(controls.target);
+    announcement.textContent=t('View angle {angle}°, distance {distance} m',{
+      angle:Math.round(THREE.MathUtils.radToDeg(Math.atan2(offset.x,offset.z))),
+      distance:offset.length().toLocaleString(formatLocale,{maximumFractionDigits:2})});
+  });
   rigSetupViewer=createRigSetupViewer({scene,camera,controls,viewport,getModel:()=>model,onViewChange:setViewPreset,stopRotation});
   creatureRigViewer=createCreatureRigViewer({scene,camera,controls,viewport,stopRotation,showViewport:()=>setView(false),
     getModel:()=>loadedId===selectedId&&previewRevision(loadedRevision)?model:null});

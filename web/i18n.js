@@ -35,6 +35,18 @@ export function t(message, values, context) {
     Object.hasOwn(values, key) ? String(values[key]) : match);
 }
 
+const errorsByCode={
+  'reference.pixal_only':'Face reprojection requires Pixal3D.',
+  'reference.detector_missing':'Face reprojection is unavailable.',
+  'diagnostics.unavailable':'Unable to inspect this model: {reason}',
+};
+export function apiErrorMessage(detail,code){
+  if(typeof detail!=='string')return t('This operation is unavailable.');
+  if(code==='diagnostics.unavailable')return t(errorsByCode[code],{reason:t(detail.replace(/^Unable to inspect this model: /,''))});
+  if(code==='reference.detector_missing')return t(detail);
+  return t(errorsByCode[code]||detail);
+}
+
 export function setLanguage(value) {
   if (!supported(value) || value === language) return;
   const url = new URL(location.href);

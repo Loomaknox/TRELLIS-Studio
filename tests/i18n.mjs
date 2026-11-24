@@ -11,8 +11,11 @@ test('browser language, preference and parameter substitution', async () => {
 
   globalThis.location = {search: '?lang=fr'};
   try {
-    const {language, t, localizeStatic} = await import('../web/i18n.js?fr-test');
+    const {language, t, localizeStatic,apiErrorMessage} = await import('../web/i18n.js?fr-test');
     assert.equal(language, 'fr');
+    assert.equal(t('Apply'),'Appliquer');
+    assert.equal(apiErrorMessage('A changed English sentence','reference.pixal_only'),t('Face reprojection requires Pixal3D.'));
+    assert.equal(apiErrorMessage('Unable to inspect this model: Apply','diagnostics.unavailable'),'Impossible d’analyser ce modèle. Appliquer');
     const faceMessages = [
       'Enhance face (TOPOS)',
       'Use a front-facing T- or A-pose. Rebuilds the face before native PBR texturing.',

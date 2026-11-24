@@ -1,4 +1,4 @@
-import {singleImageCapability} from './single-image-recipe.js';
+import {reprojectionRestriction,singleImageCapability} from './single-image-recipe.js';
 import {t} from './i18n.js';
 const $ = id => document.getElementById(id);
 const roles = ['front', 'left', 'back', 'right'];
@@ -128,14 +128,12 @@ export function createMultiviewInputs({ changed, invalid }) {
   }
 
   function sync(textureSize = Number($('textureSize').value)) {
-    const projection = status.pixal3d?.face_projection;
-    const canShowFace = usesPixal() && $('assetType').value === 'humanoid';
+    const canShowFace = usesPixal();
+    const restriction = reprojectionRestriction(status, method);
     $('faceProjectionField').hidden = !canShowFace;
-    reprojectFace.disabled = !canShowFace || !capability(method)?.ready || !projection?.ready;
+    reprojectFace.disabled = !canShowFace || !!restriction;
     if (canShowFace) {
-      $('reprojectFaceHelp').textContent = projection?.ready
-        ? t('Blends the reference face into the finished texture.')
-        : projection?.message || t('Face reprojection is unavailable.');
+      $('reprojectFaceHelp').textContent = t(restriction || 'Blends the reference face into the finished texture.');
     }
     const notice = $('generationMethodNotice');
     const hiddenViews = !isMulti() && roles.slice(1).some(role => slots.get(role).file);
@@ -146,7 +144,7 @@ export function createMultiviewInputs({ changed, invalid }) {
     else if (selected && !selected.ready) messages.push(selected.message || t('Install the TRELLIS.2 model weights to generate.'));
     if (usesPixal() && textureSize > 2048) messages.push(t('Choose 1K or 2K textures in Advanced for Pixal3D.'));
     if (hiddenViews) messages.push(t('Additional references are available in Multi-view.'));
-    notice.textContent = messages.join(' ');
+    notice.textContent = messages.map(message=>t(message)).join(' ');
     notice.hidden = fixedWorkflow || !messages.length;
   }
 

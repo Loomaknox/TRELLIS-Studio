@@ -809,6 +809,7 @@ class StudioServices:
                     items.append({**entry,'name':record['metadata'].get('display_name',record['settings']['name']),
                                   'state':record['state'],'stage':record['stage'],'progress':record.get('progress',0),
                                   'settings':record['settings'],'error':record.get('error'),
+                                  'effective_engine':record['result'].get('engine') if record['state']=='done' and isinstance(record.get('result'),dict) else None,
                                   'retry_finishing': {key: record['generation_options'][key] for key in RETRY_FINISHING_FIELDS}
                                   if record.get('generation_options') else {}})
             return dict(paused=self.workspace.queue['paused'],items=items)

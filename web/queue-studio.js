@@ -1,4 +1,4 @@
-import {batchSpecification, faceRestriction, pixalRestriction} from './single-image-recipe.js';
+import {batchSpecification, faceRestriction, pixalRestriction, reprojectionRestriction} from './single-image-recipe.js';
 import {visiblePoll} from './studio-poll.js';
 import {formatLocale, t} from './i18n.js';
 import {button, dialog, el, field, input, select, action, runtimeSummary} from './workbench-ui.js?v=stability';
@@ -89,6 +89,10 @@ export function createQueueStudio({api, refresh}) {
       const reason = pixalRestriction(runtime, profile?.settings.preset, row.master_finishing);
       if (reason) return reason;
     }
+    if (row.reproject_face) {
+      const reason=reprojectionRestriction(runtime,row.engine);
+      if(reason)return reason;
+    }
     return row.facial_head_enhancement ? faceRestriction(runtime.edition === 'desktop' && runtime.facial_head_enhancement,
       {engine: row.engine, type: typeOf(row), resolution: row.resolution,
         texture: textureMethodOf({...profile?.settings, ...row}), finishing: row.master_finishing}) : '';
@@ -161,6 +165,10 @@ export function createQueueStudio({api, refresh}) {
   }
 
   async function editDraft(row) {
+    const restoreFocus=()=>{
+      const index=drafts.indexOf(row);
+      if(index>=0)rows.querySelectorAll('.queue-row-actions button:first-child')[index]?.focus({preventScroll:true});
+    };
     const workflow = workflowOf(row.profile_id);
     if (workflow) {
       const container = el('div');
@@ -172,6 +180,7 @@ export function createQueueStudio({api, refresh}) {
         row.workflow_options=editor.read();
         recipe.close();
       }));
+      recipe.element.addEventListener('close',restoreFocus,{once:true});
       recipe.show();
       return;
     }
@@ -191,6 +200,9 @@ export function createQueueStudio({api, refresh}) {
     head.id = 'queueFacialHead';
     const headField = field(t('Enhance face (TOPOS)'), head);
     const headHelp = el('p', 'hint');
+    const project=checkbox(row.reproject_face);
+    project.id='queueReprojectFace';
+    const projectField=field(t('Reproject the reference face'),project),projectHelp=el('p','hint');
     let faceReason = '';
     let lastEngine = null;
     const trellisValues = {resolution: String(row.resolution), size: String(row.texture_size), remove: row.remove_bg};
@@ -212,7 +224,7 @@ export function createQueueStudio({api, refresh}) {
       retexture.disabled = Number(resolution.value) !== 1024;
       retextureStatus.textContent = retexture.disabled
         ? t('Choose 1024³ for the geometry resolution to use this option.')
-        : runtime.detail_texturing?.available !== true ? runtime.detail_texturing?.reason || t('The local texturing pipeline is unavailable.') : '';
+        : runtime.detail_texturing?.available !== true ? t(runtime.detail_texturing?.reason || 'The local texturing pipeline is unavailable.') : '';
       retextureStatus.hidden = !retextureStatus.textContent;
     };
     const apply = button(t('Apply settings'), 'check', 'primary', () => {
@@ -229,6 +241,11 @@ export function createQueueStudio({api, refresh}) {
         recipe.notice.textContent = retextureStatus.textContent;
         return;
       }
+      if (engine.value==='pixal3d_single' && project.checked) {
+        const reason=reprojectionRestriction(runtime,engine.value);
+        if(reason){recipe.notice.textContent=t(reason);return;}
+        row.reproject_face=true;
+      } else delete row.reproject_face;
       Object.assign(row, {engine: engine.value, asset_type: type.value, facial_head_enhancement: head.checked,
         texture_size: Number(texture.value), resolution: Number(resolution.value),
         remove_bg: removeBg.checked, keep_finishing_source: keepSource.checked});
@@ -277,6 +294,10 @@ export function createQueueStudio({api, refresh}) {
         lastEngine = engine.value;
         if (supportsRetexture) syncRetexture();
       }
+      projectField.hidden=projectHelp.hidden=!pixal;
+      const restriction=reprojectionRestriction(runtime,engine.value);
+      project.disabled=!!restriction && !project.checked;
+      projectHelp.textContent=t(restriction || 'Blends the reference face into the finished texture.');
       headField.hidden = headHelp.hidden = runtime.edition !== 'desktop' && !head.checked;
       faceReason = faceRestriction(runtime.edition === 'desktop' && runtime.facial_head_enhancement,
         {engine: engine.value, type: type.value, resolution: resolution.value, texture: textureMethod.value, finishing: row.master_finishing});
@@ -285,9 +306,11 @@ export function createQueueStudio({api, refresh}) {
     };
     [engine, type, head, resolution, textureMethod].forEach(control => control.addEventListener('change', syncEngine));
     syncEngine();
+    recipe.body.append(projectField,projectHelp);
     recipe.body.append(el('p', 'hint',
       t('Sampling and finishing controls come from this image’s profile. Save a custom profile in Create for a different recipe.')));
     recipe.foot.replaceChildren(apply);
+    recipe.element.addEventListener('close',restoreFocus,{once:true});
     recipe.show();
   }
 
@@ -299,6 +322,7 @@ export function createQueueStudio({api, refresh}) {
       row.engine = 'trellis2';
       row.asset_type = 'object';
       row.facial_head_enhancement = false;
+      delete row.reproject_face;
     }
     row.profile_id = id;
     if (profile.workflow) return;
@@ -343,7 +367,7 @@ export function createQueueStudio({api, refresh}) {
         const reason = draftRestriction(row, latestRuntime);
         status.textContent = workflow ? t(reason || workflow.label) : [
           t(row.engine === 'pixal3d_single' ? 'Pixal3D · Single image' : 'TRELLIS.2 · Single image'),
-          row.facial_head_enhancement && t('Enhance face (TOPOS)'), t(reason)].filter(Boolean).join(' · ');
+          row.facial_head_enhancement && t('Enhance face (TOPOS)'),row.reproject_face && t('Reproject the reference face'), t(reason)].filter(Boolean).join(' · ');
         status.hidden = !status.textContent;
         syncBatchSubmit();
       };
@@ -581,6 +605,8 @@ export function createQueueStudio({api, refresh}) {
       !animation && !item.settings.workflow_id && ['trellis2', 'pixal3d', 'pixal3d_single'].includes(item.settings.engine)
         ? t(item.settings.engine === 'trellis2' ? 'TRELLIS.2 · Single image' : item.settings.view_mode === 'multi' ? 'Pixal3D · Multi-view' : 'Pixal3D · Single image') : null,
       item.settings.facial_head_enhancement && t('Enhance face (TOPOS)'),
+      item.settings.reproject_face && t('Reproject the reference face'),
+      item.effective_engine && t('Engine used: {engine}',{engine:item.effective_engine}),
       generatedMotion && Number.isFinite(item.duration) ? Number(item.duration).toLocaleString(formatLocale) + ' s' : null,
       generatedMotion && Number.isFinite(item.fps) ? item.fps + ' fps' : null,
       !animation && item.settings.resolution ? item.settings.resolution + '³' : null,
