@@ -36,6 +36,18 @@ export function createExportStudio({api,printCopy,openAction}){
   preflight.setSelection(jobs,target,!task&&!archiveMode&&!needCopy&&jobs.length>0&&jobs.length<=50);
   refreshPrepareButton();
   if(needCopy){$('exportDescription').textContent=jobs.length===1?t('Create a separate print copy with your chosen size. The original model stays unchanged.'):t('Select dedicated print copies for a batch STL export.');}
+  dialog.querySelector('[data-stl-verdicts]')?.remove();
+  if(target==='print'&&!needCopy&&jobs.length){
+    const list=document.createElement('ul');
+    for(const job of jobs){
+      const item=document.createElement('li'), report=job.result?.print_report;
+      const verdict=report?.stl_sha256 && typeof report.closed_surface==='boolean'
+        ? (report.closed_surface?'Closed surface verified':'Surface repair needed') : 'No surface report for this STL';
+      item.textContent=nameOf(job)+' · '+t(verdict);list.append(item);
+    }
+    $('exportDescription').after(list);
+    list.dataset.stlVerdicts='';
+  }
  }
  function remember(){if(task)sessionStorage.setItem('trellis.exportTask',task);else sessionStorage.removeItem('trellis.exportTask');}
  async function poll(){if(!task)return;try{state=await api('/api/exports/'+task);target=state.target||target;archiveMode=target==='library';tiles();const running=['queued','running'].includes(state.state);$('exportTask').hidden=false;$('exportStage').textContent=t(state.stage||'');$('exportPercent').textContent=(state.progress||0)+'%';$('exportProgress').value=state.progress||0;$('exportTaskDetail').textContent=state.error||`${state.count||jobs.length} model(s) · ${state.target||target}${state.bytes?' · '+(state.bytes<1024*1024?Math.max(1,Math.round(state.bytes/1024))+' KB':(state.bytes/1024/1024).toFixed(1)+' MB'):''}`;

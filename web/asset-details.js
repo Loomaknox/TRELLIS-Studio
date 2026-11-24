@@ -27,6 +27,7 @@ export async function createAssetDetails(){
   function update(j){const r=j?.result||{},m=j?.metadata||{};
     $('detailTitle').textContent=m.display_name||j?.settings.name||t('No model selected');
     $('detailSubtitle').textContent=j?assetTypeName(m.asset_type||j.settings.asset_type):t('Choose a model from your collection');
+    if (r.terrain && r.paint_resolution) $('detailSubtitle').textContent += ' · ' + t('Unity paint {size} × {size}', {size:r.paint_resolution});
     $('detailThumbnail').src=j?`/api/jobs/${j.id}/files/${j.settings.asset_type==='terrain_unity'?'heightmap.png':'input.png'}?v=${j.result?.revision||j.state}`:'/web/asset-placeholder.svg';
     $('detailThumbnail').onerror=()=>{$('detailThumbnail').onerror=null;$('detailThumbnail').src='/web/asset-placeholder.svg';};
     $('detailTriangles').textContent=r.triangles?Number(r.triangles).toLocaleString(formatLocale):'—';
@@ -63,6 +64,8 @@ export async function createAssetDetails(){
     if(report){$('printSurfaceState').textContent=t(report.closed_surface?'Closed surface verified':'Surface repair needed');
       const voxel=Number(report.effective_voxel_mm).toLocaleString(formatLocale,{minimumFractionDigits:2,maximumFractionDigits:2});
       $('printReportSummary').textContent=t('{count} connected shell(s) · voxel {voxel} mm · STL in mm',{count:report.connected_shells,voxel});
+      if (Number.isFinite(report.sampled_wall_mm?.minimum))
+        $('printReportSummary').textContent += ' · ' + t('Thinnest sampled wall {size} mm', {size:report.sampled_wall_mm.minimum.toLocaleString(formatLocale,{maximumFractionDigits:2})});
       $('printWarnings').replaceChildren(...report.warnings.map(text=>{
         const li=document.createElement('li');
         const disconnected=/^(\d+) disconnected shells remain\. Check for floating parts or internal cavities\.$/.exec(text);

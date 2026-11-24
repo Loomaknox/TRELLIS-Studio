@@ -152,7 +152,7 @@ def run(editor, crouch_model=None, mapping_file=None, vault=False, vault_model=N
             timeout=600, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         report = log.read_text(encoding="utf-8", errors="replace")
-        markers = ["TRELLIS REIMPORT PASS", "TRELLIS TERRAIN PASS", "TRELLIS MATERIAL PASS"]
+        markers = ["TRELLIS REIMPORT PASS", "TRELLIS TERRAIN PASS", "TRELLIS MATERIAL PASS", "TRELLIS LOD BIND PASS"]
         if crouch_model:
             markers.append("TRELLIS CHARACTER PASS")
         if vault:

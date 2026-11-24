@@ -32,6 +32,7 @@ namespace TrellisStudio
 
         static void CheckReimport()
         {
+            CheckDetailSkeleton();
             CheckTerrains();
             PackageImporter.Configure();
             CheckPbr(MaterialPath, .2f);
@@ -129,6 +130,43 @@ namespace TrellisStudio
             Assert(Bytes(Model).SequenceEqual(stableModel) && Bytes(Model + ".meta").SequenceEqual(modelMeta), "failed update restores bytes and .meta");
             Assert(AssetDatabase.LoadAssetAtPath<GameObject>(Use).GetComponent<MeshFilter>().sharedMesh != null, "references survive rollback");
             Debug.Log("TRELLIS REIMPORT PASS");
+        }
+
+        static void CheckDetailSkeleton()
+        {
+            var original = new GameObject("LOD0");
+            var mesh = new Mesh();
+            GameObject detail = null;
+            try {
+                var rig = original.AddComponent<SkinnedMeshRenderer>();
+                var bones = new[] {"Left", "Right"}.Select(side => {
+                    var arm = new GameObject(side).transform;
+                    arm.SetParent(original.transform, false);
+                    var finger = new GameObject("Finger").transform;
+                    finger.SetParent(arm, false);
+                    return finger;
+                }).ToArray();
+                mesh.bindposes = new[] {Matrix4x4.identity, Matrix4x4.identity};
+                rig.sharedMesh = mesh; rig.bones = bones; rig.rootBone = original.transform;
+                detail = UnityEngine.Object.Instantiate(original);
+                var low = detail.GetComponent<SkinnedMeshRenderer>();
+                var sourceBones = low.bones;
+                sourceBones[1].name = "Absent";
+                Expect<InvalidDataException>(() => PackageImporter.BindDetailSkeleton(original.transform, detail.transform));
+                Assert(low.bones.SequenceEqual(sourceBones), "missing bone leaves all detail bindings intact");
+                sourceBones[1].name = "Finger";
+                var duplicate = new GameObject("Finger");
+                duplicate.transform.SetParent(sourceBones[1].parent, false);
+                Expect<InvalidDataException>(() => PackageImporter.BindDetailSkeleton(original.transform, detail.transform));
+                UnityEngine.Object.DestroyImmediate(duplicate);
+                PackageImporter.BindDetailSkeleton(original.transform, detail.transform);
+                Assert(low.bones.SequenceEqual(bones) && low.rootBone == original.transform, "same-named fingers map by full path");
+                Debug.Log("TRELLIS LOD BIND PASS");
+            } finally {
+                if (detail) UnityEngine.Object.DestroyImmediate(detail);
+                UnityEngine.Object.DestroyImmediate(original);
+                UnityEngine.Object.DestroyImmediate(mesh);
+            }
         }
 
         [Serializable] class Clip { public string name; public float duration; }

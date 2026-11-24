@@ -120,7 +120,14 @@ def asset_report(folder, target, budget, *, digest=None, staged_cache=None, meta
         else:
             row(f'Triangles · LOD {level}', 'No prepared model for this level', 'attention', 'lod')
 
-    if target != 'print':
+    if target == 'print':
+        print_report = read(folder / 'print-report.json', {})
+        closed = print_report.get('closed_surface') if (folder / 'model.stl').is_file() else None
+        if closed is not None and print_report.get('stl_sha256') != source_sha256(folder/'model.stl'):
+            closed = None
+        verdict = {True: 'Closed surface verified', False: 'Surface repair needed'}.get(closed, 'No surface report for this STL')
+        row('Delivered STL', verdict, 'checked' if closed is True else 'attention', 'print')
+    else:
         textures = report['textures']
         max_edge = max((max(item['width'], item['height']) for item in textures), default=0)
         maximum('Largest texture edge', max_edge, budget['max_texture_edge'], ' px')

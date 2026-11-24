@@ -67,6 +67,8 @@ async def check(app):
     fixture(folder)
     app.write_json(folder / 'settings.json', {'name': 'Open fixture', 'asset_type': 'imported'})
     app.write_json(folder / 'metadata.json', {'review_state': 'retained'})
+    app.write_json(folder / 'result.json', {'engine':'TRELLIS.2','texture_method':'multiview',
+        'finishing':{'multiview_texture_refinement':{'state':'skipped','reason':'unavailable'}}})
     app.write_json(folder / 'status.json', {'state': 'done', 'stage': 'Fixture', 'progress': 100})
     payload = {'ids': [identifier], 'target': 'glb', 'budget': {
         'usage': 'static', 'max_triangles': 4, 'max_lod_triangles': [4, 2],
@@ -122,6 +124,7 @@ async def check(app):
         assert manifest['source_glb_sha256'] == manifest['preflight']['source_glb_sha256'] == fresh
         assert manifest['verification']['glb_sha256'] == fresh
         assert manifest['verification']['binary_fbx'] is False
+        assert manifest['provenance']['used_texture'] == 'trellis' and manifest['provenance']['fallback'] == 'unavailable'
         assert manifest['preflight']['status'] == 'attention'
         assert manifest['preflight']['human_review'] == 'retained'
         assert packaged.read(model_file.replace('studio-export.json', 'model.glb')) == (folder / 'model.glb').read_bytes()

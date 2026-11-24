@@ -1,4 +1,9 @@
 export default {
+  'Sample wall thickness (mm)': 'Échantillonner l’épaisseur des parois (mm)',
+  'Thinnest sampled wall {size} mm': 'Paroi la plus fine parmi les mesures {size} mm',
+  'Unity paint {size} × {size}': 'Peinture Unity {size} × {size}',
+  'Delivered STL': 'STL livré',
+  'No surface report for this STL': 'Aucun rapport de surface pour ce STL',
   "Help for {field}": "Aide pour {field}",
   "Text-to-motion creates humanoid animations. You can save them here and apply them to a humanoid rig.": "La génération à partir de texte crée des animations humanoïdes. Enregistrez-les ici pour les appliquer à un squelette humanoïde.",
   "These motions are for humanoid rigs. Preview them here or select a humanoid to apply them.": "Ces mouvements utilisent un squelette humanoïde. Vous pouvez les prévisualiser ici ou sélectionner un humanoïde pour les appliquer.",

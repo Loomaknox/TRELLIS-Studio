@@ -576,3 +576,4 @@
 !/installer/install_segmentation.py
 !/installer/requirements-segmentation.txt
 !/tests/segmentation_runtime.py
+!/tests/print_precision.py

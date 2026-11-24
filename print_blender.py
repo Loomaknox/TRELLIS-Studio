@@ -77,6 +77,20 @@ report=dict(method='Blender voxel remesh',pose='Rest pose',requested_height_mm=o
             volume_mm3=volume*1e9,source_parent=settings['parent_id'],warnings=warnings,
             checks_not_performed=['minimum wall thickness','self-intersections','printer tolerance','supports','stability'])
 material=bpy.data.materials.new('Print preview');material.diffuse_color=(.64,.72,.55,1);material.use_nodes=True
+if options.get('measure_walls') and not nonmanifold and not bad_vertices:
+    from mathutils.bvhtree import BVHTree
+    tree=BVHTree.FromObject(obj,bpy.context.evaluated_depsgraph_get())
+    stride=max(1,math.ceil(len(mesh.polygons)/2048))
+    distances=[]
+    epsilon=max(1e-8,voxel*.001)
+    for index in range(0,len(mesh.polygons),stride):
+        face=mesh.polygons[index]
+        direction=-face.normal
+        point,normal,_,distance=tree.ray_cast(face.center+epsilon*direction,direction)
+        if point is not None and normal.dot(direction)>.25:
+            distances.append((distance+epsilon)*1000)
+    report['sampled_wall_mm']=dict(minimum=min(distances,default=None),hits=len(distances),
+                                   samples=len(range(0,len(mesh.polygons),stride)))
 material.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value=material.diffuse_color
 material.node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value=.62
 mesh.materials.clear();mesh.materials.append(material)

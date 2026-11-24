@@ -116,7 +116,8 @@ def generate_terrain(folder, settings):
     for index, name in enumerate(('Soil','Rock','Grass')):
         Image.fromarray(textures[index][0]).save(target/(name+'.png'))
         Image.fromarray(textures[index][1]).save(target/(name+'Normal.png'))
-    manifest = dict(name=settings['name'],resolution=settings['resolution'],size_m=settings['size_m'],height_m=settings['height_m'],seed=settings['seed'],raw='heightmap.raw')
+    manifest = dict(name=settings['name'],resolution=settings['resolution'],size_m=settings['size_m'],height_m=settings['height_m'],seed=settings['seed'],raw='heightmap.raw',
+                    splatmap_resolution=weights.shape[0], paint_resolution=256)
     (target/'terrain-manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
     editor = bundle/'Editor'
     editor.mkdir(exist_ok=True)
@@ -133,6 +134,7 @@ def generate_terrain(folder, settings):
             if path.is_file(): archive.write(path,path.relative_to(bundle.parent))
     result = dict(name=settings['name'],terrain=True,triangles=len(faces),vertices=len(vertices),height_m=settings['height_m'],
                   dimensions_m=[settings['size_m'],settings['height_m'],settings['size_m']],resolution=settings['resolution'],
+                  paint_resolution=manifest['paint_resolution'], splatmap_resolution=manifest['splatmap_resolution'],
                   seconds=round(time.time()-started,2),height_min=float(heights.min()),height_max=float(heights.max()))
     (folder/'result.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
     (folder/'status.json').write_text(json.dumps(dict(state='done',stage='Terrain ready',progress=100,elapsed=result['seconds'],result=result),ensure_ascii=False),encoding='utf-8')

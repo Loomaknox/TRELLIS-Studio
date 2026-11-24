@@ -87,6 +87,36 @@ def verify_export(destination, manifest):
     return dict(glb_sha256=manifest['source_glb_sha256'], texture_files=len(names),
                 binary_fbx=target in ('unity', 'unreal'))
 
+def export_provenance(settings, result):
+    workflow = result.get('workflow') or {}
+    finishing = result.get('finishing') or {}
+    receipt = (finishing.get('multiview_texture_refinement') or finishing.get('ultratex_texture_refinement')
+               or workflow.get('texture') or {})
+    material_stage = (settings.get('workflow_options') or {}).get('25', {})
+    requested = material_stage.get('texture_method') or settings.get('texture_method')
+    if not requested and settings.get('multiview_texture_refinement'):
+        requested = 'multiview'
+    used = workflow.get('texture_method') or result.get('texture_method')
+    fallback = None
+    if receipt.get('state') == 'skipped':
+        used = 'trellis'
+        fallback = receipt.get('reason') or 'Optional texture pass skipped'
+    revisions = {key:value for record in (workflow, receipt) for key,value in record.items()
+                 if isinstance(value, str) and (key.endswith('revision') or key.endswith('workflow_sha256'))}
+    conditions = []
+    if used == 'ultratex':
+        license_info = json.loads((ROOT/'installer/ultratex-manifest.json').read_text(encoding='utf-8'))['license']
+        conditions.append(dict(component='FLUX.2 Klein Base 9B', url=license_info['url'], sha256=license_info['sha256']))
+    if used == 'multiview':
+        conditions.append(dict(component='Stable Diffusion 2.1', license='CreativeML Open RAIL++-M',
+                               sha256=source_sha256(ROOT/'licenses/Stable-Diffusion-2.1-OpenRAIL++-M.txt')))
+    if result.get('pipeline_type') == 'high_detail_native':
+        conditions.append(dict(component='MeshLib', url='https://github.com/MeshInspector/MeshLib/blob/df34d41cbdbeb8343aeecdfd5755a361e5dc291d/LICENSE'))
+    return dict(schema=1, requested_engine=settings.get('workflow_id') or settings.get('engine'),
+                used_engine=result.get('engine'), requested_texture=requested, used_texture=used,
+                fallback=fallback, recorded_revisions=revisions, component_conditions=conditions)
+
+
 def export_asset(source,destination,target,notify=lambda fraction,stage:None,*,preflight_budget=None,expected_hash=None):
     source=Path(source);destination=Path(destination);destination.mkdir(parents=True,exist_ok=True)
     digest=source_sha256(source/'model.glb')
@@ -106,6 +136,9 @@ def export_asset(source,destination,target,notify=lambda fraction,stage:None,*,p
     manifest=dict(version=1,target=target,name=metadata.get('display_name',settings['name']),id=source.name,coordinates=recipe,
         source_glb_sha256=digest,height_m=settings.get('height_m'),animations=clips,
         bones=len({j for skin in data.get('skins',[]) for j in skin.get('joints',[])}),materials=materials)
+    result_path = source / 'result.json'
+    result = json.loads(result_path.read_text(encoding='utf-8')) if result_path.is_file() else {}
+    manifest['provenance'] = export_provenance(settings, result)
     if preflight is not None:
         manifest['preflight']=preflight
     if target=='unity':
@@ -134,7 +167,8 @@ def export_asset(source,destination,target,notify=lambda fraction,stage:None,*,p
         for level in manifest['lods']['levels'][1:]:
             temporary=destination/('.lod-'+str(level['level']));temporary.mkdir()
             shutil.copy2(source/'LODs'/level['file'],temporary/'model.glb')
-            for file in ('settings.json','metadata.json'):shutil.copy2(source/file,temporary/file)
+            for file in ('settings.json','metadata.json','result.json'):
+                if (source/file).is_file():shutil.copy2(source/file,temporary/file)
             level['export_path']='LODs/LOD'+str(level['level'])
             export_asset(temporary,destination/level['export_path'],target,lambda *_:None);shutil.rmtree(temporary)
     if (source/'motion-report.json').is_file():
@@ -142,6 +176,12 @@ def export_asset(source,destination,target,notify=lambda fraction,stage:None,*,p
     if target=='print':
         shutil.copy2(source/'model.stl',destination/'model.stl');shutil.copy2(source/'print-report.json',destination/'print-report.json')
         manifest['print_report']=json.loads((source/'print-report.json').read_text(encoding='utf-8'))
+        stl_hash=source_sha256(destination/'model.stl')
+        if manifest['print_report'].get('stl_sha256') != stl_hash:
+            manifest['print_report']['closed_surface']=None
+            manifest['print_report']['verdict_status']='unverified'
+            (destination/'print-report.json').write_text(json.dumps(manifest['print_report'],indent=2),encoding='utf-8')
+        manifest['delivered_stl_sha256']=stl_hash
     notify(.85,'Writing scale, material and import information')
     for filename in ('settings.json','metadata.json'):
         if (source/filename).is_file():shutil.copy2(source/filename,destination/filename)

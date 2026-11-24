@@ -26,6 +26,8 @@ try:
             expected_hash=preflight['source_hashes'][identifier] if preflight else None,
         )
         items.append(dict(id=identifier,name=name,clips=len(manifest['animations']),file=safe+'-'+identifier[:8]))
+        if target=='print':
+            items[-1]['closed_surface']=manifest['print_report'].get('closed_surface')
     if target=='unity':
         editor=package/'Editor';editor.mkdir();shutil.copy2(ROOT/'unity/TrellisPackageImporter.cs',editor/'TrellisPackageImporter.cs')
     (package/'export-manifest.json').write_text(json.dumps(dict(target=target,recipe=TARGETS[target],models=items),indent=2),encoding='utf-8')

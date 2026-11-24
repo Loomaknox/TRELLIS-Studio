@@ -37,6 +37,66 @@ namespace TrellisStudio
         static readonly Regex TexturePath = new Regex(@"\ATextures/TS_Mat_[0-9]{3,}_[A-Za-z]+\.png\z");
         const ImportAssetOptions Reimport = ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport;
 
+        static bool SameRestPose(Matrix4x4 first, Matrix4x4 second)
+        {
+            for (int i = 0; i < 16; i++)
+                if (!(Mathf.Abs(first[i] - second[i]) <= 0.0005f * Mathf.Max(1f, Mathf.Abs(first[i]), Mathf.Abs(second[i])))) return false;
+            return true;
+        }
+
+        static Transform CorrespondingBone(Transform bone, Transform source, Transform target)
+        {
+            var segments = new Stack<string>();
+            for (var current = bone; current != source; current = current.parent)
+            {
+                if (current == null || current.parent == null) throw new InvalidDataException("LOD bone is outside its skeleton.");
+                if (current.parent.Cast<Transform>().Count(child => child.name == current.name) != 1)
+                    throw new InvalidDataException("Ambiguous LOD bone path at " + current.name);
+                segments.Push(current.name);
+            }
+            foreach (var name in segments)
+            {
+                var matches = target.Cast<Transform>().Where(child => child.name == name).Take(2).ToArray();
+                if (matches.Length != 1) throw new InvalidDataException("Missing or ambiguous LOD bone: " + name);
+                target = matches[0];
+            }
+            return target;
+        }
+
+        internal static void BindDetailSkeleton(Transform original, Transform detail)
+        {
+            var poses = new Dictionary<Transform, Matrix4x4>();
+            foreach (var skin in original.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                var bones = skin.bones;
+                var bind = skin.sharedMesh.bindposes;
+                if (bones.Length != bind.Length) throw new InvalidDataException("Invalid LOD0 bind poses.");
+                var basis = skin.transform.worldToLocalMatrix * original.localToWorldMatrix;
+                for (int i = 0; i < bones.Length; i++)
+                {
+                    if (!bones[i]) throw new InvalidDataException("Missing LOD0 bone.");
+                    var pose = bind[i] * basis;
+                    if (poses.TryGetValue(bones[i], out var prior) && !SameRestPose(prior, pose))
+                        throw new InvalidDataException("Inconsistent LOD0 bind pose: " + bones[i].name);
+                    poses[bones[i]] = pose;
+                }
+            }
+            var pending = new List<Action>();
+            foreach (var skin in detail.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                var mapped = skin.bones.Select(bone => CorrespondingBone(bone, detail, original)).ToArray();
+                var root = skin.rootBone ? CorrespondingBone(skin.rootBone, detail, original) : null;
+                var bind = skin.sharedMesh.bindposes;
+                if (mapped.Length != bind.Length) throw new InvalidDataException("Invalid LOD bind poses.");
+                var basis = skin.transform.worldToLocalMatrix * detail.localToWorldMatrix;
+                for (int i = 0; i < mapped.Length; i++)
+                    if (!poses.TryGetValue(mapped[i], out var pose) || !SameRestPose(pose, bind[i] * basis))
+                        throw new InvalidDataException("Incompatible LOD bind pose: " + mapped[i].name);
+                pending.Add(() => { skin.bones = mapped; skin.rootBone = root; });
+            }
+            foreach (var apply in pending) apply();
+        }
+
         static void PreparedPrefab(string root,Package package)
         {
             if (File.Exists(ProjectFile(root + "/StudioAsset.prefab"))) return;
@@ -48,17 +108,13 @@ namespace TrellisStudio
                 var first=(GameObject)PrefabUtility.InstantiatePrefab(model);first.name="LOD0";first.transform.SetParent(asset.transform,false);
                 if(hasLevels) {
                     var group=asset.AddComponent<LODGroup>();var levels=new System.Collections.Generic.List<LOD>();
-                    var skeleton=first.GetComponentsInChildren<Transform>().GroupBy(t=>t.name).ToDictionary(g=>g.Key,g=>g.First());
                     foreach(var level in package.lods.levels) {
                         GameObject instance=first;
                         if(level.level>0) {
                             if (level.export_path != "LODs/LOD" + level.level) continue;
                             var source=AssetDatabase.LoadAssetAtPath<GameObject>(root+"/"+level.export_path+"/model.fbx");if(source==null)continue;
                             instance=(GameObject)PrefabUtility.InstantiatePrefab(source);instance.name="LOD"+level.level;instance.transform.SetParent(asset.transform,false);
-                            foreach(var skin in instance.GetComponentsInChildren<SkinnedMeshRenderer>()) {
-                                if(skin.bones.All(b=>b!=null&&skeleton.ContainsKey(b.name)))skin.bones=skin.bones.Select(b=>skeleton[b.name]).ToArray();
-                                if(skin.rootBone!=null&&skeleton.ContainsKey(skin.rootBone.name))skin.rootBone=skeleton[skin.rootBone.name];
-                            }
+                            BindDetailSkeleton(first.transform, instance.transform);
                             foreach(var animator in instance.GetComponentsInChildren<Animator>())UnityEngine.Object.DestroyImmediate(animator);
                         }
                         float threshold=package.lods.screen_heights!=null&&level.level<package.lods.screen_heights.Length?package.lods.screen_heights[level.level]:Mathf.Max(.01f,.6f/(level.level+1));
@@ -365,6 +421,28 @@ namespace TrellisStudio
         static Dictionary<AssetImporter.SourceAssetIdentifier, UnityEngine.Object> MaterialRemaps(string path) =>
             (AssetImporter.GetAtPath(path) as ModelImporter)?.GetExternalObjectMap();
 
+        static Dictionary<string, Matrix4x4> SkinBindings(string path)
+        {
+            var result = new Dictionary<string, Matrix4x4>(StringComparer.Ordinal);
+            var model = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (!model) return result;
+            foreach (var renderer in model.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                AssetDatabase.TryGetGUIDAndLocalFileIdentifier(renderer, out string _, out long id);
+                var bones = renderer.bones;
+                var poses = renderer.sharedMesh.bindposes;
+                if (poses.Length != bones.Length) throw new InvalidDataException("Invalid skin bind poses in " + path);
+                string BonePath(Transform bone)
+                {
+                    CorrespondingBone(bone, model.transform, model.transform);
+                    return AnimationUtility.CalculateTransformPath(bone, model.transform);
+                }
+                if (renderer.rootBone) result.Add(id + "/root/" + BonePath(renderer.rootBone), Matrix4x4.identity);
+                for (int i = 0; i < bones.Length; i++) result.Add(id + "/" + i + "/" + BonePath(bones[i]), poses[i]);
+            }
+            return result;
+        }
+
         static void ImportUpdatedFile(string path)
         {
             string error = null;
@@ -384,6 +462,7 @@ namespace TrellisStudio
             var backup = Path.Combine(Path.GetTempPath(), "TrellisStudio-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(backup);
             var references = new List<HashSet<string>>();
+            var bindings = new List<Dictionary<string, Matrix4x4>>();
             var remaps = new List<Dictionary<AssetImporter.SourceAssetIdentifier, UnityEngine.Object>>();
             int started = 0;
             bool keepBackup = false;
@@ -401,6 +480,7 @@ namespace TrellisStudio
                         Fingerprint(Path.Combine(backup, i + ".new")) != file.After)
                         throw new IOException("A package file changed after preview. Preview it again.");
                     var current = ReferencesAt(file.AssetPath);
+                    bindings.Add(SkinBindings(file.AssetPath));
                     if (current.Count == 0) throw new InvalidDataException("Unity could not read the imported asset: " + file.AssetPath);
                     references.Add(current);
                     remaps.Add(MaterialRemaps(file.AssetPath));
@@ -412,6 +492,10 @@ namespace TrellisStudio
                     started = i + 1;
                     File.Copy(Path.Combine(backup, i + ".new"), path, true);
                     ImportUpdatedFile(file.AssetPath);
+                    var imported = SkinBindings(file.AssetPath);
+                    if (bindings[i].Count != imported.Count || bindings[i].Any(pair =>
+                        !imported.TryGetValue(pair.Key, out var value) || !SameRestPose(pair.Value, value)))
+                        throw new InvalidDataException("Skeleton paths or bind poses changed in " + file.AssetPath + ". Import separately to inspect the rig.");
                     if (!references[i].IsSubsetOf(ReferencesAt(file.AssetPath)))
                         throw new InvalidDataException("Unity changed an existing object reference in " + file.AssetPath + ". The update was reverted.");
                     var beforeRemaps = remaps[i];

@@ -132,7 +132,7 @@ def snapshot_export(assets,task,target,include_revisions):
         if target=='library':continue
         for child in ('LODs','Collisions'):
             if (folder/child).is_dir():shutil.copytree(folder/child,snapshot/child)
-        for filename in ('model.glb','model.stl','print-report.json','lod-manifest.json','physics.json','motion-report.json'):
+        for filename in ('model.glb','model.stl','result.json','print-report.json','lod-manifest.json','physics.json','motion-report.json'):
             if (folder/filename).is_file():shutil.copy2(folder/filename,snapshot/filename)
 
 def build(sources,destination,workspace,profiles,include_revisions=False,notify=lambda *args:None):

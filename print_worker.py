@@ -1,6 +1,6 @@
 """Make a static print derivative in a private Blender process; never change its parent."""
 from pathlib import Path
-import json,subprocess,sys,time,traceback
+import hashlib,json,subprocess,sys,time,traceback
 from studio_import import find_blender,validate_glb
 
 ROOT=Path(__file__).resolve().parent;JOB=Path(sys.argv[1]).resolve();started=time.time()
@@ -24,6 +24,8 @@ try:
                   stl_dimensions_mm=mesh.extents.tolist(),stl_volume_mm3=float(mesh.volume),stl_triangles=len(mesh.faces))
     report['closed_surface']=bool(report['boundary_edges']==0 and report['nonmanifold_edges']==0 and report['nonmanifold_vertices']==0 and mesh.is_watertight and mesh.is_winding_consistent and mesh.volume>0)
     if not report['closed_surface']:report['warnings'].append('The surface still needs repair before slicing. Review the topology report.')
+    with (JOB/'model.stl').open('rb') as stream:
+        report['stl_sha256']=hashlib.file_digest(stream,'sha256').hexdigest()
     (JOB/'print-report.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
     validate_glb(JOB/'model.glb')
     result=json.loads((JOB/'result.json').read_text(encoding='utf-8'));result['print_report']=report
