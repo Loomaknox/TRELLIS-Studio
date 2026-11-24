@@ -29,8 +29,11 @@ class InstallerTests(TestCase):
         self.assertIn('requirements-windows.txt',entries[0]['used_by'])
         with TemporaryDirectory(prefix='game-copy-setup-') as directory:
             root = Path(directory)
-            (root / 'installer').mkdir()
-            for name in ('requirements-windows.txt', 'requirements-mcp-lock.txt', 'installer/setup.py'):
+            (root / 'installer/locks').mkdir(parents=True)
+            workshop = root / 'installer/locks/workshop-win-cp311.txt'
+            mcp = root / 'installer/locks/mcp-win-cp311.txt'
+            for name in ('requirements-windows.txt', 'requirements-mcp-lock.txt', 'installer/setup.py',
+                         workshop.relative_to(root), mcp.relative_to(root)):
                 (root / name).write_bytes((ROOT / name).read_bytes())
             (root / 'config').mkdir()
             personal = root / 'config/server.json'
@@ -39,34 +42,48 @@ class InstallerTests(TestCase):
             with patch.object(setup, 'ROOT', root), patch.object(setup, 'ensure_venvs', return_value=python), \
                  patch.object(setup, 'run') as run, patch.object(setup, 'ensure_web'), patch.object(setup, 'verify') as verify:
                 setup.install_workshop(root / 'uv.exe')
-            args = list(run.call_args_list[0].args)
-            self.assertEqual(args.count('pymeshlab==2025.7.post1'), 1)
-            self.assertIn('numpy==2.2.6', args)
-            self.assertFalse(any('torch' in str(value).lower() or 'cuda' in str(value).lower() for value in args))
+            flags = ('--only-binary', ':all:', '--require-hashes', '--no-deps', '-r')
+            self.assertEqual([call.args for call in run.call_args_list], [
+                (root / 'uv.exe', 'pip', 'install', '--python', python, *flags, workshop),
+                (root / 'uv.exe', 'pip', 'install', '--python', root / '.mcp-venv/Scripts/python.exe', *flags, mcp),
+            ])
+            pins = [line.split()[0] for line in workshop.read_text().splitlines() if line and not line.startswith('#')]
+            self.assertEqual(pins.count('pymeshlab==' + version), 1)
+            self.assertIn('numpy==2.2.6', pins)
+            self.assertFalse(any('torch' in pin or 'cuda' in pin for pin in pins))
             verify.assert_called_once_with(rig=False, workshop_only=True)
             self.assertEqual(personal.read_bytes(), b'{"fixture":"preserve"}')
             marker = json.loads((root / '.studio-workshop-ready').read_text())
-            self.assertEqual(marker['requirements-windows.txt'], setup.digest(root / 'requirements-windows.txt'))
-            (root / 'requirements-windows.txt').write_text('changed-pin\n')
-            self.assertNotEqual(marker['requirements-windows.txt'], setup.digest(root / 'requirements-windows.txt'))
+            for lock in (workshop, mcp):
+                self.assertEqual(marker[lock.relative_to(root).as_posix()], setup.digest(lock))
+            workshop.write_text('changed-pin\n')
+            self.assertNotEqual(marker['installer/locks/workshop-win-cp311.txt'], setup.digest(workshop))
 
-    def test_missing_pin_fails_before_install(self):
+    def test_rejected_workshop_lock_stops_mcp_install_and_preserves_marker(self):
         with TemporaryDirectory(prefix='game-copy-pin-') as directory:
             root = Path(directory)
-            original = (ROOT / 'requirements-windows.txt').read_text()
-            (root / 'requirements-windows.txt').write_text(original.replace('pymeshlab==2025.7.post1\n', ''))
-            with patch.object(setup, 'ROOT', root), patch.object(setup, 'run') as run, self.assertRaisesRegex(RuntimeError, 'dependency list'):
+            marker = root / '.studio-workshop-ready'
+            marker.write_bytes(b'previous installation')
+            with patch.object(setup, 'ROOT', root), patch.object(setup, 'ensure_venvs'), \
+                 patch.object(setup, 'run', side_effect=subprocess.CalledProcessError(1, 'uv')) as run, \
+                 self.assertRaises(subprocess.CalledProcessError):
                 setup.install_workshop(root / 'uv.exe')
-            run.assert_not_called()
+            run.assert_called_once()
+            self.assertEqual(run.call_args.args[-1], root / 'installer/locks/workshop-win-cp311.txt')
+            self.assertEqual(marker.read_bytes(), b'previous installation')
 
     def test_verification_modes_keep_gpu_optional(self):
-        with patch.object(setup, 'run') as run, patch.object(setup, 'bundled_web', return_value=True):
+        with patch.object(setup, 'run') as run, patch.object(setup, 'bundled_web', return_value=True), \
+             patch('installer.install_segmentation.verify') as verify_segmentation:
             setup.verify(rig=False, workshop_only=True)
+            verify_segmentation.assert_not_called()
             calls = [call.args for call in run.call_args_list]
             self.assertTrue(any(setup.GAME_COPY_CHECK in args for args in calls))
             self.assertFalse(any(ROOT / 'gpu_runtime.py' in args for args in calls))
-        with patch.object(setup, 'run') as run, patch.object(setup, 'bundled_web', return_value=True):
+        with patch.object(setup, 'run') as run, patch.object(setup, 'bundled_web', return_value=True), \
+             patch('installer.install_segmentation.verify') as verify_segmentation:
             setup.verify(rig=False)
+            verify_segmentation.assert_called_once_with(ROOT)
             self.assertTrue(any(ROOT / 'gpu_runtime.py' in call.args for call in run.call_args_list))
             self.assertTrue(any(setup.GAME_COPY_CHECK in call.args for call in run.call_args_list))
 
