@@ -114,6 +114,25 @@ Create a personal key in **My account → Security → API keys**. The key
 is shown when you create it. Requests use your account's library, disk quota,
 and generation credits. Revoke keys from the same page.
 
+Choose read-only access for inspection. Editing keys can also submit jobs and
+change the library. Keys expire after 1 to 365 days and display their last use
+to the nearest minute. Upgrading a schema 3 catalog starts a 30-day grace
+period for previously issued keys. Replace those keys in your REST scripts
+and MCP clients before the displayed expiry date. New keys default to 90 days.
+Before the first schema 4 start, stop Server and save its catalog and matching
+authenticator protection material. To return to the previous binary, restore
+that pre-upgrade catalog with its workspace snapshot and keys.
+
+Private model imports accept self-contained GLB files up to 500 MiB. Studio
+checks declared geometry (5 million triangles, 15 million vertices), decoded
+accessor size (2 GiB), image count (128), texture dimensions (16,384 pixels
+per axis) and aggregate texels (128 Mi pixels) before conversion. Import,
+print and package conversion have wall-clock deadlines of 5, 10 and 15 minutes.
+Their process trees have an 8 GiB memory budget and a 12-process limit. Windows
+uses a Job Object. Linux applies per-process address-space and CPU limits and
+samples descendant count and resident memory every 100 ms. Run a public Linux
+deployment in its own cgroup for hard aggregate limits between samples.
+
 For REST, use the server's HTTPS URL, the `/api/v1` routes, and the
 `Authorization: Bearer <key>` header. For MCP, run the bridge in STDIO mode on
 the computer that runs your MCP client. Set `TRELLIS_API_URL` and

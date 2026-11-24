@@ -205,6 +205,8 @@
         <div id="api-token-controls" hidden>
           <form id="api-token-form" class="server-form server-api-form" autocomplete="off">
             <label>Key name <input name="label" required maxlength="80" placeholder="My MCP client"></label>
+            <label>API access <select name="scope"><option value="read">Read only</option><option value="edit">Read and edit</option></select></label>
+            <label>Lifetime in days <input name="lifetime_days" type="number" min="1" max="365" value="90" required></label>
             <button type="submit" class="server-primary">Create key</button>
           </form>
           <div id="api-token-reveal" class="server-api-reveal" hidden>

@@ -197,6 +197,15 @@ def run():
             assert len([row for row in store.user_ledger(alice_id) if row['delta'] == -1]) == 1
 
             key = call(base, 'POST', '/server/api/tokens', 201, alice, json={'label': 'Fixture client'}).json()
+            reader = call(base, 'POST', '/server/api/tokens', 201, alice,
+                          json={'label': 'Viewer', 'scope': 'read', 'lifetime_days': 1}).json()
+            read_headers = {'Authorization': 'Bearer ' + reader['token']}
+            call(base, 'GET', '/api/v1/jobs/' + identifier, headers=read_headers)
+            denied = call(base, 'POST', '/api/v1/uploads', 403, headers=read_headers,
+                          files={'file': ('reference.png', png, 'image/png')}).json()
+            assert denied['code'] == 'read_only_key'
+            call(base, 'DELETE', '/server/api/tokens/' + reader['key']['id'], client=alice)
+            call(base, 'GET', '/api/v1/jobs/' + identifier, 401, headers=read_headers)
             auth = {'Authorization': 'Bearer ' + key['token']}
             call(base, 'GET', '/api/v1/jobs/' + identifier, headers=auth)
             call(base, 'GET', '/api/jobs/' + identifier, 401, headers=auth)

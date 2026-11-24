@@ -354,7 +354,8 @@ function apiKeys(restricted) {
           await loadKeys();
         }));
         revoke.setAttribute('aria-label', t('Revoke API key {label}', {label: key.label}));
-        const detail = [`${key.prefix}…`, t('Created {date}', {date: dateOf(key.created)})];
+        const detail = [`${key.prefix}…`, t(key.scope === 'read' ? 'Read only' : 'Read and edit'),
+          t('Created {date}', {date: dateOf(key.created)}), t('Expires {date}', {date: dateOf(key.expires)})];
         if (key.last_used) detail.push(t('Last used {date}', {date: dateOf(key.last_used)}));
         return activity(key.label, detail.join(' · '), revoke);
       });
@@ -367,7 +368,7 @@ function apiKeys(restricted) {
   bindForm('api-token-form', 'api-token-notice', async (data, form) => {
     const label = data.label.trim();
     if (!label) throw new Error(t('Enter a name for the API key.'));
-    const result = await post('/tokens', {label});
+    const result = await post('/tokens', {label, scope: data.scope, lifetime_days: Number(data.lifetime_days)});
     form.reset();
     if (byId('panel-security').hidden) {
       notice(feedback, t('API key created. To get a new key, revoke this one and create another.'));

@@ -1,6 +1,6 @@
 """Private Studio workspaces and a single server-wide compute queue."""
 import asyncio
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from importlib.util import module_from_spec, spec_from_file_location
 import logging
 import os
@@ -9,6 +9,7 @@ import re
 import shutil
 import stat
 import sys
+import time
 import uuid
 
 from fastapi import HTTPException
@@ -33,8 +34,8 @@ REFERENCE_FILES = {'settings.json', 'metadata.json', 'status.json', 'generation.
 TERMINAL = {'done', 'error', 'cancelled'}
 
 
-def tree_bytes(root, *, caches_only=False):
-    total = 0
+def tree_sizes(root):
+    total = caches = 0
     pending = [root]
     while pending:
         folder = pending.pop()
@@ -47,13 +48,19 @@ def tree_bytes(root, *, caches_only=False):
                             continue
                         if stat.S_ISDIR(info.st_mode):
                             pending.append(entry.path)
-                        elif stat.S_ISREG(info.st_mode) and (not caches_only or entry.name == 'raw_state.pt'):
+                        elif stat.S_ISREG(info.st_mode):
                             total += info.st_size
+                            if entry.name == 'raw_state.pt':
+                                caches += info.st_size
                     except FileNotFoundError:
                         continue
         except FileNotFoundError:
             continue
-    return total
+    return total, caches
+
+
+def tree_bytes(root, *, caches_only=False):
+    return tree_sizes(root)[1 if caches_only else 0]
 
 
 def remove_child(parent, path):
@@ -110,6 +117,8 @@ class PrivateStudio:
     def __init__(self, directory, user_id):
         self.directory = directory
         self.user_id = user_id
+        self.last_access = time.monotonic()
+        self.readers = 0
         self.lock = asyncio.Lock()
         self.outputs = directory / 'outputs'
         self.exports = directory / 'exports'
@@ -208,6 +217,8 @@ class ServerRuntime:
         self.data = Path(data).resolve()
         self.store = store
         self.workspaces = {}
+        self.usage_cache = OrderedDict()
+        self.usage_locks = [asyncio.Lock() for _ in range(32)]
         self.load_lock = asyncio.Lock()
         self.scheduler = None
         self.paused_path = self.data / 'queue-control.json'
@@ -233,7 +244,7 @@ class ServerRuntime:
             if identifier not in self.workspaces:
                 workspace = await asyncio.to_thread(PrivateStudio, self.user_path(identifier), identifier)
                 await workspace.start()
-                admitted = {job['id'] for job in self.store.jobs(identifier) if job['state'] not in TERMINAL}
+                admitted = {job['id'] for job in self.store.active_jobs(identifier)}
                 for entry in workspace.workspace.queue['items']:
                     folder = workspace.job_folder(entry['id'])
                     status = folder / 'status.json'
@@ -242,12 +253,31 @@ class ServerRuntime:
                         if folder.parent == workspace.animation_operations:
                             await self.trim_animation_operation(workspace, folder)
                 self.workspaces[identifier] = workspace
+            self.workspaces[identifier].last_access = time.monotonic()
             return self.workspaces[identifier]
 
-    async def usage(self, identifier):
-        amount = await asyncio.to_thread(tree_bytes, self.user_path(identifier))
-        self.store.sync_usage(identifier, amount)
-        return amount
+    async def usage(self, identifier, *, fresh=True):
+        path = self.user_path(identifier)
+        async with self.usage_locks[int(identifier[:2], 16) % len(self.usage_locks)]:
+            previous = self.usage_cache.get(identifier)
+            if not fresh and previous and time.monotonic() - previous[0] < 10:
+                return previous[1]
+            amount = await asyncio.to_thread(tree_bytes, path)
+            self.store.sync_usage(identifier, amount)
+            self.usage_cache[identifier] = (time.monotonic(), amount)
+            self.usage_cache.move_to_end(identifier)
+            if len(self.usage_cache) > 512:
+                self.usage_cache.popitem(last=False)
+            return amount
+
+    async def retire_idle(self, reservations):
+        async with self.load_lock:
+            for identifier, workspace in list(self.workspaces.items()):
+                if (identifier in reservations or workspace.readers or workspace.lock.locked() or workspace.busy()
+                        or time.monotonic() - workspace.last_access < 300):
+                    continue
+                await workspace.close()
+                del self.workspaces[identifier]
 
     def collection_workspaces(self):
         for user in self.store.all_users():
@@ -281,10 +311,10 @@ class ServerRuntime:
         self.paused = paused
 
     async def start(self):
-        pending_users = {row['user_id'] for row in self.store.jobs() if row['state'] not in TERMINAL}
+        pending_users = {row['user_id'] for row in self.store.active_jobs()}
         for identifier in pending_users:
             workspace = await self.workspace(identifier)
-            rows = [row for row in self.store.jobs(identifier) if row['state'] not in TERMINAL]
+            rows = self.store.active_jobs(identifier)
             async with workspace.lock:
                 await self.reconcile(workspace, rows)
         self.scheduler = asyncio.create_task(self.run())
@@ -395,7 +425,7 @@ class ServerRuntime:
                 await self.rollback(workspace, original_queue, before, rig_files)
                 raise
             if reclaim:
-                pending = [row for row in self.store.jobs(identifier) if row['state'] not in TERMINAL]
+                pending = self.store.active_jobs(identifier)
                 await self.reconcile(workspace, pending)
             return response
 
@@ -472,7 +502,7 @@ class ServerRuntime:
             workspace.active = None
 
     async def settle(self, workspace):
-        rows = [row for row in self.store.jobs(workspace.user_id) if row['state'] not in TERMINAL]
+        rows = self.store.active_jobs(workspace.user_id)
         if rows:
             async with workspace.lock:
                 await self.reconcile(workspace, rows)
@@ -535,9 +565,9 @@ class ServerRuntime:
 
     async def run_once(self):
         reservations = defaultdict(list)
-        for row in self.store.jobs():
-            if row['state'] not in TERMINAL:
-                reservations[row['user_id']].append(row)
+        for row in self.store.active_jobs():
+            reservations[row['user_id']].append(row)
+        await self.retire_idle(reservations)
         for identifier, rows in reservations.items():
             workspace = self.workspaces.get(identifier)
             if workspace and not workspace.lock.locked():
@@ -545,7 +575,7 @@ class ServerRuntime:
                     await self.reconcile(workspace, rows)
         if self.paused or self.stopping or any(workspace.studio.PROCESS and workspace.studio.PROCESS.poll() is None for workspace in self.workspaces.values()):
             return
-        ordered = list(self.workspaces)
+        ordered = [identifier for identifier in self.workspaces if identifier in reservations]
         if self.current_user in ordered:
             position = ordered.index(self.current_user) + 1
             ordered = ordered[position:] + ordered[:position]
@@ -595,9 +625,7 @@ class ServerRuntime:
 
     def queue(self):
         items = []
-        for row in self.store.jobs():
-            if row['state'] in TERMINAL:
-                continue
+        for row in self.store.active_jobs():
             user = self.store.get_user(row['user_id'])
             workspace = self.workspaces.get(row['user_id'])
             if workspace is None:

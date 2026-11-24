@@ -60,11 +60,27 @@ def run():
         expect_error(lambda: store.create_api_token(admin, 'Agent'), 403, 'mfa_setup_required')
         credential = store.create_api_token(other, 'Workstation')
         personal_token = credential['token']
+        with store.transaction() as database:
+            for name in ('scope', 'expires', 'last_used'):
+                database.execute(f'ALTER TABLE api_tokens DROP COLUMN {name}')
+            database.execute('PRAGMA user_version=3')
+        store = Store(path)
+        migrated, = store.list_api_tokens(other)
+        assert migrated['scope'] == 'edit' and migrated['last_used'] is None
+        assert abs((migrated['expires'] - credential['created']) / 86400 - 30) < 0.01
         assert store.authenticate_api(personal_token)['id'] == other
         assert store.list_api_tokens(user) == []
-        assert store.list_api_tokens(other) == [{key: value for key, value in credential.items() if key != 'token'}]
+        listed, = store.list_api_tokens(other)
+        assert listed['last_used'] >= credential['created'] and listed['scope'] == 'edit'
+        assert listed['expires'] == migrated['expires'] and 'token' not in listed
+        reader = store.create_api_token(other, 'Inspect', 'read', 1)
+        assert store.authenticate_api(reader['token'])['id'] == other
+        expect_error(lambda: store.authenticate_api(reader['token'], write=True), 403, 'read_only_key')
+        with patch('server_store.time.time', return_value=reader['expires']):
+            expect_error(lambda: store.authenticate_api(reader['token']), 401, 'invalid_api_token')
+        store.revoke_api_token(other, reader['id'])
         with store.connect() as database:
-            assert database.execute('PRAGMA user_version').fetchone()[0] == 3
+            assert database.execute('PRAGMA user_version').fetchone()[0] == 4
             assert personal_token not in str(tuple(database.execute('SELECT * FROM api_tokens').fetchone()))
         expect_error(lambda: store.authenticate_api(personal_token[:-1] + ('B' if personal_token[-1] == 'A' else 'A')), 401)
         expect_error(lambda: store.revoke_api_token(user, credential['id']), 404)

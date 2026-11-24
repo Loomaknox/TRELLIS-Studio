@@ -1,4 +1,11 @@
 export default {
+  'API access': 'Droits de la clé',
+  'Read only': 'Lecture seule',
+  'Read and edit': 'Lecture et modification',
+  'Lifetime in days': 'Durée en jours',
+  'Expires {date}': 'Expire le {date}',
+  'This API key has read-only access.': 'Cette clé autorise uniquement la lecture.',
+  'Select read or edit access and a lifetime of 1 to 365 days.': 'Choisissez les droits de la clé et une durée de 1 à 365 jours.',
   'Running': 'En cours',
   'Completed': 'Terminé',
   'Failed': 'Échec',

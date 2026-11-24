@@ -581,3 +581,7 @@
 !/tests/print_precision.py
 !/tests/maintenance_recovery.py
 !/installer/hd_cache_backup.py
+!/server_conversion.py
+!/server_import_limits.py
+!/tests/server_conversion.py
+!/tests/server_mcp_scope.py

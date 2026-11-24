@@ -55,6 +55,7 @@ $taskRequired+=@('web/game-copy-regions.js','web/reduction-region-preview.js')
 $taskRequired+=@('segmentation_runtime.py','installer/install_segmentation.py','installer/requirements-segmentation.txt')
 $taskRequired+=@('pose_surface_diagnostics.py')
 $taskRequired+='asset_provenance.py'
+$taskRequired+=@('server_conversion.py','server_import_limits.py')
 $taskRequired+=@('facial_head_runtime.py','facial_head_infer.py','facial_head_generation.py','facial_head_geometry.py',
     'facial_head_eyes.py','facial_head_color.py','installer/facial_head_lock.py','installer/install_facial_head.py',
     'installer/facial-head-manifest.json','installer/requirements-facial-head.txt','Installer le module visage.cmd',

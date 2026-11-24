@@ -17,6 +17,8 @@ from server_factors import FactorProtector
 
 DEFAULT_DISK_LIMIT = 5 * 1024**3
 SESSION_SECONDS = 12 * 60 * 60
+API_TRANSITION_DAYS = 30
+API_DEFAULT_DAYS = 90
 TERMINAL_STATES = ('done', 'error', 'cancelled')
 API_TOKEN_FORMAT = re.compile(r'trl_([a-f0-9]{32})_[A-Za-z0-9_-]{43}')
 
@@ -136,7 +138,7 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
             version = connection.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0, 1, 2, 3):
+            if version not in (0, 1, 2, 3, 4):
                 raise StoreError('This catalog needs a newer TRELLIS Server version.', 503)
             connection.execute('PRAGMA journal_mode=WAL')
             connection.executescript('''
@@ -174,16 +176,24 @@ class Store:
                     id INTEGER PRIMARY KEY, actor_id TEXT, target_id TEXT,
                     action TEXT NOT NULL, details TEXT NOT NULL, created REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS catalog_maintenance (name TEXT PRIMARY KEY);
+                CREATE INDEX IF NOT EXISTS jobs_active ON jobs(user_id,created) WHERE state IN ('reserved','running');
             ''')
             # Re-read under the writer lock. A second worker may already have migrated.
             version = connection.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0, 1, 2, 3):
+            if version not in (0, 1, 2, 3, 4):
                 raise StoreError('This catalog needs a newer TRELLIS Server version.', 503)
             if version < 3:
                 self._rewrite_factors(connection, self.factors, legacy=True)
                 if version in (1, 2):
                     connection.execute("INSERT OR IGNORE INTO catalog_maintenance VALUES ('retire_plaintext')")
-                connection.execute('PRAGMA user_version=3')
+            if version < 4:
+                columns = {row['name'] for row in connection.execute('PRAGMA table_info(api_tokens)')}
+                for name, definition in (('scope', "TEXT NOT NULL DEFAULT 'edit'"), ('expires', 'REAL'), ('last_used', 'REAL')):
+                    if name not in columns:
+                        connection.execute(f'ALTER TABLE api_tokens ADD COLUMN {name} {definition}')
+                connection.execute('UPDATE api_tokens SET expires=? WHERE expires IS NULL',
+                                   (time.time() + API_TRANSITION_DAYS * 86400,))
+                connection.execute('PRAGMA user_version=4')
             connection.commit()
             if connection.execute("SELECT 1 FROM catalog_maintenance WHERE name='retire_plaintext'").fetchone():
                 # Rewrite free pages too. Keep the flag until old WAL frames have gone.
@@ -471,24 +481,29 @@ class Store:
         if user['role'] == 'admin' and not user['totp_secret']:
             raise StoreError('Set up two-factor authentication first.', 403, 'mfa_setup_required')
 
-    def create_api_token(self, identifier, label):
+    def create_api_token(self, identifier, label, scope='edit', lifetime_days=API_DEFAULT_DAYS):
         if not isinstance(label, str) or not 1 <= len(label.strip()) <= 80 or not label.strip().isprintable():
             raise StoreError('Use a token label of 1–80 characters.')
         label = label.strip()
+        if scope not in ('read', 'edit') or type(lifetime_days) is not int or not 1 <= lifetime_days <= 365:
+            raise StoreError('Select read or edit access and a lifetime of 1 to 365 days.')
         token_id = uuid.uuid4().hex
         secret = f'trl_{token_id}_{secrets.token_urlsafe(32)}'
         created = time.time()
+        expires = created + lifetime_days * 86400
         with self.transaction() as connection:
             self._check_api_account(self._user(connection, identifier, active=True))
-            connection.execute('INSERT INTO api_tokens(id,user_id,hash,label,created) VALUES(?,?,?,?,?)',
-                               (token_id, identifier, token_hash(secret), label, created))
-            self._audit(connection, identifier, identifier, 'api_token_created', {'token_id': token_id, 'label': label})
-        return dict(id=token_id, label=label, prefix=f'trl_{token_id[:8]}', created=created, token=secret)
+            connection.execute('INSERT INTO api_tokens(id,user_id,hash,label,created,scope,expires) VALUES(?,?,?,?,?,?,?)',
+                               (token_id, identifier, token_hash(secret), label, created, scope, expires))
+            self._audit(connection, identifier, identifier, 'api_token_created',
+                        {'token_id': token_id, 'label': label, 'scope': scope, 'expires': expires})
+        return dict(id=token_id, label=label, prefix=f'trl_{token_id[:8]}', created=created, scope=scope,
+                    expires=expires, last_used=None, token=secret)
 
     def list_api_tokens(self, identifier):
         with self.connect() as connection:
             self._user(connection, identifier, active=True)
-            rows = connection.execute('SELECT id,label,created FROM api_tokens WHERE user_id=? ORDER BY created DESC',
+            rows = connection.execute('SELECT id,label,created,scope,expires,last_used FROM api_tokens WHERE user_id=? ORDER BY created DESC',
                                       (identifier,))
             return [dict(row, prefix=f'trl_{row["id"][:8]}') for row in rows]
 
@@ -500,16 +515,22 @@ class Store:
                 raise StoreError('API token not found.', 404)
             self._audit(connection, identifier, identifier, 'api_token_revoked', {'token_id': token_id})
 
-    def authenticate_api(self, token):
+    def authenticate_api(self, token, *, write=False):
         match = API_TOKEN_FORMAT.fullmatch(token) if isinstance(token, str) else None
         if not match:
             raise StoreError('Invalid API token.', 401, 'invalid_api_token')
-        with self.connect() as connection:
-            row = connection.execute('SELECT user_id,hash FROM api_tokens WHERE id=?', (match[1],)).fetchone()
-            if row is None or not hmac.compare_digest(row['hash'], token_hash(token)):
+        with self.transaction() as connection:
+            now = time.time()
+            row = connection.execute('SELECT user_id,hash,scope,expires,last_used FROM api_tokens WHERE id=?',
+                                     (match[1],)).fetchone()
+            if row is None or not hmac.compare_digest(row['hash'], token_hash(token)) or row['expires'] is None or row['expires'] <= now:
                 raise StoreError('Invalid API token.', 401, 'invalid_api_token')
+            if write and row['scope'] != 'edit':
+                raise StoreError('This API key has read-only access.', 403, 'read_only_key')
             user = self._user(connection, row['user_id'], active=True)
             self._check_api_account(user)
+            if row['last_used'] is None or now - row['last_used'] >= 60:
+                connection.execute('UPDATE api_tokens SET last_used=? WHERE id=?', (now, match[1]))
             return self._public(connection, user)
 
     def _revoke_access(self, connection, identifier):
@@ -705,6 +726,13 @@ class Store:
             connection.execute('UPDATE jobs SET state=?,reserve_bytes=0,updated=? WHERE user_id=? AND id=?',
                                (state, time.time(), identifier, job_id))
             return dict(connection.execute('SELECT * FROM jobs WHERE user_id=? AND id=?', (identifier, job_id)).fetchone())
+
+    def active_jobs(self, identifier=None):
+        with self.connect() as connection:
+            statement = "SELECT * FROM jobs WHERE state IN ('reserved','running')"
+            if identifier is not None:
+                return [dict(row) for row in connection.execute(statement + ' AND user_id=? ORDER BY created', (identifier,))]
+            return [dict(row) for row in connection.execute(statement + ' ORDER BY created')]
 
     def jobs(self, identifier=None):
         with self.connect() as connection:

@@ -138,7 +138,7 @@ class _JobAccounting(ctypes.Structure):
 class _WindowsBrowserJob:
     """Keep all descendants in a disposable job owned by Studio."""
 
-    def __init__(self, command):
+    def __init__(self, command, *, memory_limit=0, process_limit=0, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL):
         kernel = self.kernel = ctypes.WinDLL('kernel32', use_last_error=True)
         handle = wintypes.HANDLE
         dword = wintypes.DWORD
@@ -163,13 +163,19 @@ class _WindowsBrowserJob:
         try:
             limits = _JobExtendedLimits()
             limits.basic.flags = _JOB_KILL_ON_CLOSE
+            if memory_limit:
+                limits.basic.flags |= 0x200  # JOB_OBJECT_LIMIT_JOB_MEMORY
+                limits.job_memory_limit = memory_limit
+            if process_limit:
+                limits.basic.flags |= 0x8  # JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+                limits.basic.active_process_limit = process_limit
             if not kernel.SetInformationJobObject(
                 self.job, _JOB_EXTENDED_LIMIT, ctypes.byref(limits), ctypes.sizeof(limits)
             ):
                 raise ctypes.WinError(ctypes.get_last_error())
             self.process = subprocess.Popen(
                 [sys.executable, '-I', '-S', '-c', _JOB_LAUNCHER, *command],
-                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
                 creationflags=subprocess.CREATE_NO_WINDOW, bufsize=0,
             )
             with self.process.stdin as permit:

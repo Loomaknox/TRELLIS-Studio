@@ -1,7 +1,7 @@
 """Documented JSON API over the same transactional services used by Studio's UI."""
 from pathlib import Path
 from contextlib import ExitStack
-import inspect,io,json,time,uuid,hashlib,os
+import asyncio,inspect,io,json,time,uuid,hashlib,os
 from fastapi import APIRouter,UploadFile,File,HTTPException,Query
 from fastapi.responses import FileResponse,HTMLResponse,RedirectResponse,Response
 from fastapi.staticfiles import StaticFiles
@@ -147,7 +147,12 @@ def install(app,g):
                 with Image.open(target) as image:
                     if image.width*image.height>40_000_000:raise ValueError('Image exceeds 40 megapixels.')
                     image.verify()
-            elif suffix=='.glb':validate_glb(target)
+            elif suffix=='.glb':
+                if server_mode:
+                    from server_import_limits import check_model
+                    await asyncio.to_thread(check_model, target)
+                else:
+                    validate_glb(target)
             entry=dict(id=identifier,kind=kind,file=target.name,name=Path(file.filename).name,bytes=size,sha256=digest.hexdigest(),created=time.time());write(folder/'upload.json',entry)
             return {k:v for k,v in entry.items() if k!='file'}
         except (OSError,ValueError) as error:raise HTTPException(400,str(error))

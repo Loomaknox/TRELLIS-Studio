@@ -450,7 +450,10 @@ def launch_worker(folder, script, source_id=None):
     if LOG_HANDLE: LOG_HANDLE.close()
     LOG_HANDLE=(folder/'generation.log').open('a' if script in ('animation_worker.py','generated_animation_worker.py') else 'w',encoding='utf-8')
     env=os.environ.copy();env['PYTHONUTF8']='1'
-    PROCESS=subprocess.Popen([sys.executable,'-u',str(ROOT/script),str(folder)],cwd=ROOT,env=env,
+    command = [sys.executable, '-u', str(ROOT/script), str(folder)]
+    if WORKSPACE_CONFIG and script in ('import_worker.py', 'print_worker.py'):
+        command = [sys.executable, '-u', str(ROOT/'server_conversion.py'), script, str(folder)]
+    PROCESS=subprocess.Popen(command,cwd=ROOT,env=env,
                              stdout=LOG_HANDLE,stderr=subprocess.STDOUT,
                              creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
     ACTIVE=folder.name
@@ -480,7 +483,12 @@ async def import_model(model: UploadFile=File(...), name: str=Form('')):
                     if total>MAX_BYTES: raise ValueError('The file exceeds 500 MB.')
                     stream.write(chunk)
             if not total: raise ValueError('Empty file.')
-            if suffix=='.glb': validate_glb(source)
+            if suffix=='.glb':
+                if WORKSPACE_CONFIG:
+                    from server_import_limits import check_model
+                    await asyncio.to_thread(check_model, source)
+                else:
+                    validate_glb(source)
         except (ValueError,OSError) as error:
             # Only this newly created, checked upload directory can be removed.
             if folder.resolve().parent==OUTPUT and folder.name==identifier: shutil.rmtree(folder)
@@ -1538,7 +1546,10 @@ async def create_export(request: Request):
             write_json(task/'status.json',dict(state='queued',progress=0,stage='Preparing export',target=target,count=len(ids)))
             if EXPORT_LOG:EXPORT_LOG.close()
             EXPORT_LOG=(task/'export.log').open('w',encoding='utf-8');env=os.environ.copy();env['PYTHONUTF8']='1'
-            EXPORT_PROCESS=subprocess.Popen([sys.executable,'-u',str(ROOT/'export_worker.py'),str(task)],cwd=ROOT,env=env,
+            command = [sys.executable, '-u', str(ROOT/'export_worker.py'), str(task)]
+            if WORKSPACE_CONFIG:
+                command = [sys.executable, '-u', str(ROOT/'server_conversion.py'), 'export_worker.py', str(task)]
+            EXPORT_PROCESS=subprocess.Popen(command,cwd=ROOT,env=env,
                 stdout=EXPORT_LOG,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         except asyncio.CancelledError:
             try:await preparation

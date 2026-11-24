@@ -23,8 +23,8 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 import uvicorn
 
-from server_runtime import ROOT, ServerRuntime, remove_child, tree_bytes
-from server_store import DEFAULT_DISK_LIMIT, SESSION_SECONDS, Store, StoreError
+from server_runtime import ROOT, ServerRuntime, remove_child, tree_bytes, tree_sizes
+from server_store import API_DEFAULT_DAYS, DEFAULT_DISK_LIMIT, SESSION_SECONDS, Store, StoreError
 from server_setup import network_settings
 from studio_version import VERSION
 from studio_release import UI_REVISION, release_status, render_studio_version
@@ -116,9 +116,9 @@ class RateLimit:
 
 
 class ScopedResponse(Response):
-    def __init__(self, studio, request):
+    def __init__(self, workspace, request):
         super().__init__()
-        self.studio = studio
+        self.workspace = workspace
         self.request = request
 
     async def __call__(self, scope, receive, send):
@@ -129,7 +129,12 @@ class ScopedResponse(Response):
                 message = {**message, 'headers': [*headers, (b'cache-control', b'private, no-store'),
                                                  (b'x-content-type-options', b'nosniff')]}
             await send(message)
-        await self.studio(inner, self.request.receive, private_send)
+        self.workspace.readers += 1
+        try:
+            await self.workspace.studio.app(inner, self.request.receive, private_send)
+        finally:
+            self.workspace.readers -= 1
+            self.workspace.last_access = time.monotonic()
 
     async def buffer(self):
         status = 500
@@ -215,7 +220,8 @@ def app_for(data, public_url, setup_token=None, on_setup=None):
 
     def actor(request, admin=False, ready=True):
         token = bearer(request)
-        user = store.authenticate_api(token) if token is not None else store.authenticate(request.cookies.get(SESSION))
+        writes = request.method in UNSAFE or re.fullmatch(r'/api/v1/models/[a-f0-9]{32}/diagnostics/?', request.url.path)
+        user = store.authenticate_api(token, write=bool(writes)) if token is not None else store.authenticate(request.cookies.get(SESSION))
         if admin and user['role'] != 'admin':
             raise StoreError('Administrator access required.', 403, 'admin_required')
         if ready and user['password_change_required']:
@@ -304,7 +310,7 @@ def app_for(data, public_url, setup_token=None, on_setup=None):
     @app.get('/server/api/me')
     async def me(request: Request):
         user = actor(request, ready=False)
-        await runtime.usage(user['id'])
+        await runtime.usage(user['id'], fresh=False)
         return dict(user=user_view(store.get_user(user['id'])), server=dict(name='TRELLIS Server', version=VERSION, setup_complete=True))
 
     @app.get('/server/api/credits')
@@ -429,12 +435,11 @@ def app_for(data, public_url, setup_token=None, on_setup=None):
                     result.append(dict(id=folder.name, name=name, bytes=tree_bytes(folder)))
             return result
 
-        trash, exports, uploads, outputs, caches = await asyncio.gather(
+        trash, exports, uploads, (outputs, caches) = await asyncio.gather(
             asyncio.to_thread(inventory, 'trash', directory / 'trash'),
             asyncio.to_thread(inventory, 'exports', directory / 'exports'),
             asyncio.to_thread(inventory, 'uploads', directory / 'state' / 'uploads'),
-            asyncio.to_thread(tree_bytes, directory / 'outputs'),
-            asyncio.to_thread(tree_bytes, directory / 'outputs', caches_only=True),
+            asyncio.to_thread(tree_sizes, directory / 'outputs'),
         )
         user = store.get_user(user['id'])
         breakdown = dict(models=max(0, outputs-caches), caches=caches, exports=sum(item['bytes'] for item in exports),
@@ -451,7 +456,8 @@ def app_for(data, public_url, setup_token=None, on_setup=None):
     async def create_token(request: Request):
         user = actor(request)
         fields = await json_body(request)
-        key = store.create_api_token(user['id'], fields.get('label'))
+        key = store.create_api_token(user['id'], fields.get('label'), fields.get('scope', 'edit'),
+                                     fields.get('lifetime_days', API_DEFAULT_DAYS))
         return {'token': key.pop('token'), 'key': key}
 
     @app.delete('/server/api/tokens/{identifier}')
@@ -601,7 +607,7 @@ def app_for(data, public_url, setup_token=None, on_setup=None):
         if request.method == 'POST' and re.fullmatch(r'(jobs/[a-f0-9]{32}/prepare/motion|v1/models/[a-f0-9]{32}/motion-edits)', path):
             raise HTTPException(409, 'Motion workshop edits are available in the desktop edition.')
         workspace = await runtime.workspace(user['id'])
-        scoped = ScopedResponse(workspace.studio.app, request)
+        scoped = ScopedResponse(workspace, request)
         writes_inspection = request.method == 'GET' and re.fullmatch(r'(jobs/[a-f0-9]{32}/(inspect|diagnostics)|v1/models/[a-f0-9]{32}/diagnostics)', path)
         if not writes_inspection and request.method not in UNSAFE:
             published = re.fullmatch(r'(v1/)?(jobs|models|exports)/([a-f0-9]{32})/(files/(model\.(glb|stl|blend)|Unity\.zip)|download)', path)
