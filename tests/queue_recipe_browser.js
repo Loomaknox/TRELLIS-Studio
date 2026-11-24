@@ -28,7 +28,7 @@ async function openSettings(index) {
   for (let i=0; i<20 && !$('#queueRecipeDialog').open; ++i) await new Promise(resolve=>setTimeout(resolve,25));
   assert($('#queueRecipeDialog').open,'Recipe failed to open');
 }
-async function run() {
+export async function run() {
   document.documentElement.style.zoom='200%';
   assert(devicePixelRatio===2 && getComputedStyle(document.documentElement).zoom==='2','200% zoom required');
   const queue = createQueueStudio({api,refresh:async()=>{}});
@@ -66,10 +66,4 @@ async function run() {
   const french=new URLSearchParams(location.search).get('lang')==='fr';
   const expected=french?['À vérifier · 1','Contrôle visuel','Articulations (1) · clips (2)']:['1 to inspect','1 joints · 2 clips'];
   for (const text of expected) assert(panel.root.textContent.includes(text),text);
-}
-try {
-  await run();
-  await fetch('/result',{method:'POST', body:'PASS'});
-} catch (error) {
-  await fetch('/result',{method:'POST',body:String(error.stack || error)});
 }
