@@ -1,6 +1,7 @@
 """Render matching Collection thumbnails in an isolated local Chromium process."""
 
 import base64
+from contextlib import contextmanager
 import ctypes
 from ctypes import wintypes
 import hashlib
@@ -18,6 +19,60 @@ import threading
 import time
 
 from PIL import Image
+
+def _preview_locked(stream, acquire):
+    stream.seek(0)
+    if os.name=='nt':
+        import msvcrt
+        msvcrt.locking(stream.fileno(),msvcrt.LK_NBLCK if acquire else msvcrt.LK_UNLCK,1)
+    else:
+        import fcntl
+        fcntl.flock(stream,fcntl.LOCK_EX|fcntl.LOCK_NB if acquire else fcntl.LOCK_UN)
+
+
+def _profile_root():
+    return Path(tempfile.gettempdir()).resolve()/'trellis-collection-previews-v1'
+
+
+def cleanup_orphan_profiles():
+    from studio_transfer import staging_directory
+    import psutil
+    root=_profile_root()
+    if staging_directory(root)!=root:return
+    for folder in root.glob('preview-*'):
+        lease=folder/'.trellis-profile'
+        if staging_directory(folder)!=folder or lease.resolve()!=lease or not lease.is_file():continue
+        try:
+            with lease.open('r+b') as stream:
+                if stream.read(64)!=b'TRELLIS-collection-preview-v1':continue
+                _preview_locked(stream,True)
+                try:
+                    flag='--user-data-dir='+str(folder/'browser')
+                    active=any(flag in (process.info['cmdline'] or ()) for process in psutil.process_iter(['cmdline']))
+                finally:
+                    _preview_locked(stream,False)
+            if not active:shutil.rmtree(folder)
+        except (OSError,psutil.Error):continue
+
+
+@contextmanager
+def _preview_profile():
+    from studio_transfer import staging_directory
+    root=_profile_root()
+    root.mkdir(exist_ok=True)
+    if staging_directory(root)!=root:raise ValueError('Invalid preview cache directory.')
+    with tempfile.TemporaryDirectory(prefix='preview-',dir=root,ignore_cleanup_errors=True) as temporary:
+        folder=Path(temporary)
+        with (folder/'.trellis-profile').open('x+b') as stream:
+            stream.write(b'\0')
+            stream.flush()
+            _preview_locked(stream,True)
+            try:
+                stream.seek(0)
+                stream.write(b'TRELLIS-collection-preview-v1')
+                stream.flush()
+                yield folder/'browser'
+            finally:_preview_locked(stream,False)
 
 ROOT = Path(__file__).resolve().parent
 THREE = ROOT / 'node_modules' / 'three'
@@ -306,7 +361,7 @@ def render_collection_preview(glb: Path, *, cancel: threading.Event | None = Non
     token = secrets.token_urlsafe(24)
     results = {}
     finished = threading.Event()
-    with tempfile.TemporaryDirectory(prefix='trellis-preview-', ignore_cleanup_errors=True) as profile:
+    with _preview_profile() as profile:
         with _thumbnail_server(glb, token, results, finished) as server:
             worker = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .1}, daemon=True)
             worker.start()

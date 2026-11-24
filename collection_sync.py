@@ -2,6 +2,7 @@
 import hashlib
 import os
 import stat
+from time import monotonic
 from collections import OrderedDict
 from threading import Lock
 
@@ -31,10 +32,22 @@ class CollectionHistory:
     def __init__(self):
         self.history = OrderedDict()
         self.lock = Lock()
+        self.last_hint = None
+
+    def hint(self, output):
+        # A hint may lag by one second. Explicit collection requests always rescan.
+        with self.lock:
+            now = monotonic()
+            if self.last_hint and self.last_hint[0] == output and now < self.last_hint[1]:
+                return self.last_hint[2]
+            revision, _ = index(output)
+            self.last_hint = (output, now+1, revision)
+            return revision
 
     def changes(self, output, read_record, since=None, watch=(), review_after=None):
         revision, rows = index(output)
         with self.lock:
+            self.last_hint = (output, monotonic()+1, revision)
             old = self.history.get(since)
             self.history[revision] = rows
             self.history.move_to_end(revision)

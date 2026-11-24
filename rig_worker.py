@@ -14,7 +14,8 @@ def status(state,stage,progress,**extra):
                                  elapsed=round(time.time()-started,1), **extra))
 
 def linux_path(path):
-    return subprocess.check_output(['wsl.exe','-d',distro,'--exec','wslpath','-a','-u',str(path)],encoding='utf-8').strip()
+    return subprocess.check_output(['wsl.exe','-d',distro,'--exec','wslpath','-a','-u',str(path)],
+                                   encoding='utf-8',timeout=25).strip()
 
 def read_landmark_verification():
     try:

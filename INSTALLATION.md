@@ -323,3 +323,16 @@ isolated API, model/export and MCP checks. The installation manifest pins the ex
 engine archives and downloaded asset hashes. Installer validation does not replace
 trying a full generation and rig on your specific hardware. Report the stage and
 redacted logs when requesting support; do not upload your personal library or tokens.
+# Trusted local HD cache backup
+
+Create the portable collection ZIP from Studio. For each original master that has a local HD cache, run the following command in the Studio folder. Keep the SHA-256 receipt printed by the command separately from the cache copy. Store both on trusted local storage.
+
+```powershell
+.\.venv\Scripts\python.exe installer/hd_cache_backup.py save "D:\TRELLIS Studio\outputs\<master-id>" "E:\StudioBackups\master-cache"
+```
+
+Restore the ZIP in Studio, then attach the verified cache to the newly restored master. The tool compares the restored GLB and cache contents to the saved receipt before publication.
+
+```powershell
+.\.venv\Scripts\python.exe installer/hd_cache_backup.py restore "D:\TRELLIS Studio\outputs\<restored-id>" "E:\StudioBackups\master-cache" --receipt <sha256>
+```

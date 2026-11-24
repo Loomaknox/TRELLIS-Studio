@@ -154,15 +154,22 @@ def posed_bounds(data,binary):
             inverse=accessor(data,binary,skin['inverseBindMatrices']).reshape(-1,4,4).transpose(0,2,1) if 'inverseBindMatrices' in skin else np.tile(np.eye(4),(len(skin['joints']),1,1))
             joints=np.stack([matrix(j) for j in skin['joints']])@inverse
         for primitive in data['meshes'][node['mesh']]['primitives']:
-            attrs=primitive['attributes'];position=accessor(data,binary,attrs['POSITION']);homogeneous=np.column_stack([position,np.ones(len(position))])
-            if skin and 'JOINTS_0' in attrs and 'WEIGHTS_0' in attrs:
-                sets=sorted(int(k.split('_')[1]) for k in attrs if k.startswith('JOINTS_') and 'WEIGHTS_'+k.split('_')[1] in attrs)
-                ids=np.concatenate([accessor(data,binary,attrs[f'JOINTS_{s}']).astype(int) for s in sets],axis=1)
-                weights=np.concatenate([accessor(data,binary,attrs[f'WEIGHTS_{s}']).astype(float) for s in sets],axis=1)
-                weights/=np.maximum(weights.sum(axis=1,keepdims=True),1e-12)
-                transformed=np.einsum('nk,nkij,nj->ni',weights,joints[ids],homogeneous)[:,:3]
-            else:transformed=(homogeneous@transform.T)[:,:3]
-            if len(transformed):low=np.minimum(low,transformed.min(axis=0));high=np.maximum(high,transformed.max(axis=0))
+            attrs=primitive['attributes']
+            total=data['accessors'][attrs['POSITION']]['count']
+            sets=sorted(int(k.split('_')[1]) for k in attrs if k.startswith('JOINTS_') and 'WEIGHTS_'+k.split('_')[1] in attrs)
+            for start in range(0,total,8192):
+                rows=slice(start,min(start+8192,total))
+                position=accessor(data,binary,attrs['POSITION'],rows=rows)
+                homogeneous=np.column_stack([position,np.ones(len(position))])
+                if skin and 0 in sets:
+                    ids=np.concatenate([accessor(data,binary,attrs[f'JOINTS_{s}'],rows=rows) for s in sets],axis=1)
+                    weights=np.concatenate([accessor(data,binary,attrs[f'WEIGHTS_{s}'],rows=rows) for s in sets],axis=1).astype(float)
+                    weights/=np.maximum(weights.sum(axis=1,keepdims=True),1e-12)
+                    transformed=np.einsum('nk,nkij,nj->ni',weights,joints[ids],homogeneous)[:,:3]
+                else:
+                    transformed=(homogeneous@transform.T)[:,:3]
+                low=np.minimum(low,transformed.min(axis=0))
+                high=np.maximum(high,transformed.max(axis=0))
     return low,high
 
 @lru_cache(maxsize=512)

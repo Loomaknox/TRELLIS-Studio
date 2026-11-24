@@ -1288,7 +1288,9 @@ class StudioServices:
                         shutil.copytree(source,destination,dirs_exist_ok=True)
                         for p in [destination/'settings.json',*destination.glob('Revisions/*/settings.json')]:
                             settings=read(p);parent=settings.get('parent_id')
-                            settings.pop('finish_source_id', None)
+                            old_cache=settings.pop('finish_source_id',None)
+                            if isinstance(old_cache,str) and old_cache in mapping:
+                                settings['finish_source_id']=mapping[old_cache]
                             settings.pop('keep_finishing_source', None)
                             rig_source = settings.get('rig_source_id')
                             if isinstance(rig_source, str) and rig_source in mapping:

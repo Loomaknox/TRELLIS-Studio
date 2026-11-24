@@ -30,6 +30,16 @@ New-Item -ItemType Directory -Path $taskLogs -Force | Out-Null
 if (-not (Test-Path -LiteralPath $taskPython)) { throw 'TRELLIS Python environment is missing. See README.md.' }
 if (-not (Test-Path -LiteralPath (Join-Path $taskRoot 'node_modules\three\build\three.module.js'))) { throw '3D viewer dependency is missing. Run npm ci in TRELLIS.' }
 # Wake WSL and probe the private environment; weights load only on demand.
+function Invoke-StudioWslProbe([string[]]$Arguments, [string]$LogName, [int]$TimeoutMs) {
+    $probe = Start-Process -FilePath 'wsl.exe' -ArgumentList $Arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $taskLogs ($LogName+'.log')) -RedirectStandardError (Join-Path $taskLogs ($LogName+'-erreurs.log'))
+    try {
+        if (-not $probe.WaitForExit($TimeoutMs)) {
+            try { $probe.Kill() } catch [System.InvalidOperationException] {}
+            throw 'WSL did not complete the UniRig readiness check in time.'
+        }
+        return $probe.ExitCode
+    } finally { $probe.Dispose() }
+}
 $taskRuntimeError = $null
 try {
     if ((Test-Path -LiteralPath (Join-Path $taskRoot '.trellis-guided-setup')) -or
@@ -41,11 +51,11 @@ try {
     }
     if ((Test-Path -LiteralPath $taskBundle) -and -not (Test-Path -LiteralPath (Join-Path $taskRoot 'UniRig\source'))) { throw 'UniRig is optional. Install it from the Start menu to add rigging.' }
     $taskCheckWindows = Join-Path $taskRoot 'UniRig\check-runtime.sh'
-    $taskPathProcess = Start-Process -FilePath 'wsl.exe' -ArgumentList @('-d', $taskDistro, '--', 'wslpath', '-a', '-u', ('"' + $taskCheckWindows + '"')) -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput (Join-Path $taskLogs 'unirig-chemin.log') -RedirectStandardError (Join-Path $taskLogs 'unirig-chemin-erreurs.log')
+    $taskPathCode = Invoke-StudioWslProbe @('-d', $taskDistro, '--', 'wslpath', '-a', '-u', ('"' + $taskCheckWindows + '"')) 'unirig-chemin' 25000
     $taskCheckLinux = (Get-Content -LiteralPath (Join-Path $taskLogs 'unirig-chemin.log') -Raw).Trim()
-    if ($taskPathProcess.ExitCode -ne 0 -or -not $taskCheckLinux.StartsWith('/')) { throw 'Unable to convert the WSL path.' }
-    $taskCheckProcess = Start-Process -FilePath 'wsl.exe' -ArgumentList @('-d', $taskDistro, '--', 'bash', ('"' + $taskCheckLinux + '"')) -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput (Join-Path $taskLogs 'unirig-demarrage.log') -RedirectStandardError (Join-Path $taskLogs 'unirig-demarrage-erreurs.log')
-    if ($taskCheckProcess.ExitCode -ne 0) {
+    if ($taskPathCode -ne 0 -or -not $taskCheckLinux.StartsWith('/')) { throw 'Unable to convert the WSL path.' }
+    $taskCheckCode = Invoke-StudioWslProbe @('-d', $taskDistro, '--', 'bash', ('"' + $taskCheckLinux + '"')) 'unirig-demarrage' 60000
+    if ($taskCheckCode -ne 0) {
         $taskDiagnostic=Get-Content -LiteralPath (Join-Path $taskLogs 'components.json') -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
         if ($taskDiagnostic.unirig -and -not $taskDiagnostic.unirig.ready -and $taskDiagnostic.unirig.message) {
             throw ('UniRig check failed: '+$taskDiagnostic.unirig.message)

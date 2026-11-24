@@ -579,3 +579,5 @@
 !/installer/requirements-segmentation.txt
 !/tests/segmentation_runtime.py
 !/tests/print_precision.py
+!/tests/maintenance_recovery.py
+!/installer/hd_cache_backup.py

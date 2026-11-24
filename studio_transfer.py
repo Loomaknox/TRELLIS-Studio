@@ -97,6 +97,35 @@ def cleanup_export_staging(task):
         except OSError:complete=False
     return complete
 
+
+def export_staging_inventory(root, active=None):
+    root=staging_directory(root)
+    entries=[]
+    if not root:return entries
+    for task in sorted(root.iterdir()):
+        if not ID.fullmatch(task.name) or task.name==active or staging_directory(task)!=task:continue
+        try:
+            status=read(task/'status.json',{})
+            if status.get('state')!='done' or not (task/'package.zip').is_file():continue
+            for component in ('package','sources'):
+                folder=task/component
+                if staging_directory(folder)!=folder:continue
+                total=count=0
+                members=[]
+                for current,dirs,files in os.walk(folder,followlinks=False):
+                    parent=Path(current)
+                    dirs[:]=[d for d in dirs if staging_directory(parent/d)==parent/d]
+                    for name in files:
+                        path=parent/name
+                        if path.resolve()==path and path.is_file():
+                            size=path.stat().st_size
+                            total+=size
+                            count+=1
+                            if len(members)<250:members.append(dict(path=path.relative_to(folder).as_posix(),bytes=size))
+                entries.append(dict(export_id=task.name,path=component,bytes=total,files=count,members=members))
+        except (ValueError,OSError):continue
+    return entries
+
 def published_export(task,request):
     """Recover the short gap between the worker's validated ZIP rename and status write."""
     path=task/'package.zip'
@@ -145,6 +174,34 @@ def export_lineage(folder, settings):
     return dict(chain=[row[0] for row in ancestors], status=status, ancestor=receipt)
 
 
+def release_export_copy(task, collection, component):
+    """Release an explicitly selected legacy copy only while an identical original exists."""
+    task=staging_directory(task)
+    collection=staging_directory(collection)
+    if not task or not collection or component not in ('package','sources'):raise ValueError('Invalid export copy.')
+    source=task/component
+    if (read(task/'status.json',{}).get('state')!='done' or staging_directory(source)!=source or
+            (task/'package.zip').resolve()!=task/'package.zip'):
+        raise ValueError('Export copy is unavailable or active.')
+    with zipfile.ZipFile(task/'package.zip') as archive:
+        if archive.testzip() is not None:raise ValueError('Export ZIP failed its integrity check.')
+        for path in source.rglob('*'):
+            if path.resolve()!=path:raise ValueError('Redirected export copy.')
+            if path.is_dir():continue
+            relative=path.relative_to(source)
+            if component=='package':
+                try:
+                    with archive.open(relative.as_posix()) as stream:
+                        expected=hashlib.file_digest(stream,'sha256').hexdigest()
+                except KeyError as error:raise ValueError('This file has no verified archived copy.') from error
+            else:
+                original=collection/relative
+                if not ID.fullmatch(relative.parts[0]) or original.resolve()!=original or not original.is_file():
+                    raise ValueError('This source copy has no verified original in the collection.')
+                expected=digest(original)
+            if digest(path)!=expected:raise ValueError('Export copy differs from the preserved original.')
+    shutil.rmtree(source)
+
 def snapshot_export(assets,task,target,include_revisions):
     if target=='library':
         files,total=collection_inventory([folder for folder,_ in assets],include_revisions)
@@ -185,6 +242,7 @@ def build(sources,destination,workspace,profiles,include_revisions=False,notify=
         for index,folder in enumerate(folders):
             settings=validate_model(folder);metadata=read(folder/'metadata.json',{})
             manifest['models'].append(dict(id=folder.name,name=metadata.get('display_name',settings['name']),parent_id=settings.get('parent_id','')))
+            manifest['models'][-1]['hd_cache_included']=False
             for path in members[folder]:
                 relative=path.relative_to(folder)
                 file='models/'+folder.name+'/'+relative.as_posix()

@@ -14,7 +14,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
-from collection_sync import CollectionHistory, index as collection_index
+from collection_sync import CollectionHistory
 from collection_preview import CollectionPreviews, preview_image, preview_record
 from generation_options import (normalize_options, options_for_job, schema as generation_schema,
                                 DEFAULT_PROFILE, DEFAULT_GENERATION, GENERATION_PRESETS, GAME_D_ADVANCED, PROFILE_ADVANCED,
@@ -135,6 +135,8 @@ async def lifespan(app):
                 except (OSError, ValueError) as error:
                     print(f'Unable to recover the animation update for {folder.name}: {error}', file=sys.stderr)
     await STUDIO.start()
+    from collection_preview_renderer import cleanup_orphan_profiles
+    await asyncio.to_thread(cleanup_orphan_profiles)
     COLLECTION_PREVIEWS.start()
     try:
         yield
@@ -416,7 +418,7 @@ def status(collection_hint: bool = False):
     }
     usage = resources(ROOT, OUTPUT)
     multiview, ultratex = multiview_texture_capability(), ultratex_texture_capability()
-    return dict(**({'collection_revision': collection_index(OUTPUT)[0]} if collection_hint else {}),
+    return dict(**({'collection_revision': COLLECTION_HISTORY.hint(OUTPUT)} if collection_hint else {}),
                 ready=ready, gpu=GPU_DESCRIPTION, ram_free_gib=usage['ram_free_gib'], resources=usage,
                 preview_active=COLLECTION_PREVIEWS.rendering,
                 active=ACTIVE if PROCESS is not None and PROCESS.poll() is None else TERRAIN_ACTIVE,
@@ -1478,6 +1480,24 @@ async def export_preflight(request: Request):
                 raise HTTPException(422, f'Could not check {name}: {error}')
     return dict(target=target, budget=budget, models=reports)
 
+
+@app.get('/api/exports/staging-inventory')
+async def staging_inventory():
+    from studio_transfer import export_staging_inventory
+    active=EXPORT_TASK if EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None else None
+    entries=await asyncio.to_thread(export_staging_inventory,EXPORT_ROOT,active)
+    return dict(entries=entries,total_bytes=sum(item['bytes'] for item in entries))
+
+@app.post('/api/exports/{identifier}/release-copy/{component}')
+async def release_staging(identifier:str,component:str):
+    import zipfile
+    from studio_transfer import release_export_copy
+    async with LOCK:
+        if EXPORT_TASK==identifier and EXPORT_PROCESS is not None and EXPORT_PROCESS.poll() is None:
+            raise HTTPException(409,'This export is active.')
+        try:await asyncio.to_thread(release_export_copy,export_folder(identifier),OUTPUT,component)
+        except (OSError,ValueError,zipfile.BadZipFile) as error:raise HTTPException(409,str(error)) from None
+    return dict(released=True)
 
 @app.post('/api/exports',status_code=202)
 async def create_export(request: Request):

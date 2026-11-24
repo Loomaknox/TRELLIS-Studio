@@ -1,6 +1,6 @@
 """Resumable Windows installation. Uses only the standard library until venvs exist."""
 from pathlib import Path,PurePosixPath
-import argparse,hashlib,json,os,platform,shutil,subprocess,sys,tempfile,time,urllib.request,zipfile
+import argparse,hashlib,json,os,platform,re,shutil,subprocess,sys,tempfile,time,urllib.error,urllib.request,zipfile
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
@@ -32,15 +32,32 @@ def fetch(entry,target,*,root=ROOT):
     for attempt in range(4):
         try:
             offset=part.stat().st_size if part.exists() else 0
-            request=urllib.request.Request(entry['url'],headers={'User-Agent':'TRELLIS-Studio/3.1','Range':f'bytes={offset}-'})
+            expected=entry.get('bytes')
+            if expected and offset>=expected:
+                part.unlink()
+                offset=0
+            headers={'User-Agent':'TRELLIS-Studio/3.1'}
+            if offset:headers['Range']=f'bytes={offset}-'
+            request=urllib.request.Request(entry['url'],headers=headers)
             with urllib.request.urlopen(request,timeout=120) as response:
                 append=offset>0 and response.status==206
+                if response.status==206:
+                    span=re.fullmatch(r'bytes (\d+)-(\d+)/(\d+|\*)',response.headers.get('Content-Range',''))
+                    if not span or int(span[1])!=offset or int(span[2])<offset or (expected and span[3]!=str(expected)):
+                        part.unlink(missing_ok=True)
+                        raise RuntimeError('Unexpected download range: '+target.name)
                 print('Downloading:',target.name,('(resuming)' if append else ''),flush=True)
                 with part.open('ab' if append else 'wb') as out:
                     shutil.copyfileobj(response,out,8*1024**2)
             if entry.get('bytes') and part.stat().st_size!=entry['bytes']:raise RuntimeError('Incomplete download: '+target.name)
-            if digest(part)!=entry['sha256']:raise RuntimeError('Checksum mismatch. Remove this .part file before retrying: '+str(part))
+            if digest(part)!=entry['sha256']:
+                part.unlink()
+                raise RuntimeError('Download checksum mismatch: '+target.name)
             part.replace(target);return
+        except urllib.error.HTTPError as error:
+            if error.code==416:part.unlink(missing_ok=True)
+            if attempt==3:raise
+            time.sleep(2)
         except Exception:
             if attempt==3:raise
             time.sleep(2)
