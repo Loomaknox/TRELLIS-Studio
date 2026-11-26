@@ -580,6 +580,8 @@ def run_profile(image_path, output_path, job_dir, options=None, progress=None, *
 
     if not torch.cuda.is_available():
         raise RuntimeError('The native High Detail profile requires CUDA.')
+    from gpu_runtime import configure_attention
+    configure_attention(torch)
     destination.parent.mkdir(parents=True, exist_ok=True)
     progress('Preparing the reference image', 42 if use_pixal else 8)
     reference = _prepare_image(ref, **stages['12'])
