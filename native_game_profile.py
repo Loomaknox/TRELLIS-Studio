@@ -9,6 +9,7 @@ import subprocess
 
 from native_game_geometry import finish_geometry, runtime_status as finishing_status
 from native_pixal3d import generate_pixal3d_geometry, runtime_status as geometry_status
+from studio_model_assets import model_asset_path
 
 
 ROOT = Path(__file__).resolve().parent
@@ -24,7 +25,9 @@ def texture_runtime_status():
         return {'available': False, 'reason': 'The standalone UltraTex runtime is still being prepared.'}
     try:
         models = json.loads((TEXTURE / 'model-manifest.json').read_text(encoding='utf-8'))
-        if len(models) != 6 or not all((TEXTURE_MODELS / entry['path']).stat().st_size == entry['bytes'] for entry in models):
+        if len(models) != 6 or not all(
+            model_asset_path(ROOT, 'native-ultratex', entry['path']).stat().st_size == entry['bytes'] for entry in models
+        ):
             raise ValueError
     except (OSError, KeyError, ValueError, TypeError):
         return {'available': False, 'reason': 'Install the verified local UltraTex model files.'}
@@ -100,9 +103,13 @@ def run_profile(image_path, output_path, job_dir, options=None, progress=None):
         raw_mesh = scratch / 'decoded.npz'
         np.savez(raw_mesh, vertices=vertices, faces=faces)
         del vertices, faces
-        milestones = iter((55, 61, 67, 74, 78, 81))
+        quad_percent = 55
+        wtivo_percent = 61
+        milestones = iter((quad_percent, wtivo_percent, 67, 74, 78, 81))
         normal_mesh, finish = finish_geometry(raw_mesh, scratch / 'finishing',
-                                              lambda label: progress(label, next(milestones, 81)), options=options)
+                                              lambda label: progress(label, next(milestones, 81)), options=options,
+                                              quad_progress=lambda label: progress(label, quad_percent),
+                                              wtivo_progress=lambda label: progress(label, wtivo_percent))
         texture = texture_mesh(normal_mesh, reference, mask, output, scratch / 'texture',
                                lambda label: progress(label, 84), options=options)
     name = 'PiXal3D' if backend == 'pixal3d' else 'TRELLIS.2'

@@ -499,7 +499,6 @@ class StudioServices:
                 raise HTTPException(409, 'Choose a current generation profile to run a new job.')
             if set(changes) - {'height_m', 'priority', 'workflow_options'}:
                 raise ValueError('Use the workflow advanced settings to adjust this recipe.')
-            self.g['require_workflow'](workflow_id)
             height = changes.get('height_m', saved['height_m'])
             priority = changes.get('priority', priority)
             if type(height) not in (int, float) or not .01 <= height <= 100:
@@ -897,9 +896,22 @@ class StudioServices:
                 for file,spec in zip(images,specs):
                     profile=profiles.get(spec.get('profile_id','game_d'))
                     if not profile:raise HTTPException(400,'Profile not found.')
-                    s=profile['settings'];params=dict(name=spec.get('name',Path(file.filename or 'Model').stem),preset=s['preset'],height_m=spec.get('height_m',1),seed=spec.get('seed',42),remove_bg=spec.get('remove_bg',s['remove_bg']),triangles=spec.get('triangles',s['triangles']),asset_type=spec.get('asset_type','object'),texture_size=spec.get('texture_size',s['texture_size']),reference_prompt=spec.get('reference_prompt',''),resolution=spec.get('resolution',s['resolution']),advanced_settings=json.dumps(spec.get('advanced_settings',s['advanced'])),profile_id=profile['id'],parent_id=spec.get('parent_id',''),queue_only=True,queue_priority=spec.get('priority',0),queue_hold=True,keep_finishing_source=spec.get('keep_finishing_source',profile.get('keep_finishing_source',False)))
-                    if profile['id'] in STANDALONE_PROFILES:
-                        params['seed'] = spec.get('seed')
+                    s = profile['settings']
+                    standalone = s['preset'] in STANDALONE_PROFILES
+                    base = (dict(seed=None, remove_bg=True, triangles=0, texture_size=0,
+                                 resolution=None, advanced_settings={}, texture_method=None) if standalone else
+                            dict(seed=42, remove_bg=s['remove_bg'], triangles=s['triangles'],
+                                 texture_size=s['texture_size'], resolution=s['resolution'],
+                                 advanced_settings=s['advanced'], texture_method=s.get('texture_method')))
+                    params = dict(name=spec.get('name', Path(file.filename or 'Model').stem), preset=s['preset'],
+                                  height_m=spec.get('height_m', 1), asset_type=spec.get('asset_type', 'object'),
+                                  reference_prompt=spec.get('reference_prompt', ''), profile_id=profile['id'],
+                                  parent_id=spec.get('parent_id', ''), queue_only=True,
+                                  queue_priority=spec.get('priority', 0), queue_hold=True,
+                                  keep_finishing_source=spec.get('keep_finishing_source',
+                                                                 profile.get('keep_finishing_source', False)))
+                    params.update({key: spec.get(key, default) for key, default in base.items()})
+                    params['advanced_settings'] = json.dumps(params['advanced_settings'])
                     if 'workflow_options' in spec:
                         params['workflow_options'] = json.dumps(spec['workflow_options'], allow_nan=False)
                     params['repair_surface'] = spec.get('repair_surface', False)
@@ -913,7 +925,6 @@ class StudioServices:
                         multiview_texture = (s.get('multiview_texture_refinement', False)
                                              and self.g['multiview_texture_capability']()['available'])
                     params['multiview_texture_refinement'] = multiview_texture
-                    params['texture_method'] = spec.get('texture_method', s.get('texture_method'))
                     if 'multiview_texture_refinement' in spec and 'texture_method' not in spec:
                         params['texture_method'] = None
                     params['reproject_face'] = spec.get('reproject_face', False)

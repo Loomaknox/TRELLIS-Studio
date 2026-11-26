@@ -5,6 +5,8 @@ import math
 import os
 from pathlib import Path
 
+from studio_model_assets import model_asset_path
+
 VIEW_FILES = {
     'front': 'input.png',
     'left': 'input-left.png',
@@ -33,6 +35,10 @@ def load_manifest(studio_root):
 
 def source_path(directory, manifest):
     return directory / ('ComfyUI-' + manifest['comfy']['commit'])
+
+
+def weight_path(studio_root, relative):
+    return model_asset_path(studio_root, 'pixal3d', relative, directory=runtime_root(studio_root) / 'models')
 
 
 def single_image_marker(manifest):
@@ -66,7 +72,7 @@ def runtime_status(studio_root):
                        'model_revision': manifest['weights_revision']}
             and (source_path(directory, manifest) / 'comfy_extras' / 'nodes_trellis2.py').is_file()
             and (directory / 'deps' / 'comfy_kitchen').is_dir()
-            and all((directory / 'models' / item['path']).stat().st_size == item['bytes']
+            and all(weight_path(studio_root, item['path']).stat().st_size == item['bytes']
                     for item in manifest['weights'])
         )
     except (OSError, ValueError, KeyError, TypeError):
@@ -77,7 +83,7 @@ def runtime_status(studio_root):
             single_image_ready = (
                 marker == single_image_marker(manifest)
                 and (source_path(directory, manifest) / 'comfy' / 'ldm' / 'moge' / 'model.py').is_file()
-                and all((directory / 'models' / item['path']).stat().st_size == item['bytes']
+                and all(weight_path(studio_root, item['path']).stat().st_size == item['bytes']
                         for item in manifest['single_image_weights'])
             )
         except (OSError, ValueError, KeyError, TypeError):

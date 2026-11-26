@@ -28,6 +28,7 @@
 !/creature_swim_skin.py
 !/creature_motion.py
 !/studio_release.py
+!/studio_model_assets.py
 !/asset_taxonomy.py
 !/asset_work.py
 !/export_blender.py
@@ -528,6 +529,7 @@
 !/web/standard-workflow-graph.js
 !/native_ultratex/
 /native_ultratex/*
+!/native_ultratex/dependencies.py
 !/native_ultratex/native_ultratex_models.py
 !/native_ultratex/existing_mesh.py
 !/native_ultratex/native_ultratex_recipe.py
@@ -570,3 +572,6 @@
 !/tests/facial_head_installer.py
 !/docs/FACIAL_HEAD.md
 !/tests/workspace_recovery.py
+
+
+!/docs/RELEASE_3.15.2.md

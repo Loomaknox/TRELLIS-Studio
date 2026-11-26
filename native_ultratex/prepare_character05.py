@@ -8,10 +8,10 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 NATIVE_RUNTIME = ROOT / 'runtime/native-game-texture'
-native_deps = NATIVE_RUNTIME / 'deps'
-if not native_deps.is_dir():
-    raise RuntimeError('The standalone UltraTex dependencies are missing.')
-sys.path[:0] = [str(ROOT), str(native_deps)]
+sys.path.insert(0, str(ROOT))
+from native_ultratex.dependencies import dependency_paths
+
+sys.path[1:1] = [str(path) for path in dependency_paths(ROOT)]
 
 import numpy as np
 from PIL import Image, ImageOps

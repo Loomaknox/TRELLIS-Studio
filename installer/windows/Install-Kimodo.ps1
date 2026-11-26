@@ -6,6 +6,7 @@ param(
     [switch]$AcceptModelLicenses
 )
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'Setup-Preflight.ps1')
 
 function Get-KimodoWslDistributions {
     $taskRegistry='HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'
@@ -21,35 +22,8 @@ function Get-KimodoWslDistributions {
 
 function Test-KimodoWslArchitecture([string]$Executable,[string]$Distribution,[int]$TimeoutMilliseconds=20000) {
     if ($Distribution -notmatch '^[A-Za-z0-9_.-]{1,80}$') { return $false }
-    $taskProbe=$null
-    try {
-        # Own the process handle before waiting. Start-Process can return a Process
-        # whose ExitCode stays null after WaitForExit on Windows PowerShell 5.1.
-        $taskStart=New-Object System.Diagnostics.ProcessStartInfo
-        $taskStart.FileName=$Executable
-        $taskStart.Arguments='-d "'+$Distribution+'" --exec uname -m'
-        $taskStart.UseShellExecute=$false
-        $taskStart.CreateNoWindow=$true
-        $taskStart.RedirectStandardOutput=$true
-        $taskStart.RedirectStandardError=$true
-        $taskProbe=New-Object System.Diagnostics.Process
-        $taskProbe.StartInfo=$taskStart
-        if (-not $taskProbe.Start()) { return $false }
-        $taskOutput=$taskProbe.StandardOutput.ReadToEndAsync()
-        $taskError=$taskProbe.StandardError.ReadToEndAsync()
-        if (-not $taskProbe.WaitForExit($TimeoutMilliseconds)) {
-            # Only this short-lived uname probe is stopped, never the distribution.
-            $taskProbe.Kill(); $taskProbe.WaitForExit()
-            return $false
-        }
-        $taskProbe.WaitForExit()
-        $taskArchitecture=$taskOutput.GetAwaiter().GetResult().Replace([string][char]0,'').Trim()
-        $null=$taskError.GetAwaiter().GetResult()
-        return $taskProbe.ExitCode -eq 0 -and $taskArchitecture -eq 'x86_64'
-    } catch { return $false }
-    finally {
-        if ($taskProbe) { $taskProbe.Dispose() }
-    }
+    $taskProbe=Invoke-SetupProcess -FilePath $Executable -Arguments @('-d',$Distribution,'--exec','uname','-m') -TimeoutSeconds ([Math]::Max(1,[int][Math]::Ceiling($TimeoutMilliseconds / 1000.0)))
+    return $taskProbe.ExitCode -eq 0 -and ($taskProbe.Output.Replace([string][char]0,'').Trim() -eq 'x86_64')
 }
 
 function Resolve-KimodoDistribution([string]$Root,[string]$Requested) {

@@ -42,7 +42,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
   let detailTexturing={};
   let textureSupport={},preferredTextureMethod='trellis',ultraAtlas=null;
   let startupProfile='', refinementInputs=null, standardFinishing='', pixalFallback=false, pixalAtlas=null;
-  let workflowFields, standardGraph, standardGraphKey;
+  let workflowFields, savedWorkflowValues, standardGraph, standardGraphKey;
   const workflowBox=$('workflowAdvancedControls');
   function removeStandardGraph() {
     standardGraph?.remove();
@@ -87,17 +87,17 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       remove_bg:$('removeBg').checked,advanced:options,
     };
   }
-  function budget(recipe){
+  function budget(recipe, workflowValues){
     const workflow=selected?.workflow;
     if(!recipe&&workflow){
-      const values=workflowFields?.read();
-      if(selected.id==='high_detail_native'&&values)return {
+      const values=workflowValues||workflowFields?.read();
+      if(selected.settings.preset==='high_detail_native'&&values)return {
         resolution:parseInt(values['17'].pipeline_type,10)||workflow.resolution,
         texture_size:values['25'].texture_method==='ultratex' ? values['25'].ultratex_size :
           values['25'].bake_on_vertices ? 0 : (values['25'].texture_size||workflow.texture_size),
         triangles:values['22'].target_face_num||workflow.target_faces,
       };
-      if(selected.id==='game_asset_native'&&values)return {
+      if(selected.settings.preset==='game_asset_native'&&values)return {
         resolution:Number(values['94'].target_resolution)||workflow.resolution,
         texture_size:values['377'].texture_size||workflow.texture_size,
         triangles:values['335'].target_tris||workflow.target_faces,
@@ -149,10 +149,13 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     return copy;
   }
   const equal=(a,b)=>{const x=resolved(a),y=resolved(b);return Object.keys(x).every(k=>k==='advanced'?Object.keys(x[k]).every(f=>x[k][f]===y[k][f]):x[k]===y[k]);};
+  const canSaveProfile=()=>selected&&(selected.workflow ? selected.workflow.custom_profiles===true : advanced.ready);
   function syncProfileActions(dirty){
     const workflow=selected.workflow;
-    $('saveProfileAs').hidden=!!workflow;
-    $('updateProfile').hidden=selected.builtin||!!workflow;
+    const unsupportedWorkflow=!!workflow&&!canSaveProfile();
+    $('saveProfileAs').hidden=unsupportedWorkflow;
+    $('saveProfileAs').disabled=!canSaveProfile();
+    $('updateProfile').hidden=selected.builtin||unsupportedWorkflow;
     $('deleteProfile').hidden=selected.builtin||!selected.id;
     const startup=$('useProfileAtStartup');
     const isStartup=selected.id===startupProfile;
@@ -169,7 +172,8 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     $('resetAdvanced').textContent=workflow?'Reset workflow settings':'Reset profile settings';
     $('seed').disabled=!!workflow;
     if(!workflow)return;
-    const method=workflowFields?.read()['25']?.texture_method || selected.settings.texture_method;
+    const values=workflowFields?.read();
+    const method=values?.['25']?.texture_method || selected.settings.texture_method;
     const texture=method==='ultratex'?'UltraTex':'TRELLIS.2 PBR';
     const status=$('generationProfileStatus');
     const message=workflow.available===true ? selected.description : workflow.reason;
@@ -183,12 +187,16 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     $('textureSize').disabled=true;
     $('triangles').disabled=true;
     $('profileId').value=selected.id;
-    $('profileState').hidden=true;
-    const {resolution,texture_size,triangles}=budget();
+    const dirty=Object.entries(values||{}).some(([stage,fields])=>
+      Object.entries(fields).some(([name,value])=>name!=='seed'&&value!==savedWorkflowValues?.[stage]?.[name]));
+    $('profileState').textContent=dirty?t('MODIFIED'):'';
+    $('profileState').hidden=!dirty;
+    $('profileState').classList.toggle('dirty',dirty);
+    const {resolution,texture_size,triangles}=budget(undefined,values);
     const meshSummary=triangles>0?`${number.format(triangles)} target triangles`:'Dense mesh';
     $('profileSummary').textContent=`${resolution}³ · ${meshSummary} · ${texture_size ? `${texture} ${texture_size/1024}K` : 'Vertex colours'}`;
     $('generationSummary').textContent=`${selected.name} · ${$('profileSummary').textContent}`;
-    syncProfileActions(false);
+    syncProfileActions(dirty);
   }
   function syncFacialHead(finishing) {
     const field=$('facialHeadField');
@@ -379,12 +387,20 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     }else removeStandardGraph();
   }
   function apply(id){
-    selected=profiles.find(p=>p.id===id);if(!selected)return;
+    const profile=profiles.find(p=>p.id===id);if(!profile)return;
+    const sameWorkflow=profile.workflow&&selected?.workflow&&profile.settings.preset===selected.settings.preset;
+    const currentValues=sameWorkflow?workflowFields?.read():null;
+    selected=profile;
     $('profileChoice').querySelector('[data-variant]')?.remove();
     const s=selected.settings;
     facialHead.checked=false;
     if(selected.workflow){
-      showWorkflowFields(selected);
+      const values={...s.workflow_options};
+      for(const [stage,fields] of Object.entries(currentValues||{})){
+        if(fields.seed!==undefined)values[stage]={...values[stage],seed:fields.seed};
+      }
+      showWorkflowFields(selected,values);
+      savedWorkflowValues=workflowFields.read();
       $('preset').value=s.preset;
       $('profileChoice').value=id;
       $('profileNotice').textContent='';
@@ -392,7 +408,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       return;
     }
     workflowFields?.closeGraph();
-    workflowFields=null;
+    workflowFields=savedWorkflowValues=null;
     workflowBox.replaceChildren();
     refinementInputs=null;
     pixalFallback=false;
@@ -438,7 +454,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     try{saved=localStorage.getItem(startupKey);}catch{}
     startupProfile=availableProfile(saved,serverStartup);
     options();apply(startupProfile);
-    $('profileChoice').disabled=false;$('saveProfileAs').disabled=!advanced.ready;
+    $('profileChoice').disabled=false;
   }catch(e){$('profileNotice').textContent=e.message+' '+t('Restart TRELLIS if needed.');}
   $('profileChoice').onchange=()=>apply($('profileChoice').value);
   $('useProfileAtStartup').onclick=()=>{
@@ -467,7 +483,15 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     $('denseMasterFinishing').focus();
   });
   $('profileBase').addEventListener('change',()=>{$('preset').value=$('profileBase').value;sync();});
-  function show(update){if(!selected||selected.workflow)return;edit=update;$('profileName').value=update?selected.name:'';$('profileDialogTitle').textContent=update?t('Edit this profile'):t('Save a copy');$('profileDialogError').textContent='';$('profileDialog').showModal();$('profileName').focus();}
+  function show(update){
+    if(!canSaveProfile()||update&&selected.builtin)return;
+    if(selected.workflow&&!workflowFields?.validate())return;
+    edit=update;
+    $('profileName').value=update?selected.name:'';
+    $('profileDialogTitle').textContent=update?t('Edit this profile'):t('Save a copy');
+    $('profileDialogError').textContent='';
+    $('profileDialog').showModal();$('profileName').focus();
+  }
   $('saveProfileAs').onclick=()=>show(false);$('updateProfile').onclick=()=>show(true);
   $('closeProfile').onclick=()=>$('profileDialog').close();
   const deleteDialog=$('deleteProfileDialog');
@@ -506,14 +530,18 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     }
   };
   $('profileForm').onsubmit=async e=>{
-    e.preventDefault();if(saving||!selected||selected.workflow)return;
-    const invalid=[...$('form').querySelectorAll('input[type=number]')].find(x=>!x.checkValidity());
-    if(invalid){$('profileDialogError').textContent=t('Correct the numeric fields before saving the profile.');return;}
+    e.preventDefault();if(saving||!canSaveProfile()||edit&&selected.builtin)return;
+    const valid=selected.workflow ? workflowFields?.validate()
+      : [...$('form').querySelectorAll('input[type=number]')].every(input=>input.checkValidity());
+    if(!valid){$('profileDialogError').textContent=t('Correct the generation settings before saving the profile.');return;}
+    const settings=selected.workflow
+      ? {preset:selected.settings.preset,workflow_options:workflowFields.read()}
+      : profileRecipe();
     saving=true;$('confirmProfile').disabled=true;
     try{
-      const profile=await request(edit?`/api/profiles/${selected.id}`:'/api/profiles',{
+      const profile=await request(edit?`/api/profiles/${encodeURIComponent(selected.id)}`:'/api/profiles',{
         method:edit?'PUT':'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({name:$('profileName').value,settings:profileRecipe()})});
+        body:JSON.stringify({name:$('profileName').value,settings})});
       loadCatalogue(await request('/api/profiles'));options();apply(profile.id);
       $('profileDialog').close();$('profileNotice').textContent=t('Profile saved on this computer.');
     }catch(e){$('profileDialogError').textContent=e.message;}
@@ -575,9 +603,12 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     closeWorkflowGraph(){workflowFields?.closeGraph();standardGraph?.close();},
     restoreWorkflow(settings){
       const previous=settings.profile?.id||settings.workflow_id;
-      const id=restoredWorkflows[previous]||previous;
-      if(!profiles.some(profile=>profile.id===id&&profile.workflow))return false;
-      apply(id);
+      const base=restoredWorkflows[settings.workflow_id]||settings.workflow_id;
+      const candidates=[restoredWorkflows[previous]||previous,base];
+      const profile=candidates.map(id=>profiles.find(candidate=>candidate.id===id&&candidate.workflow))
+        .find(candidate=>candidate&&(!base||candidate.settings.preset===base));
+      if(!profile)return false;
+      apply(profile.id);
       if(settings.workflow_options){
         showWorkflowFields(selected,settings.workflow_options);
         sync();

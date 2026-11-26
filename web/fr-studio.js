@@ -181,6 +181,7 @@ export default {
   "My profiles": "Mes profils",
   "Startup profile saved for this browser.": "Profil de démarrage enregistré pour ce navigateur.",
   "This browser could not save the startup profile.": "Le navigateur n’a pas pu enregistrer le profil de démarrage.",
+  "Correct the generation settings before saving the profile.": "Corrigez les paramètres de génération avant d’enregistrer le profil.",
   "Correct the numeric fields before saving the profile.": "Corrigez les champs numériques avant d’enregistrer le profil.",
   "Profile saved on this computer.": "Profil enregistré sur cet ordinateur.",
   "Variant": "Variante",

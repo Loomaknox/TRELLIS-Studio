@@ -15,6 +15,7 @@ from time import perf_counter
 WTIVO_RESOLUTION = 1024
 WTIVO_REVISION = 'fb9e9ea6a7deec965d3a4bf43ba7a4a9ff3856f3'
 WTIVO_PROXY_POINTS = 12_000_000
+WTIVO_TIMEOUT_MINUTES = 40
 WTIVO_OUTPUT_BYTES = 768 * 1024**2
 RUNTIME_HINT = 'Configure the optional external WTiVo runtime in config/wtivo-runtime.json.'
 PINNED_FILES = {
@@ -28,6 +29,13 @@ PINNED_FILES = {
 }
 AUDIT = re.compile(r'^\[FINAL\] watertight=(True|False) \| bad_edge_groups=(\d+) '
                    r'\| native_edge_watertight=(True|False) \| trimesh_closed=(True|False)$', re.MULTILINE)
+PROGRESS_STAGES = {
+    b'Tetrahedralizing + exporting neighbors': 'Building tetrahedra',
+    b'[WTiVo-Timing] tetrahedralize+neighbors:': 'Sampling the volume',
+    b'Graph cutting (': 'Separating the inside and outside',
+    b'[WTiVo-OpenVDB] thin-final indexed input': 'Rebuilding the closed surface',
+    b'WTiVo FINAL WATERTIGHT RESULT': 'Validating the closed surface',
+}
 
 
 @dataclass(frozen=True)
@@ -48,6 +56,48 @@ def _print_runtime_log(output, *directories):
     for path in directories:
         output = output.replace(str(path), path.name).replace(path.as_posix(), path.name)
     print(output, end='' if output.endswith('\n') else '\n', flush=True)
+
+
+def _run_with_progress(command, work, env, progress, *, timeout, refresh_seconds=15):
+    """Read stage markers while also enforcing a deadline during silent native calls."""
+    log = work / 'runtime.log'
+    stage = 'Preparing the volume and proxy points'
+    pending = b''
+    timed_out = False
+    with (log.open('wb') as output, log.open('rb') as reader,
+          subprocess.Popen(command, cwd=work, env=env, stdout=output, stderr=subprocess.STDOUT,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)) as process):
+        started = next_update = perf_counter()
+        try:
+            while process.poll() is None:
+                now = perf_counter()
+                if now >= started + timeout:
+                    timed_out = True
+                    break
+                previous = stage
+                lines = (pending + reader.read()).split(b'\n')
+                pending = lines.pop()
+                for line in lines:
+                    for marker, name in PROGRESS_STAGES.items():
+                        if line.lstrip().startswith(marker):
+                            stage = name
+                            break
+                if stage != previous or now >= next_update:
+                    minutes, seconds = divmod(int(now - started), 60)
+                    progress(f'WTiVo · {stage} · {minutes}m {seconds:02d}s elapsed · {timeout // 60}m limit')
+                    next_update = now + refresh_seconds
+                try:
+                    process.wait(timeout=min(1, max(0, started + timeout - perf_counter())))
+                except subprocess.TimeoutExpired:
+                    pass
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+    data = log.read_bytes()
+    if timed_out:
+        raise subprocess.TimeoutExpired(command, timeout, output=data)
+    return subprocess.CompletedProcess(command, process.returncode, data.decode('utf-8', errors='replace'))
 
 
 def validate_wtivo_recipe(enabled, resolution, *, refinish=True, hd_reconstruction=False,
@@ -129,7 +179,7 @@ def _check_mesh(vertices, faces):
 
 
 def reconstruct(root, job, vertices, faces, *, grid=WTIVO_RESOLUTION, component_mode='keep_all',
-                options=None):
+                options=None, progress=None):
     """Run pinned WTiVo on copies of geometry in the original decoded coordinates."""
     import numpy as np
 
@@ -170,13 +220,17 @@ def reconstruct(root, job, vertices, faces, *, grid=WTIVO_RESOLUTION, component_
         # Use only the host's native runtime and this job's temporary directory.
         env = {**os.environ, 'WTIVO_SUBPROCESS': '1', 'TEMP': str(work), 'TMP': str(work),
                'CUDA_CACHE_PATH': str(work / 'cuda')}
+        timeout = WTIVO_TIMEOUT_MINUTES * 60
         try:
-            process = subprocess.run(command, cwd=work, env=env, timeout=1800, stdout=subprocess.PIPE,
-                                     stderr=subprocess.STDOUT, encoding='utf-8', errors='replace',
-                                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            if progress is None:
+                process = subprocess.run(command, cwd=work, env=env, timeout=timeout, stdout=subprocess.PIPE,
+                                         stderr=subprocess.STDOUT, encoding='utf-8', errors='replace',
+                                         creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            else:
+                process = _run_with_progress(command, work, env, progress, timeout=timeout)
         except subprocess.TimeoutExpired as error:
             _print_runtime_log(error.stdout, runtime.source, runtime.python.parent.parent, work)
-            raise WTiVoTimeout(f'WTiVo exceeded 30 minutes at {grid} → {final_grid}. '
+            raise WTiVoTimeout(f'WTiVo exceeded {WTIVO_TIMEOUT_MINUTES} minutes at {grid} → {final_grid}. '
                                'Try smaller WTiVo grids or fewer proxy points.') from None
         except OSError as error:
             raise ValueError('Unable to start the configured WTiVo runtime.') from error

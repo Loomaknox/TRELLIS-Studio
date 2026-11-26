@@ -9,6 +9,8 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 
+from studio_model_assets import model_asset_path
+
 
 ROOT = Path(__file__).resolve().parent
 CONFIG = ROOT / 'config/native-pixal3d.json'
@@ -43,7 +45,9 @@ def _config(backend, *, mask_only=False):
             raise ValueError('The pinned local BiRefNet foreground checkpoint is missing.')
         return paths
     weights = [CHECKPOINTS[backend], SHAPE_VAE, VISION, BIREFNET] + ([MOGE] if backend == 'pixal3d' else [])
-    if not all((paths['weights'] / weight).is_file() for weight in weights):
+    paths['weight_files'] = {name: model_asset_path(ROOT, 'native-pixal3d', name, directory=paths['weights'])
+                             for name in weights}
+    if not all(weight.is_file() for weight in paths['weight_files'].values()):
         raise ValueError('A local checkpoint is missing for the selected geometry engine.')
     if not (paths['architecture'] / 'native_shape_architecture/model.py').is_file():
         raise ValueError('The portable shape architecture is missing.')
@@ -168,8 +172,8 @@ def _compute(image_path, paths, backend, options, report, mask_output=None, trac
     device = torch.device('cuda')
     dtype = torch.bfloat16
     projected = backend == 'pixal3d'
-    weights = paths['weights']
-    checkpoint = weights / CHECKPOINTS[backend]
+    weights = paths['weight_files']
+    checkpoint = weights[CHECKPOINTS[backend]]
     started = perf_counter()
     print(f'Native {backend} shape generation using Torch {torch.__version__}', flush=True)
 
@@ -200,7 +204,7 @@ def _compute(image_path, paths, backend, options, report, mask_output=None, trac
         delattr(vae, 'shape_dec' if included == 'struct_dec' else 'struct_dec')
         vae.resolution = torch.tensor(1024.0)
         from safetensors import safe_open
-        with safe_open(weights / SHAPE_VAE, framework='pt', device='cpu') as source:
+        with safe_open(weights[SHAPE_VAE], framework='pt', device='cpu') as source:
             state = {key: source.get_tensor(key).to(device, dtype=torch.float16)
                      for key in source.keys() if key.startswith(included + '.')}
         vae.load_state_dict(state, strict=True, assign=True)
@@ -289,7 +293,7 @@ def _compute(image_path, paths, backend, options, report, mask_output=None, trac
         return SparseTensor(feats=features, coords=coords)
 
     with torch.inference_mode():
-        reference = prepare_reference(image_path, weights / BIREFNET, paths['birefnet'], device=device, progress=report,
+        reference = prepare_reference(image_path, weights[BIREFNET], paths['birefnet'], device=device, progress=report,
                                       crop_options=options.get('312'))
         if mask_output is not None:
             np.save(mask_output, reference.foreground_mask.astype(np.float32, copy=False), allow_pickle=False)
@@ -299,7 +303,7 @@ def _compute(image_path, paths, backend, options, report, mask_output=None, trac
             controls = options.get('56', {})
             fov = float(controls.get('fov_x_degrees', 0))
             if not fov:
-                camera = estimate_camera(reference.conditioning_rgb, weights / MOGE, paths['moge'], device=device,
+                camera = estimate_camera(reference.conditioning_rgb, weights[MOGE], paths['moge'], device=device,
                                          progress=report, resolution_level=controls.get('resolution_level', 9))
                 fov = camera.horizontal_fov_degrees
             print(f'PiXal3D horizontal FOV {fov:.8f} degrees', flush=True)
@@ -307,7 +311,7 @@ def _compute(image_path, paths, backend, options, report, mask_output=None, trac
         report('Extracting DINOv3 image features', 21)
         # The reference ViT receives normalized FP32 pixels and casts its
         # visual weights to the activation dtype at each operation.
-        dino, naf = load_dinov3_naf(weights / VISION, device=device, dino_dtype=torch.float32)
+        dino, naf = load_dinov3_naf(weights[VISION], device=device, dino_dtype=torch.float32)
         image512 = conditioning_image(reference.conditioning_rgb, 512, device=device)
         image1024 = conditioning_image(reference.conditioning_rgb, 1024, device=device)
         vision512 = encode_dinov3(dino, image512)

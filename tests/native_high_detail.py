@@ -1,6 +1,7 @@
 """Exercise optional High Detail adapters without loading models or using CUDA."""
 
 from importlib.util import find_spec
+import hashlib
 import json
 from pathlib import Path
 import struct
@@ -14,9 +15,50 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import native_high_detail as native
+from installer import install_native_high_detail as provision
 
 
 class HighDetailSettingsTests(unittest.TestCase):
+    def test_ready_upgrade_verification_requires_patched_flex_gemm(self):
+        expression = b'(out_offset_n[:, None] * Co + out_offset_co[None, :])'
+        corrected = b'(out_offset_n[:, None].to(tl.int64) * Co + out_offset_co[None, :])'
+        checksum = lambda source: hashlib.sha256(source).hexdigest()
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            config = root / provision.CONFIG
+            config.parent.mkdir()
+            config.write_text(json.dumps(provision._config()), encoding='utf-8')
+            package = root / provision.PACKAGE
+            package.mkdir(parents=True)
+            folder = root / provision.CUDA_PACKAGES / provision.FLEX_GEMM_SPCONV
+            folder.mkdir(parents=True)
+            pins = {}
+            for name in provision.FLEX_GEMM_OUTPUT_OFFSETS:
+                (folder / name).write_bytes(expression)
+                pins[name] = (checksum(expression), checksum(corrected))
+            spec = {'patches': [], 'assets': []}
+            runtime = {'package': package, 'u2net': root, 'models': root}
+            distributions = [SimpleNamespace(metadata={'Name': name}, version=version)
+                             for name, version in provision.EXPECTED_DISTRIBUTIONS.items()]
+            with (patch.object(provision, 'FLEX_GEMM_OUTPUT_OFFSETS', pins),
+                  patch.object(provision.importlib.metadata, 'distributions', return_value=distributions),
+                  patch.object(provision, '_toolchain'), patch.object(provision, '_runtime', return_value=runtime),
+                  patch.object(provision, '_manifest', return_value=spec), patch.object(provision, '_package_receipt'),
+                  patch.object(provision, '_foundation_weights', return_value=({}, [])),
+                  patch.object(provision, 'verify_packages'), patch.object(provision, 'verify_asset'),
+                  patch.object(provision, '_smoke') as smoke,
+                  patch.object(provision, 'fetch_asset', side_effect=AssertionError('Unexpected download'))):
+                with self.assertRaisesRegex(ValueError, 'requires the pinned FlexGEMM output indexing fix'):
+                    provision.verify(root)
+                smoke.assert_not_called()
+                self.assertTrue(all((folder / name).read_bytes() == expression for name in pins))
+
+                provision._install_sources(root, sys.executable, spec)
+
+                self.assertTrue(all((folder / name).read_bytes() == corrected for name in pins))
+                self.assertEqual(provision.verify(root), config)
+                smoke.assert_called_once()
+
     def test_schema_uses_same_values_as_standalone_runtime(self):
         schema = json.loads((ROOT / 'native_workflows/high_detail_native.json').read_text(encoding='utf-8'))
         defaults = {stage['id']: {field['name']: field['default'] for field in stage['fields']}

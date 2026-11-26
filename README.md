@@ -151,7 +151,7 @@ of 800,000 triangles and 2K textures. It keeps the source cache and selects
 native dual contouring. Existing installations can use the separately
 provisioned QuadDC and MeshLib integration. [Figure Master release notes](docs/RELEASE_3.13.0.md#figure-master)
 
-Save a copy of a standard recipe or manage your saved profiles from Create.
+Save a copy of a generation recipe or manage your saved profiles from Create.
 **Reset profile settings** restores the selected recipe. Historical presets remain
 available through saved models and the API. The API default (`game_d`) uses the
 1024 TRELLIS.2 cascade, a 28,000-triangle target and 2K textures. Dimensions and

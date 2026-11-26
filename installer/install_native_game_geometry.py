@@ -14,6 +14,7 @@ from installer.native_workflow_install_common import (
 from installer.native_workflow_python import RUNTIME_PATH
 from native_game_finish import COMFY_OPERATORS, EXPECTED_SOURCE, QUAD_WHEEL, RECIPE_SHA256, TOOLKIT_LICENSES
 from native_pixal_prepare import prepare
+from studio_model_assets import model_asset_path
 from wtivo_runtime import PINNED_FILES, _read_runtime
 
 
@@ -123,7 +124,7 @@ def _install_vision(root, spec):
                 selected = [item.relative_to(source) for item in path.rglob('*') if item.is_file()] if path.is_dir() else [relative]
                 _copy_selection(root, source, target, selected)
     for entry in spec['weights']:
-        fetch_asset(root, entry, WEIGHTS / entry['path'])
+        fetch_asset(root, entry, model_asset_path(root, 'native-pixal3d', entry['path']))
 
 
 def _blender_status(root, python):
@@ -240,9 +241,8 @@ import os
 
 ENGINES = ('pixal3d', 'trellis2')
 from native_pixal3d import CHECKPOINTS, _activate_dependencies, _config
-paths = _config('pixal3d')
-for backend in ENGINES:
-    _config(backend)
+engine_paths = {backend: _config(backend) for backend in ENGINES}
+paths = engine_paths['pixal3d']
 
 # Use precisely the dependency order used by the native worker.
 _activate_dependencies(paths)
@@ -264,7 +264,8 @@ assert torchvision.__version__ == '0.23.0+cu128'
 assert numpy.__version__ == '1.26.4'
 assert transformers.DINOv3ViTModel
 for backend in ENGINES:
-    with safe_open(str(paths['weights'] / CHECKPOINTS[backend]), framework='pt', device='cpu') as weights:
+    with safe_open(str(engine_paths[backend]['weight_files'][CHECKPOINTS[backend]]),
+                   framework='pt', device='cpu') as weights:
         assert any('qkv' in name for name in weights.keys()), backend
 
 mask = _namespace_module(f'_studio_birefnet_{BIREFNET_REVISION[:7]}', paths['birefnet'], 'birefnet')
@@ -313,7 +314,8 @@ def verify(root):
     shape = json.loads(safe_path(root, SHAPE_CONFIG).read_text(encoding='utf-8-sig'))
     weights = (root / 'config' / shape['weights']).resolve(strict=True)
     for entry in spec['weights']:
-        verify_asset(safe_path(weights, entry['path']), entry)
+        path = model_asset_path(root, 'native-pixal3d', entry['path'], directory=weights)
+        verify_asset(safe_path(root, path), entry)
     for entry in spec['vision_sources']:
         folder = (root / 'config' / shape['birefnet']).resolve(strict=True)
         verify_asset(safe_path(folder, entry['filename']), entry)
