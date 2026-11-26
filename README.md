@@ -11,11 +11,23 @@ TRELLIS Studio is an independent community application built around **Microsoft 
 
 > **Windows x64 preview.** The upstream maintainer tested Full Studio installation, generation and uninstallation on Windows 11 with an RTX 4070 Ti (12 GB VRAM). Installation verifies components, but output quality, deformation and target-engine suitability still need visual review. The Studio code is MIT; model and dependency licenses are separate, particularly DINOv3.
 
-## Windows Preview · November 2026
+## Source release 3.15.2
+
+In **Create**, adjust a High Detail or Game Asset workflow and save a named copy. You can select that profile again in **Create** or **Queue**. This release also fixes FlexGEMM indexing for large meshes and improves WSL2 detection for UniRig and Kimodo. [3.15.2 release notes](docs/RELEASE_3.15.2.md)
+
+On Windows with an RTX 5070 Ti and native High Detail installed, the fork generated Aélis in **5 min 29 s** using TRELLIS.2 GGUF. The exported GLB contained **1,995,435 triangles** and two embedded **4096 × 4096** textures. All 86 files checked for the installed components matched their expected SHA-256 hashes. Updating this installation required no additional model weights. [Native profile guide](docs/NATIVE_PROFILES.md)
+
+## Windows installer · 3.15.1 Preview
 
 The Preview installer comes from commit `da4d367`. Its seven batches cover generation, rig diagnostics, export fidelity, disk use, the French interface, Server isolation and installation. The RTX 5070 Ti test generated Aélis in native High Detail in **5 min 40 s**. Unity 6 reimported the 1.72 m character with 52 bones and played its walk. The comparison shows sharper armour detail, thicker fingers and a less faithful gaze. [See the comparisons, Unity clip and test results](https://github.com/Loomaknox/TRELLIS-Studio/blob/preview/qualification-3.15.1/docs/qualification/README.md)
 
 Download the unsigned **Windows x64 Preview** and verify its SHA-256 against the release checksum. In Setup, select the TRELLIS.2 generation profile and the optional **High Detail GGUF with native PBR** component. In Studio, choose **Create → High Detail → TRELLIS.2 GGUF → TRELLIS.2 PBR**. The offline media covers Workshop, MCP and the standard animations. PyTorch and Transformers advisories remain open. [Get the Preview](https://github.com/Loomaknox/TRELLIS-Studio/releases/tag/v3.15.1-preview.1) · [Native profile guide at this revision](https://github.com/Loomaknox/TRELLIS-Studio/blob/da4d367/docs/NATIVE_PROFILES.md#windows-setup) · [Dependency status](https://github.com/Loomaknox/TRELLIS-Studio/blob/da4d367/SECURITY.md)
+
+## Batch generation and reimport in this fork
+
+In **Queue → Prepare batch → Settings**, choose TRELLIS.2 or single-image Pixal3D for each reference. Desktop exposes TOPOS for humanoids at 1024³ with native PBR and compatible mesh finishing. The library pauses polling when its tab is hidden.
+
+Collection transfers verify the archive before publishing it. Unity terrain reimports preserve local sculpting and paint, and motion edits recalculate obstacle contacts against the exported clip. See the [Server recovery guide](docs/SERVER.md) and [dependency review](SECURITY.md) before updating a multi-user installation.
 
 ## What was tested in the 3.15.1 fork
 
@@ -57,7 +69,7 @@ Open the extracted or cloned folder and run **Install TRELLIS Studio.cmd**, then
 
 Use **Repair or resume components** after an interrupted download. Setup verifies downloads with SHA-256. The uninstaller can stop its own idle local services and keeps the library. [Repair and uninstall](docs/WINDOWS_SETUP.md)
 
-For the Windows Setup changes and optional components in the 3.15.1 base, see the [release notes](docs/RELEASE_3.15.1.md).
+The Windows Setup changes in the current source are documented in the [3.15.2 release notes](docs/RELEASE_3.15.2.md).
 
 ### Interface language
 
@@ -75,12 +87,14 @@ Use the language selector in the Studio header to switch between **English** and
 | **Queue** | Schedule batches of up to 30 images. Correct the recipe of a failed job and create a linked retry with the same references and seed. The original failure remains available for review. |
 | **Collection** | Textured and clay card previews, search, category/type/review filters, favourites, tags, notes, nested folders, saved views, multiple selection and restorable trash. |
 | **Review** | PBR/clay/normals/wireframe views, camera presets, adjustable preview lighting, synchronised before/after comparison, topology/UV/material/dimension diagnostics. |
-| **Animate** | UniRig skeleton and skin-weight prediction, editable frontal joint markers, visible skeleton inspection, 84 authored humanoid motions, a library of generated motions and procedural motion on compatible creature rigs. |
+| **Animate** | UniRig skeleton and skin-weight prediction, editable frontal joint markers, visible skeleton inspection, 84 authored Quaternius motions, a one-hand side vault with a crate guide in playback and comparison, a library of generated motions and procedural motion on compatible creature rigs. |
 | **Prepare** | Reference-based color projection, HD-to-game reduction and material baking, linked LOD copies, pivot and collision tools, and dedicated printing copies. |
 | **History** | Parent/child lineage, recipes, comments, recoverable checkpoints and restoration as a new card. |
 | **Present** | Custom thumbnails, transparent PNGs, downloadable turntables and optional lightweight turntables on individual library cards. |
 | **Transfer** | Collection ZIP backup with models, sources, profiles, clips, metadata and prepared resources; optional checkpoints; verified restoration with new IDs. |
 | **Automate** | Typed REST API v1, interactive OpenAPI reference and MCP tools over STDIO. Desktop also provides a local Streamable HTTP bridge. |
+
+In **Animate → Jumps & acrobatics**, add **One-hand side vault** to a humanoid with mapped arms, hands, legs and feet. The clip carries the character forwards. Keep that displacement for the palm to stay on the crate. The crate is a playback guide. To reproduce it in another scene, use the box dimensions, centre and travel direction in the exported GLB clip’s `extras.trellis_obstacle` (metres, glTF axes).
 
 ### Collection previews
 
@@ -149,7 +163,7 @@ of 800,000 triangles and 2K textures. It keeps the source cache and selects
 native dual contouring. Existing installations can use the separately
 provisioned QuadDC and MeshLib integration. [Figure Master release notes](docs/RELEASE_3.13.0.md#figure-master)
 
-Save a copy of a standard recipe or manage your saved profiles from Create.
+Save a copy of a generation recipe or manage your saved profiles from Create.
 **Reset profile settings** restores the selected recipe. Historical presets remain
 available through saved models and the API. The API default (`game_d`) uses the
 1024 TRELLIS.2 cascade, a 28,000-triangle target and 2K textures. Dimensions and

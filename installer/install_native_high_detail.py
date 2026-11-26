@@ -1,5 +1,6 @@
 """Provision the Windows High Detail GGUF workflow without a ComfyUI host."""
 
+import hashlib
 import importlib.metadata
 import json
 from pathlib import Path
@@ -36,6 +37,18 @@ EXPECTED_DISTRIBUTIONS = {
     'nvdiffrast': '0.4.0',
     'nvdiffrec-render': '0.0.0',
     'o-voxel': '0.0.1',
+}
+FLEX_GEMM_SPCONV = Path('flex_gemm/kernels/triton/spconv')
+# Backport JeffreyXiang/FlexGEMM c0a6ab0 to the pinned Windows wheel.
+FLEX_GEMM_OUTPUT_OFFSETS = {
+    'sparse_submanifold_conv_fwd_implicit_gemm.py': (
+        '3545b3d7f2f9eb03f93c2493a3946b60469f4bbdfc0992540fb6298cb816dcee',
+        '254217f7078e39444a0d0b6cc20e92054005fcb469d7d6f3521267ae6ba2305f',
+    ),
+    'sparse_submanifold_conv_fwd_implicit_gemm_splitk.py': (
+        'fa43c2ab71eeacf835e226abe1f0f2c48267c926bde26caa1a4f2718f6711200',
+        '68e28a1d2c1b785a02432c79165d3e0407273e66ed970de269db83936474a450',
+    ),
 }
 
 
@@ -91,7 +104,7 @@ def _package_receipt(package):
             raise ValueError(f'High Detail source license is missing: {name}')
 
 
-def _verify_cuda_packages(folder, patches):
+def _verify_cuda_packages(folder, patches, *, require_patched_offsets=False):
     variants = {item.metadata.get('Name', '').lower().replace('_', '-'): item.version
                 for item in importlib.metadata.distributions(path=[str(folder)])}
     if variants != EXPECTED_DISTRIBUTIONS:
@@ -99,19 +112,51 @@ def _verify_cuda_packages(folder, patches):
     for patch in patches:
         if digest(safe_path(folder, patch['destination'])) != patch['sha256']:
             raise ValueError(f'Existing High Detail CUDA patch differs and was preserved: {patch["destination"]}')
+    if require_patched_offsets:
+        for name, (_, patched) in FLEX_GEMM_OUTPUT_OFFSETS.items():
+            if digest(safe_path(folder, FLEX_GEMM_SPCONV / name)) != patched:
+                raise ValueError(f'High Detail requires the pinned FlexGEMM output indexing fix: {name}')
+
+
+def patch_flex_gemm_output_offsets(folder):
+    """Apply the upstream 64-bit output indexing fix to known FlexGEMM sources."""
+    changes = []
+    for name, (original, patched) in FLEX_GEMM_OUTPUT_OFFSETS.items():
+        path = safe_path(folder, FLEX_GEMM_SPCONV / name)
+        source = path.read_bytes()
+        checksum = hashlib.sha256(source).hexdigest()
+        if checksum == patched:
+            continue
+        if checksum != original:
+            raise ValueError(f'Unrecognized High Detail FlexGEMM source was preserved: {name}')
+        corrected = source.replace(b'(out_offset_n[:, None] * Co + out_offset_co[None, :])',
+                                   b'(out_offset_n[:, None].to(tl.int64) * Co + out_offset_co[None, :])')
+        if hashlib.sha256(corrected).hexdigest() != patched:
+            raise ValueError(f'The FlexGEMM correction could not be verified: {name}')
+        changes.append((path, corrected))
+    for path, corrected in changes:
+        with NamedTemporaryFile(dir=path.parent, prefix='.flex-gemm-', suffix='.tmp', delete=False) as stream:
+            pending = Path(stream.name)
+            stream.write(corrected)
+        try:
+            pending.replace(path)
+        finally:
+            pending.unlink(missing_ok=True)
+    return len(changes)
 
 
 def _install_cuda_packages(root, python, spec, pipeline_source):
     target = safe_path(root, CUDA_PACKAGES)
     if target.exists():
         _verify_cuda_packages(target, spec['patches'])
+        patch_flex_gemm_output_offsets(target)
         return
     wheels = [fetch_asset(root, entry, DOWNLOADS / entry['name'])
               for entry in spec['windows_wheels']]
     uv = safe_path(root, '.tools/uv/uv.exe')
     with TemporaryDirectory(prefix='.hd-cuda-', dir=target.parent) as temporary:
         stage = Path(temporary) / 'cuda'
-        subprocess.run([uv, 'pip', 'install', '--no-config', '--offline', '--no-index', '--no-deps',
+        subprocess.run([uv, 'pip', 'install', '--no-config', '--offline', '--no-index', '--no-deps', '--link-mode', 'copy',
                         '--python', python, '--target', stage, *wheels], cwd=root, check=True)
         for patch in spec['patches']:
             source = safe_path(pipeline_source, patch['source'])
@@ -120,6 +165,7 @@ def _install_cuda_packages(root, python, spec, pipeline_source):
                 raise ValueError(f'The pinned High Detail CUDA patch could not be applied: {patch["source"]}')
             shutil.copyfile(source, destination)
         _verify_cuda_packages(stage, spec['patches'])
+        patch_flex_gemm_output_offsets(stage)
         stage.rename(target)
 
 
@@ -130,6 +176,7 @@ def _install_sources(root, python, spec):
         _package_receipt(package)
     if package.exists() and cuda.exists():
         _verify_cuda_packages(cuda, spec['patches'])
+        patch_flex_gemm_output_offsets(cuda)
         return
 
     archive = fetch_asset(root, spec['pipeline'], DOWNLOADS / 'pipeline.zip')
@@ -223,7 +270,7 @@ def verify(root: Path):
     spec = _manifest()
     _package_receipt(runtime['package'])
     if json.loads(config.read_text(encoding='utf-8-sig')) == _config():
-        _verify_cuda_packages(safe_path(root, CUDA_PACKAGES), spec['patches'])
+        _verify_cuda_packages(safe_path(root, CUDA_PACKAGES), spec['patches'], require_patched_offsets=True)
         verify_packages(safe_path(root, TENSOR_PACKAGES), LOCK_PATH)
 
     mask, dino = _foundation_weights()

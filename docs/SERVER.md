@@ -138,6 +138,48 @@ certificate authority, set `TRELLIS_API_CA_BUNDLE` to its PEM file.
   at the configured paths while the server is stopped. Use Studio's library
   export to transfer models between installations.
 
+### Authenticator vault and backups
+
+Schema 3 encrypts both active authenticator seeds and pending enrollments. Stop
+Server and take an access-controlled backup before upgrading. On first start,
+the catalog migrates all accounts in one transaction, then rewrites the SQLite
+file and checkpoints its WAL. Leave enough spare disk space for another copy of
+the catalog. If another tool has the database open, close it and restart Server.
+Earlier backups still contain the old seeds. Keep them encrypted and retire them
+under your backup policy. To roll back to an older release, restore its matching
+pre-upgrade backup with the server stopped.
+
+Windows defaults to DPAPI under the account running Server. For same-host
+recovery, back up that Windows user profile and its DPAPI keys in addition to
+the catalog. A new Windows account or machine needs either the matching vault
+key from the portable mode described below or new authenticator enrollments.
+The local administrator recovery command below allows the administrator to
+sign in and reset individual users' factors.
+
+Linux uses a private Fernet key file. Windows operators can also choose this
+mode for portable backups. Install `cryptography==50.0.2` in the Server
+interpreter when using file keys. Set `TRELLIS_SERVER_TOTP_KEY_FILE` in the
+service account's environment to an absolute path outside the data directory.
+Generate a new key once in a private directory as that account before first
+enrollment. This example requires a new destination and never prints the key.
+
+```sh
+python -c "import os,sys; from cryptography.fernet import Fernet; f=os.fdopen(os.open(sys.argv[1],os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600),'wb'); f.write(Fernet.generate_key()); f.close()" /private/trellis-totp.key
+```
+
+On Linux only the Server account may read the key (mode 0600). On Windows
+restrict the directory ACL to the Server account and authorized administrators.
+Back up the key separately in protected storage. Test recovery on a copy before
+retiring a previous key.
+
+For key rotation, stop Server, take a matched catalog/key backup, generate the
+new private file, and leave the current key configuration in place. Run
+`server_app.py --config config/server.json --rotate-totp-key PATH_TO_NEW_KEY`
+with the Server interpreter. On success, configure the new file and restart.
+On Windows, the destination `windows-dpapi` rewraps the seeds under the
+current Windows account. Unset the key-file variable before the next start in
+that case. Existing authenticator codes and enrollment status continue to work.
+
 To recover an administrator account, stop the server and open PowerShell in the
 installation folder as the Windows user who manages the data. Run the command
 with the administrator's email address. Enter a new password at the prompt.

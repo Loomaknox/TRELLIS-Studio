@@ -6,7 +6,7 @@ import asyncio,copy,json,math,os,re,shutil,time,uuid
 from fastapi import HTTPException,Request,UploadFile,File,Form
 from fastapi.responses import FileResponse
 from PIL import Image
-from studio_workspace import Workspace,read,write,name,checkpoint,revisions,ID,SNAPSHOT_FILES,SNAPSHOT_DIRS,finishing_source
+from studio_workspace import Workspace,read,write,name,checkpoint,revisions,restore_checkpoint,ID,finishing_source,job_status
 from library_actions import validate_ids
 from glb_data import read as read_glb,animation_info
 from generation_options import (DENSE_MASTER, DENSE_MASTER_TRIANGLES, GENERATION_PRESETS,
@@ -158,13 +158,16 @@ class StudioServices:
         self.g=g;self.output=g['OUTPUT'];self.root=g['ROOT'];self.task=None
         default=self.root/'config'/'studio-state' if self.output==self.root/'outputs' else self.output.parent/(self.output.name+'-state')
         environment=g.get('workspace_environment',os.environ)
-        self.workspace=Workspace(g.get('WORKSPACE_CONFIG',{}).get('state',environment.get('TRELLIS_STATE_DIR',str(default))))
+        self.workspace=Workspace(g.get('WORKSPACE_CONFIG',{}).get('state',environment.get('TRELLIS_STATE_DIR',str(default))), self.job_folder)
         self.register(app)
     def queued(self,identifier):return self.workspace.pending(identifier)
     def job_folder(self,identifier):
         generated=(self.workspace.root/'generated-animations').resolve()/identifier
         if ID.fullmatch(identifier) and generated.is_dir() and generated.resolve()==generated:
             return generated
+        if self.g.get('WORKSPACE_CONFIG') and ID.fullmatch(identifier):
+            operation=self.g['animation_operations_root']()/identifier
+            if operation.is_dir() and operation.resolve()==operation:return operation
         return self.output/identifier
     def cancel_pending(self,identifier,folder):
         state=read(folder/'status.json',{})
@@ -178,7 +181,7 @@ class StudioServices:
         # and require an explicit retry; pending jobs can continue after Resume.
         interrupted=False
         for entry in self.workspace.queue['items']:
-            folder=self.job_folder(entry['id']);state=read(folder/'status.json',{})
+            folder=self.job_folder(entry['id']);state=job_status(folder)
             if state.get('state')=='running':write(folder/'status.json',dict(state='error',stage='Interrupted · retry available',progress=0,error='The studio stopped during this calculation. Retry starts it from its saved recipe.'));interrupted=True
         if interrupted:self.workspace.queue['paused']=True;self.workspace.save_queue()
         if not self.g.get('WORKSPACE_CONFIG'):
@@ -194,8 +197,9 @@ class StudioServices:
                 process=self.g['PROCESS']
                 if self.g['TERRAIN_ACTIVE'] or process is not None and process.poll() is None:continue
                 for item in self.workspace.ordered():
-                    folder=self.job_folder(item['id']);state=read(folder/'status.json',{})
-                    if item.get('cancelled') or item.get('held') or state.get('state')!='queued':continue
+                    if item.get('cancelled') or item.get('held'):continue
+                    folder=self.job_folder(item['id']);state=job_status(folder)
+                    if state.get('state')!='queued':continue
                     try:
                         settings = read(folder / 'settings.json', {})
                         if not isinstance(settings, dict):
@@ -495,7 +499,6 @@ class StudioServices:
                 raise HTTPException(409, 'Choose a current generation profile to run a new job.')
             if set(changes) - {'height_m', 'priority', 'workflow_options'}:
                 raise ValueError('Use the workflow advanced settings to adjust this recipe.')
-            self.g['require_workflow'](workflow_id)
             height = changes.get('height_m', saved['height_m'])
             priority = changes.get('priority', priority)
             if type(height) not in (int, float) or not .01 <= height <= 100:
@@ -893,9 +896,22 @@ class StudioServices:
                 for file,spec in zip(images,specs):
                     profile=profiles.get(spec.get('profile_id','game_d'))
                     if not profile:raise HTTPException(400,'Profile not found.')
-                    s=profile['settings'];params=dict(name=spec.get('name',Path(file.filename or 'Model').stem),preset=s['preset'],height_m=spec.get('height_m',1),seed=spec.get('seed',42),remove_bg=spec.get('remove_bg',s['remove_bg']),triangles=spec.get('triangles',s['triangles']),asset_type=spec.get('asset_type','object'),texture_size=spec.get('texture_size',s['texture_size']),reference_prompt=spec.get('reference_prompt',''),resolution=spec.get('resolution',s['resolution']),advanced_settings=json.dumps(spec.get('advanced_settings',s['advanced'])),profile_id=profile['id'],parent_id=spec.get('parent_id',''),queue_only=True,queue_priority=spec.get('priority',0),queue_hold=True,keep_finishing_source=spec.get('keep_finishing_source',profile.get('keep_finishing_source',False)))
-                    if profile['id'] in STANDALONE_PROFILES:
-                        params['seed'] = spec.get('seed')
+                    s = profile['settings']
+                    standalone = s['preset'] in STANDALONE_PROFILES
+                    base = (dict(seed=None, remove_bg=True, triangles=0, texture_size=0,
+                                 resolution=None, advanced_settings={}, texture_method=None) if standalone else
+                            dict(seed=42, remove_bg=s['remove_bg'], triangles=s['triangles'],
+                                 texture_size=s['texture_size'], resolution=s['resolution'],
+                                 advanced_settings=s['advanced'], texture_method=s.get('texture_method')))
+                    params = dict(name=spec.get('name', Path(file.filename or 'Model').stem), preset=s['preset'],
+                                  height_m=spec.get('height_m', 1), asset_type=spec.get('asset_type', 'object'),
+                                  reference_prompt=spec.get('reference_prompt', ''), profile_id=profile['id'],
+                                  parent_id=spec.get('parent_id', ''), queue_only=True,
+                                  queue_priority=spec.get('priority', 0), queue_hold=True,
+                                  keep_finishing_source=spec.get('keep_finishing_source',
+                                                                 profile.get('keep_finishing_source', False)))
+                    params.update({key: spec.get(key, default) for key, default in base.items()})
+                    params['advanced_settings'] = json.dumps(params['advanced_settings'])
                     if 'workflow_options' in spec:
                         params['workflow_options'] = json.dumps(spec['workflow_options'], allow_nan=False)
                     params['repair_surface'] = spec.get('repair_surface', False)
@@ -909,7 +925,6 @@ class StudioServices:
                         multiview_texture = (s.get('multiview_texture_refinement', False)
                                              and self.g['multiview_texture_capability']()['available'])
                     params['multiview_texture_refinement'] = multiview_texture
-                    params['texture_method'] = spec.get('texture_method', s.get('texture_method'))
                     if 'multiview_texture_refinement' in spec and 'texture_method' not in spec:
                         params['texture_method'] = None
                     params['reproject_face'] = spec.get('reproject_face', False)
@@ -1116,16 +1131,8 @@ class StudioServices:
                 if not isinstance(revision,str) or not ID.fullmatch(revision):raise HTTPException(400,'Choose a checkpoint.')
                 source=folder/'Revisions'/revision
                 if not (source/'revision.json').is_file():raise HTTPException(404)
-                destination=self.output/uuid.uuid4().hex;destination.mkdir()
-                for file in SNAPSHOT_FILES:
-                    if (source/file).is_file():shutil.copy2(source/file,destination/file)
-                for dirname in SNAPSHOT_DIRS:
-                    if (source/dirname).is_dir():shutil.copytree(source/dirname,destination/dirname)
-                for file in self.g['REFERENCE_FILES']:
-                    if (folder / file).is_file():
-                        shutil.copy2(folder / file, destination / file)
-                settings=read(destination/'settings.json');settings.update(parent_id=identifier,created=time.time(),restored_revision=revision,source_kind='restored');write(destination/'settings.json',settings)
-                metadata=read(destination/'metadata.json',{});metadata['display_name']=(metadata.get('display_name',settings['name'])+' · restored')[:80];write(destination/'metadata.json',metadata);write(destination/'status.json',dict(state='done',stage='Checkpoint restored as new version',progress=100,result=read(destination/'result.json',{})));return dict(id=destination.name)
+                try:return await asyncio.to_thread(restore_checkpoint,folder,revision,self.g['REFERENCE_FILES'])
+                except ValueError as error:raise HTTPException(422,str(error))
 
         @app.post('/api/jobs/{identifier}/presentation')
         async def presentation_save(identifier:str,kind:str=Form(...),recipe:str=Form('{}'),file:UploadFile=File(...)):
@@ -1227,18 +1234,28 @@ class StudioServices:
 
         @app.post('/api/transfers/inspect',status_code=201)
         async def transfer_inspect(file:UploadFile=File(...)):
-            from studio_transfer import inspect,extract
-            target=self.workspace.root/'imports'/uuid.uuid4().hex;target.mkdir(parents=True);path=target/'archive.zip';total=0
+            from studio_transfer import MAX_TOTAL,expire_transfer_previews,verify_transfer_preview
+            root=self.workspace.root/'imports';root.mkdir(parents=True,exist_ok=True)
+            identifier=uuid.uuid4().hex;total=0
             try:
-                with path.open('wb') as stream:
-                    while chunk:=await file.read(4*1024**2):
-                        total+=len(chunk)
-                        if total>12*1024**3:raise ValueError('Archive exceeds 12 GB.')
-                        stream.write(chunk)
-                manifest=await asyncio.to_thread(inspect,path);await asyncio.to_thread(extract,path,target/'verified',manifest);write(target/'manifest.json',manifest)
-            except (ValueError,OSError,KeyError,TypeError,Exception) as e:raise HTTPException(400,'Collection archive could not be verified: '+str(e))
+                async with self.g['LOCK']:
+                    await asyncio.to_thread(expire_transfer_previews,root)
+                with TemporaryDirectory(prefix='.inspect-',dir=root) as temp:
+                    target=Path(temp)/identifier;target.mkdir();path=target/'archive.zip'
+                    with path.open('wb') as stream:
+                        while chunk:=await file.read(4*1024**2):
+                            total+=len(chunk)
+                            if total>MAX_TOTAL:raise ValueError('Archive exceeds 12 GB.')
+                            stream.write(chunk)
+                    verification=asyncio.create_task(asyncio.to_thread(verify_transfer_preview,path,target))
+                    try:manifest=await asyncio.shield(verification)
+                    except asyncio.CancelledError:
+                        await verification
+                        raise
+                    target.rename(root/identifier)
+            except Exception as e:raise HTTPException(400,'Collection archive could not be verified: '+str(e))
             finally:await file.close()
-            return dict(id=target.name,models=manifest['models'],bytes=total,folders=len(manifest.get('workspace',{}).get('folders',[])),profiles=len(manifest.get('profiles',[])))
+            return dict(id=identifier,models=manifest['models'],bytes=total,folders=len(manifest.get('workspace',{}).get('folders',[])),profiles=len(manifest.get('profiles',[])))
         @app.post('/api/transfers/{identifier}/restore',status_code=201)
         async def transfer_restore(identifier:str,request:Request):
             if not ID.fullmatch(identifier):raise HTTPException(404)
@@ -1246,6 +1263,7 @@ class StudioServices:
             if not manifest:raise HTTPException(404)
             async with self.g['LOCK']:
                 if (target/'restored.json').is_file():raise HTTPException(409,'This archive has already been restored.')
+                if not (target/'verified').is_dir():raise HTTPException(410,'Collection preview expired. Select the ZIP again.')
                 try:label=name((await request.json()).get('name','Restored collection'))
                 except ValueError as e:raise HTTPException(400,str(e))
                 original=copy.deepcopy(self.workspace.data);profiles_path=self.g['PROFILES'].path;profile_bytes=profiles_path.read_bytes() if profiles_path.is_file() else None;created=[]
@@ -1256,9 +1274,12 @@ class StudioServices:
                     for view in manifest.get('workspace',{}).get('views',[]):self.workspace.save_view(dict(name=view['name'],query=view['query'],filter=view['filter'],folder_id=folders.get(view['folder_id'],root['id'])))
                     profile_ids={};existing=self.g['PROFILES'].list()
                     for p in manifest.get('profiles',[]):
+                        if p.get('builtin') is True:
+                            if any(v.get('builtin') and v['id']==p['id'] for v in existing):
+                                profile_ids[p['id']]=p['id']
+                            continue
                         same=next((v for v in existing if v['settings']==p['settings'] and v['name']==p['name']),None)
                         if same:profile_ids[p['id']]=same['id'];continue
-                        if p.get('builtin'):continue
                         title=p['name'][:46];suffix=1;candidate=title
                         while any(v['name'].casefold()==candidate.casefold() for v in existing):suffix+=1;candidate=title+' (import '+str(suffix)+')'
                         saved=self.g['PROFILES'].save(dict(name=candidate,settings=p['settings']));existing.append(saved);profile_ids[p['id']]=saved['id']
@@ -1266,7 +1287,8 @@ class StudioServices:
                     for item in manifest['models']:
                         source=target/'verified'/'models'/item['id'];destination=self.output/mapping[item['id']]
                         if destination.resolve().parent!=self.output:raise ValueError('Restore target rejected.')
-                        shutil.copytree(source,destination);created.append(destination)
+                        destination.mkdir();created.append(destination)
+                        shutil.copytree(source,destination,dirs_exist_ok=True)
                         for p in [destination/'settings.json',*destination.glob('Revisions/*/settings.json')]:
                             settings=read(p);parent=settings.get('parent_id')
                             settings.pop('finish_source_id', None)
@@ -1286,7 +1308,7 @@ class StudioServices:
                         for p in [destination/'metadata.json',*destination.glob('Revisions/*/metadata.json')]:
                             metadata=read(p,{});metadata['folder_id']=folders.get(metadata.get('folder_id'),root['id']);write(p,metadata)
                         write(destination/'status.json',dict(state='done',stage='Restored from collection archive',progress=100,result=read(destination/'result.json',{})))
-                    self.workspace.save();write(target/'restored.json',dict(ids=list(mapping.values()),created=time.time()));return dict(ids=list(mapping.values()),folder_id=root['id'])
+                    self.workspace.save();write(target/'restored.json',dict(ids=list(mapping.values()),created=time.time()))
                 except Exception as e:
                     # Only newly allocated restore folders belong to this rollback.
                     for p in created:
@@ -1295,3 +1317,6 @@ class StudioServices:
                     if profile_bytes is None:profiles_path.unlink(missing_ok=True)
                     else:profiles_path.write_bytes(profile_bytes)
                     raise HTTPException(400,'The collection could not be restored; no models were replaced: '+str(e))
+                if (target/'preview-lease.json').is_file():
+                    await asyncio.to_thread(shutil.rmtree,target/'verified',ignore_errors=True)
+                return dict(ids=list(mapping.values()),folder_id=root['id'])

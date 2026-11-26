@@ -4,15 +4,16 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import subprocess
+from tempfile import TemporaryDirectory
 
 from installer.native_workflow_install_common import (digest, fetch_asset, install_packages, safe_path,
-                                                      verify_asset, verify_packages, write_json)
+                                                      verify_asset, write_json)
 from installer.native_workflow_python import RUNTIME_PATH
+from studio_model_assets import model_asset_path
+from native_ultratex.dependencies import EXTRA, LEGACY, LOCK, dependency_paths, geometry_paths, missing_pins
 
 
 RUNTIME = Path('runtime/native-game-texture')
-MODELS = Path('models/native-game-texture')
-LOCK = Path(__file__).with_name('requirements-native-ultratex.txt')
 MANIFEST = Path(__file__).with_name('native-ultratex-manifest.json')
 
 TOKENIZER_NOTICE = (
@@ -53,6 +54,27 @@ def _model_receipt(data):
     return [{key: entry[key] for key in ('path', 'bytes', 'sha256')} for entry in data['models']]
 
 
+def _install_dependencies(root):
+    try:
+        dependency_paths(root)
+        return
+    except RuntimeError:
+        pass
+    python = safe_path(root, RUNTIME_PATH)
+    shared = geometry_paths(root)
+    if shared:
+        # Download only the pinned packages the shape component does not supply.
+        runtime = safe_path(root, RUNTIME)
+        runtime.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(prefix='.ultratex-lock-', dir=runtime) as temporary:
+            lock = Path(temporary) / LOCK.name
+            lock.write_text('\n'.join(missing_pins(root, shared)) + '\n', encoding='utf-8')
+            install_packages(root, python, EXTRA, lock)
+    else:
+        install_packages(root, python, LEGACY, root / LOCK)
+    dependency_paths(root)
+
+
 def _probe(root, receipt):
     python = safe_path(root, RUNTIME_PATH)
     runtime = safe_path(root, RUNTIME)
@@ -62,11 +84,14 @@ import sys
 from pathlib import Path
 root = Path(sys.argv[1])
 runtime = Path(sys.argv[2])
-sys.path[:0] = [str(root / 'native_ultratex'), str(runtime / 'deps'), str(runtime / 'modules'), str(root)]
+sys.path[:0] = [str(root / 'native_ultratex'), str(runtime / 'modules'), str(root)]
+import prepare_character05
 import gguf, moderngl, scipy.sparse, torch, triton
 from transformers import Qwen2Tokenizer, Qwen3Config, Qwen3Model
 from utx_graphics import bake, conditions, fastbake, guidance, render
 from run_character05_texture import assert_native_imports, load_texture_recipe, selected_sources
+from native_ultratex.dependencies import triton_compiler
+triton_compiler()
 selected_sources(json.loads(sys.argv[3]))
 load_texture_recipe()
 assert torch.cuda.is_available(), 'UltraTex requires CUDA.'
@@ -79,10 +104,11 @@ print('Standalone UltraTex operators, recipe and CUDA verified.')
 def verify(root):
     data = manifest()
     _verify_license(root, data)
-    for directory, entries in ((RUNTIME, data['source_files']), (MODELS, data['models'])):
-        for entry in entries:
-            verify_asset(safe_path(root, directory / entry['path']), entry)
-    verify_packages(safe_path(root, RUNTIME / 'deps'), LOCK)
+    for entry in data['source_files']:
+        verify_asset(safe_path(root, RUNTIME / entry['path']), entry)
+    for entry in data['models']:
+        verify_asset(safe_path(root, model_asset_path(root, 'native-ultratex', entry['path'])), entry)
+    dependency_paths(root)
     models = json.loads(safe_path(root, RUNTIME / 'model-manifest.json').read_text(encoding='utf-8'))
     if models != _model_receipt(data):
         raise ValueError('The installed UltraTex checkpoint manifest does not match the Setup version.')
@@ -95,11 +121,11 @@ def verify(root):
 def install(root):
     data = manifest()
     _verify_license(root, data)
-    install_packages(root, safe_path(root, RUNTIME_PATH), RUNTIME / 'deps', LOCK)
+    _install_dependencies(root)
     install_sources(root, data)
     receipt = _source_receipt(data)
     _probe(root, receipt)
     for entry in data['models']:
-        fetch_asset(root, entry, MODELS / entry['path'])
+        fetch_asset(root, entry, model_asset_path(root, 'native-ultratex', entry['path']))
     write_json(root, RUNTIME / 'model-manifest.json', _model_receipt(data))
     write_json(root, RUNTIME / 'source-manifest.json', receipt)

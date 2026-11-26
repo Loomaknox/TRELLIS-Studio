@@ -75,7 +75,9 @@ function Get-SetupPreflightText([string]$Text, [object[]]$Values=@()) {
 }
 
 function ConvertTo-SetupProcessArgument([string]$Argument) {
-    # Quote for the Windows argv parser, including backslashes before quotes.
+    # WSL parses its host options from the raw command line and expects bare flags.
+    if ($Argument.Length -gt 0 -and $Argument -notmatch '[\s"]') { return $Argument }
+    # Quote empty arguments and arguments with spaces or quotes for Windows argv.
     $escaped=[regex]::Replace($Argument, '(\\*)"', '$1$1\"')
     return '"' + [regex]::Replace($escaped, '(\\+)$', '$1$1') + '"'
 }

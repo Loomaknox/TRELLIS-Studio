@@ -150,6 +150,7 @@ elif operation=='motion':
             scene.frame_set(frame);bpy.context.view_layer.update();points.append(arm.matrix_world@arm.pose.bones[mapping[side+'_foot']].head)
         floor=min(p.z for p in points);mask=[p.z<=floor+height*.025 for p in points];distance=sum((points[i]-points[i-1]).to_2d().length for i in range(1,len(points)) if mask[i] and mask[i-1]);contacts[side]=dict(contact_ratio=sum(mask)/len(mask),travel_during_contact_m=distance,positions=[[p.x,p.z,-p.y] for p in points],contact=mask)
     motion=dict(version=1,clip=renamed,options=options,root_bone=root_name,contacts=contacts,assessment='Estimated foot support from ankle height. Travel is expected during in-place locomotion; inspect against the ground and intended speed.',root_motion=options['mode']=='root_motion')
+    motion['source_interval_s']=[(first-start)/fps,(last-start)/fps]
     (JOB/'motion-report.json').write_text(json.dumps(motion,indent=2));report['motion_report']=motion
     for obj in scene.objects:
         if obj.animation_data:obj.animation_data.action=None

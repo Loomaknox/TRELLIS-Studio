@@ -181,7 +181,7 @@ def blend_crouch_pose(idle, crouched, weight, finger_parents=()):
     return pose
 
 
-def author(scene,target,target_mapping,requests,height,*,profile=None):
+def author(scene,target,target_mapping,requests,height,*,profile=None,floor=None):
     packs={};original_actions=set(bpy.data.actions);original_objects=set(bpy.data.objects)
     base_mapping=target_mapping.copy()
     twists = profile['twists'] if profile else {}
@@ -195,7 +195,7 @@ def author(scene,target,target_mapping,requests,height,*,profile=None):
         recipe=BY_ID.get(request['id'])
         if not recipe or recipe['source_pack'] in packs:continue
         before=set(bpy.data.actions);objects=set(bpy.data.objects)
-        bpy.ops.import_scene.gltf(filepath=str(ROOT/recipe['source_model']))
+        bpy.ops.import_scene.gltf(filepath=str(ROOT/recipe['source_model'].replace('\\','/')))
         source=next(o for o in set(bpy.data.objects)-objects if o.type=='ARMATURE')
         actions={a.name:a for a in set(bpy.data.actions)-before}
         # glTF import may suffix an action already present from the target.
@@ -260,6 +260,13 @@ def author(scene,target,target_mapping,requests,height,*,profile=None):
         src_action=actions[recipe['source_clip']];activate(source,src_action)
         start,end=src_action.frame_range;source_duration=(end-start)/24;duration=request['duration'];frames=round(duration*24)
         cycles=max(1,round(duration/max(source_duration,.001))) if recipe['loop'] else 1
+        vault = None
+        if recipe.get('composite') == 'side_vault':
+            from vault_motion import VaultMotion
+            if floor is None:
+                raise ValueError('The vault requires a measured ground plane.')
+            vault = VaultMotion(target,mapping,rest,rest_heads,height,floor)
+            cycles = 3
         action_name='TS_'+request['id']+'_'+str(duration)+'s'
         for existing in list(original_actions):
             previous = animation_recipe(existing.name)
@@ -279,6 +286,8 @@ def author(scene,target,target_mapping,requests,height,*,profile=None):
         for frame in range(frames+1):
             u=frame/frames;phase=u*cycles
             source_frame=start+(end-start)*(phase%1 if u<1 and recipe['loop'] else 1 if recipe['loop'] else u)
+            if vault:
+                source_frame=start+(end-start)*(phase%1)
             if recipe.get('composite')=='jump':
                 if u<.3:name,progress='Jump_Start',u/.3
                 elif u<.65:name,progress='Jump_Loop',(u-.3)/.35
@@ -290,6 +299,8 @@ def author(scene,target,target_mapping,requests,height,*,profile=None):
             else:
                 pose=capture(source,smap,source_frame)
             poses.append(pose)
+        if vault:
+            vault.prepare_support(poses,src_heads,scale)
         support = (locomotion_support(poses, height / scale, in_place=recipe['loop'])
                    if request['id'] in LOCOMOTION else None)
         scene.frame_set(0)
@@ -315,10 +326,13 @@ def author(scene,target,target_mapping,requests,height,*,profile=None):
             root=target.pose.bones[mapping['root']]
             displacement=(pose['root']['head']-src_heads['root'])*scale
             if recipe['loop'] or request['id'] in ('crouch','jump'):displacement.x=0;displacement.y=0
+            if vault:
+                displacement = vault.apply(frame/frames,desired,displacement)
             root.location=(target.matrix_world.to_3x3()@root.bone.matrix_local.to_3x3()).inverted()@displacement
-            bpy.context.view_layer.update()
+            if not vault:
+                bpy.context.view_layer.update()
             # Two-bone leg solve retains source knee planes and scaled ankle lift.
-            for side in ('left','right'):
+            for side in (() if vault else SIDES):
                 thigh=target.pose.bones[mapping[side+'_leg']];shin=target.pose.bones[mapping[side+'_shin']];foot=target.pose.bones[mapping[side+'_foot']]
                 hip=target.matrix_world@thigh.head
                 source_vector=pose[side+'_foot']['head']-pose[side+'_leg']['head']
@@ -348,6 +362,8 @@ def author(scene,target,target_mapping,requests,height,*,profile=None):
                 previous_rotations[name]=rotation
                 p.keyframe_insert('rotation_quaternion',frame=frame,group=p.name)
             root.keyframe_insert('location',frame=frame,group=root.name)
+        if vault:
+            vault.correct_ground()
         for layer in action.layers:
             for strip in layer.strips:
                 for bag in strip.channelbags:
@@ -356,6 +372,8 @@ def author(scene,target,target_mapping,requests,height,*,profile=None):
         authored.append(dict(id=request['id'],name=recipe['name'],clip=action_name,duration_s=frames/24,
                              source=f"{recipe['author']} · {recipe['license']} · retarget",
                              source_clip=recipe['source_clip'],cycles=cycles,foot_ik=True))
+        if vault:
+            authored[-1].update(vault.metadata(frames/24))
     # Source rigs and their actions are never exported onto the target.
     source_actions=set()
     for source,actions,_,_ in packs.values():source.animation_data_clear();source_actions.update(actions.values())

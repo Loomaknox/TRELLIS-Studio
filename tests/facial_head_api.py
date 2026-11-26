@@ -46,6 +46,15 @@ def verify(app, base):
             settings = app.read_workspace_json(folder / 'settings.json')
             assert settings['facial_head_enhancement'] is True
             assert settings['profile_snapshot']['facial_head_enhancement'] is True
+            import json
+            batch_spec = dict(name='Same face', profile_id='dense_master', asset_type='humanoid',
+                              resolution=1024, texture_method='trellis', facial_head_enhancement=True)
+            result = post('/api/queue/batch', 201, files=[('images', ref)],
+                          data={'specifications': json.dumps([batch_spec])})
+            queued = app.read_workspace_json(app.OUTPUT / result['ids'][0] / 'settings.json')
+            for key in ('preset', 'asset_type', 'resolution', 'texture_method', 'facial_head_enhancement',
+                        'triangles', 'texture_size', 'advanced', 'engine'):
+                assert queued.get(key) == settings.get(key), (key, queued.get(key), settings.get(key))
             for changes in (dict(engine='pixal3d_single'), dict(texture_method='multiview'),
                             dict(master_finishing='studio_768'), dict(master_finishing='hi3d_1024'),
                             dict(overrides={'asset_type': 'object'}), dict(overrides={'asset_type':'humanoid','resolution':512})):

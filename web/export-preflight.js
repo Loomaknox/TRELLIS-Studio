@@ -121,14 +121,14 @@ export function createExportPreflight({api, onAction, onChange}) {
       const warnings = model.checks.filter(row => row.status === 'attention').length;
       attention += warnings;
       group.open = report.models.length === 1;
-      const label = warnings ? `${warnings} to inspect` : t('Checks measured');
+      const label = warnings ? t('{count} to inspect', {count: warnings}) : t('Checks measured');
       group.append(el('summary', warnings ? 'attention' : '', `${model.name} · ${label}`));
-      group.append(el('p', 'export-check-review', `Visual review · ${reviewLabels[model.human_review] || t('To review')}`));
+      group.append(el('p', 'export-check-review', t('Visual review · {review}', {review: reviewLabels[model.human_review] || t('To review')})));
       const rows = el('ul', 'export-check-rows');
       for (const check of model.checks) {
         const row = el('li', check.status);
         const description = el('span');
-        description.append(el('strong', '', check.label), el('small', '', check.detail));
+        description.append(el('strong', '', t(check.label)), el('small', '', t(check.detail_key || check.detail, check.detail_values)));
         row.append(description);
         const action = actions[check.action];
         if (check.status === 'attention' && action && job) {
@@ -139,7 +139,7 @@ export function createExportPreflight({api, onAction, onChange}) {
       group.append(rows);
       results.append(group);
     }
-    state.textContent = attention ? `${attention} to inspect` : t('Checks measured');
+    state.textContent = attention ? t('{count} to inspect', {count: attention}) : t('Checks measured');
     state.classList.toggle('attention', attention > 0);
     state.classList.toggle('checked', attention === 0);
   }
@@ -157,7 +157,7 @@ export function createExportPreflight({api, onAction, onChange}) {
     usageField.hidden = target === 'print';
     detailLevels.hidden = textureField.hidden = materialField.hidden = pivotField.hidden = target === 'print';
     colliderField.hidden = !engineTarget();
-    heightLabel.firstChild.textContent = `Expected height (${scale() === 1000 ? 'mm' : scale() === 100 ? 'cm' : 'm'})`;
+    heightLabel.firstChild.textContent = t('Expected height ({unit})', {unit: scale() === 1000 ? 'mm' : scale() === 100 ? 'cm' : 'm'});
     expectedHeight.value = '';
     applyPreset();
   }
@@ -195,7 +195,7 @@ export function createExportPreflight({api, onAction, onChange}) {
       if (own !== token) return;
       state.textContent = t('Check unavailable');
       state.classList.add('attention');
-      results.append(el('p', 'export-check-hint', error.message));
+      results.append(el('p', 'export-check-hint', t(error.message)));
       bypass.hidden = false;
       if (root.closest('dialog')?.open) bypass.scrollIntoView({block: 'nearest'});
     } finally {

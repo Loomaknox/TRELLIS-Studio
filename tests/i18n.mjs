@@ -24,6 +24,11 @@ test('browser language, preference and parameter substitution', async () => {
       'Frame faces',
     ];
     for (const message of faceMessages) assert.notEqual(t(message), message);
+    assert.equal(t('{count} to inspect', {count: 3}), 'À vérifier · 3');
+    assert.equal(t('Visual review · {review}', {review: 'Retenu'}), 'Contrôle visuel · Retenu');
+    assert.equal(t('Generation method'), 'Méthode de génération');
+    assert.equal(t('Help for {field}', {field: 'TOPOS'}), 'Aide pour TOPOS');
+    assert.equal(t('Origin is {distance} m from the bottom centre', {distance: '0.03'}), 'Origine à 0.03 m du centre de la base');
     assert.equal(t('Queued'), 'En attente');
     assert.equal(t('Multiview refinement'), 'Affinage multivue');
     assert.equal(t('Unavailable'), 'Indisponible');

@@ -1,4 +1,5 @@
 # Installed in the private face venv. Compatible Studio CUDA packages are reused read-only.
+setuptools==84.2.1
 mediapipe==1.2.3
 torch-geometric==2.7.0
 tensorboard==2.20.0

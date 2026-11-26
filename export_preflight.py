@@ -91,8 +91,11 @@ def asset_report(folder, target, budget, *, digest=None, staged_cache=None, meta
     physics = read(folder / 'physics.json', {})
     checks = []
 
-    def row(label, detail, status='checked', action=None):
-        checks.append(dict(label=label, detail=detail, status=status, action=action))
+    def row(label, detail, status='checked', action=None, *, message=None, values=None):
+        check = dict(label=label, detail=detail, status=status, action=action)
+        if message:
+            check.update(detail_key=message, detail_values=values)
+        checks.append(check)
 
     def maximum(label, actual, limit, suffix='', action='diagnostics'):
         detail = f'{actual:,}{suffix}'
@@ -122,7 +125,8 @@ def asset_report(folder, target, budget, *, digest=None, staged_cache=None, meta
         max_edge = max((max(item['width'], item['height']) for item in textures), default=0)
         maximum('Largest texture edge', max_edge, budget['max_texture_edge'], ' px')
         footprint = sum(item['width'] * item['height'] * 4 for item in textures) / 1024**2
-        row('Embedded textures', f'{len(textures)} · {footprint:.2f} MiB decoded RGBA8 (estimate)')
+        row('Embedded textures', f'{len(textures)} · {footprint:.2f} MiB decoded RGBA8 (estimate)',
+            message='{count} · {size} MiB decoded RGBA8 (estimate)', values={'count': len(textures), 'size': f'{footprint:.2f}'})
         maximum('Materials', measured['materials'], budget['max_materials'])
         if not measured['has_uv'] and textures:
             row('UV coordinates', 'Textured model has missing or incomplete UVs', 'attention', 'diagnostics')
@@ -134,10 +138,13 @@ def asset_report(folder, target, budget, *, digest=None, staged_cache=None, meta
     expected = budget['expected_height_m']
     unit, multiplier = ('mm', 1000) if target == 'print' else ('cm', 100) if target == 'unreal' else ('m', 1)
     dimension_label = ' × '.join(f'{value * multiplier:.4g}' for value in dimensions) + f' {unit}'
+    measured_dimensions = dimension_label
     if expected is not None:
         dimension_label += f' · expected height {expected * multiplier:.4g} {unit}'
     scaled = expected is not None and abs(height - expected) > max(expected * .05, .005)
-    row('Width × height × depth', dimension_label, 'attention' if scaled else 'checked', 'print' if target == 'print' else 'game')
+    row('Width × height × depth', dimension_label, 'attention' if scaled else 'checked', 'print' if target == 'print' else 'game',
+        message='{dimensions} · expected height {height} {unit}' if expected is not None else None,
+        values=dict(dimensions=measured_dimensions, height=f'{expected * multiplier:.4g}', unit=unit) if expected is not None else None)
 
     if budget['pivot'] != 'any':
         low, high = measured['bounds_min_m'], measured['bounds_max_m']
@@ -147,7 +154,9 @@ def asset_report(folder, target, budget, *, digest=None, staged_cache=None, meta
         distance = math.dist(point, (0, 0, 0))
         label = 'bottom centre' if budget['pivot'] == 'ground' else 'geometric centre'
         row('Pivot', f'Origin is {distance:.3g} m from the {label}',
-            'attention' if distance > max(.005, max(dimensions) * .01) else 'checked', 'game')
+            'attention' if distance > max(.005, max(dimensions) * .01) else 'checked', 'game',
+            message='Origin is {distance} m from the bottom centre' if budget['pivot'] == 'ground'
+            else 'Origin is {distance} m from the geometric centre', values={'distance': f'{distance:.3g}'})
 
     if target in ('unity', 'unreal'):
         kind = physics.get('kind', 'none')
@@ -156,7 +165,8 @@ def asset_report(folder, target, budget, *, digest=None, staged_cache=None, meta
             'attention' if budget['require_collision'] and not collision else 'checked', 'game')
     if budget['usage'] == 'character':
         row('Skeleton and motion', f"{measured['bones']} joints · {measured['clips']} clips",
-            'attention' if not measured['bones'] else 'checked', 'diagnostics')
+            'attention' if not measured['bones'] else 'checked', 'diagnostics',
+            message='{bones} joints · {clips} clips', values={'bones': measured['bones'], 'clips': measured['clips']})
 
     for code, label in [('boundary_edges', 'Boundary edges'), ('nonmanifold_edges', 'Nonmanifold edges'),
                         ('degenerate_faces', 'Degenerate faces'), ('invalid_stored_normals', 'Invalid normals')]:
@@ -164,7 +174,8 @@ def asset_report(folder, target, budget, *, digest=None, staged_cache=None, meta
             row(label, f'{measured[code]:,}', 'attention', 'diagnostics')
     inconsistent = sum(not mesh['winding_consistent'] for mesh in report['meshes'])
     if inconsistent:
-        row('Face orientation', f'{inconsistent} mesh(es) have inconsistent winding', 'attention', 'diagnostics')
+        row('Face orientation', f'{inconsistent} mesh(es) have inconsistent winding', 'attention', 'diagnostics',
+            message='{count} mesh(es) have inconsistent winding', values={'count': inconsistent})
     if any(issue['severity'] == 'error' for issue in report['issues']):
         row('Source diagnostics', 'Inspect unreadable textures or invalid geometry', 'attention', 'diagnostics')
     review = metadata.get('review_state', 'review')

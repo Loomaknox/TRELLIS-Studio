@@ -1,3 +1,5 @@
+import {batchSpecification, faceRestriction, pixalRestriction} from './single-image-recipe.js';
+import {visiblePoll} from './studio-poll.js';
 import {formatLocale, t} from './i18n.js';
 import {button, dialog, el, field, input, select, action, runtimeSummary} from './workbench-ui.js?v=stability';
 import {createWorkflowFields, optionHelp} from './advanced-controls.js?v=standard-profiles';
@@ -59,7 +61,7 @@ export function createQueueStudio({api, refresh}) {
   const retry = dialog('queueRetryDialog', t('Edit and retry'), t('NEW ATTEMPT'),
     t('Adjust the saved recipe and add a new attempt to the queue.'), 'recipe-dialog');
   const renderedJobs = new Map();
-  let drafts = [], profiles = [], snapshot = null, timer = null, pollNumber = 0;
+  let drafts = [], profiles = [], snapshot = null, pollNumber = 0;
   const profileOf = id => profiles.find(profile => profile.id === id);
   const workflowOf = id => profileOf(id)?.workflow;
   const unavailableWorkflow = id => {
@@ -78,8 +80,22 @@ export function createQueueStudio({api, refresh}) {
     }));
   }
 
+  let latestRuntime = {};
+  const typeOf = row => profileOf(row.profile_id)?.settings.preset === 'humanoid_experimental' ? 'humanoid' : row.asset_type || 'object';
+  function draftRestriction(row, runtime) {
+    const profile = profileOf(row.profile_id);
+    if (profile?.workflow) return unavailableWorkflow(row.profile_id) ? profile.workflow.reason : '';
+    if (row.engine === 'pixal3d_single') {
+      const reason = pixalRestriction(runtime, profile?.settings.preset, row.master_finishing);
+      if (reason) return reason;
+    }
+    return row.facial_head_enhancement ? faceRestriction(runtime.edition === 'desktop' && runtime.facial_head_enhancement,
+      {engine: row.engine, type: typeOf(row), resolution: row.resolution,
+        texture: textureMethodOf({...profile?.settings, ...row}), finishing: row.master_finishing}) : '';
+  }
+
   function syncBatchSubmit() {
-    submit.disabled = !drafts.length || drafts.some(row => unavailableWorkflow(row.profile_id));
+    submit.disabled = !drafts.length || drafts.some(row => draftRestriction(row, latestRuntime));
   }
 
   function updateFooter() {
@@ -144,13 +160,17 @@ export function createQueueStudio({api, refresh}) {
   }
 
   async function editDraft(row) {
-    const workflow = workflowOf(row.profile_id);
+    const profile = profileOf(row.profile_id);
+    const workflow = profile?.workflow;
     if (workflow) {
       const container = el('div');
-      const editor = createWorkflowFields(container, workflow.advanced, row.workflow_options);
-      const title = workflowSummary(workflow, profileOf(row.profile_id).settings.texture_method);
+      const settings = profile.settings;
+      const editor = createWorkflowFields(container, workflow.advanced, row.workflow_options ?? settings.workflow_options);
+      const summary = {...workflow, label: profile.name, resolution: settings.resolution,
+        target_faces: settings.triangles, texture_size: settings.texture_size};
+      const title = workflowSummary(summary, settings.texture_method);
       recipe.body.replaceChildren(el('strong', '', title), container);
-      recipe.foot.replaceChildren(button('Apply', 'check', 'primary', () => {
+      recipe.foot.replaceChildren(button(t('Apply'), 'check', 'primary', () => {
         if(!editor.validate())return;
         row.workflow_options=editor.read();
         recipe.close();
@@ -159,8 +179,24 @@ export function createQueueStudio({api, refresh}) {
       return;
     }
     const {runtime, schema} = await capabilities();
-    const profileSettings = profileOf(row.profile_id)?.settings;
+    const profileSettings = profile?.settings;
     const preset = profileSettings?.preset;
+    const engine = select([['trellis2', t('TRELLIS.2 · Single image')], ['pixal3d_single', t('Pixal3D · Single image')]], row.engine);
+    engine.id = 'queueImageEngine';
+    const pixalReason = pixalRestriction(runtime, preset, row.master_finishing);
+    engine.options[1].disabled = !!pixalReason;
+    engine.options[1].title = t(pixalReason);
+    const type = document.getElementById('assetType').cloneNode(true);
+    type.id = 'queueAssetType';
+    type.value = typeOf(row);
+    type.disabled = preset === 'humanoid_experimental';
+    const head = checkbox(row.facial_head_enhancement);
+    head.id = 'queueFacialHead';
+    const headField = field(t('Enhance face (TOPOS)'), head);
+    const headHelp = el('p', 'hint');
+    let faceReason = '';
+    let lastEngine = null;
+    const trellisValues = {resolution: String(row.resolution), size: String(row.texture_size), remove: row.remove_bg};
     const removeBg = checkbox(row.remove_bg);
     const requiredSource = !!row.master_finishing || ['dense_master', 'humanoid_experimental'].includes(preset);
     const keepSource = checkbox(requiredSource || row.keep_finishing_source);
@@ -184,6 +220,10 @@ export function createQueueStudio({api, refresh}) {
     };
     const apply = button(t('Apply settings'), 'check', 'primary', () => {
       if (triangles && !triangles.reportValidity()) return;
+      if (engine.value === 'pixal3d_single' && pixalReason || head.checked && faceReason) {
+        recipe.notice.textContent = t(engine.value === 'pixal3d_single' && pixalReason || faceReason);
+        return;
+      }
       if (!texture.value || !resolution.value) {
         recipe.notice.textContent = t('Choose a supported texture size and geometry resolution.');
         return;
@@ -192,7 +232,8 @@ export function createQueueStudio({api, refresh}) {
         recipe.notice.textContent = retextureStatus.textContent;
         return;
       }
-      Object.assign(row, {texture_size: Number(texture.value), resolution: Number(resolution.value),
+      Object.assign(row, {engine: engine.value, asset_type: type.value, facial_head_enhancement: head.checked,
+        texture_size: Number(texture.value), resolution: Number(resolution.value),
         remove_bg: removeBg.checked, keep_finishing_source: keepSource.checked});
       if (triangles) row.triangles = triangles.valueAsNumber;
       if (supportsRetexture) row.retexture_after_refinement = !retexture.disabled && retexture.checked;
@@ -200,10 +241,12 @@ export function createQueueStudio({api, refresh}) {
         row.texture_method=textureMethod.value;
         delete row.multiview_texture_refinement;
       }
+      renderDrafts();
       recipe.close();
     });
-    recipe.body.replaceChildren(field(t('Geometry resolution'), resolution),
-      fullMesh ? el('p', 'hint', fullMeshNote)
+    recipe.body.replaceChildren(field(t('Generation method'), engine), field(t('Asset type'), type),
+      field(t('Geometry resolution'), resolution),
+      fullMesh ? el('p', 'hint', t(fullMeshNote))
         : field(preset === 'dense_master' ? t('Maximum triangles') : t('Triangle target'), triangles),
       field(t('Texture size'), texture), field(t('Remove image background'), removeBg),
       field(t('Keep source for finishing variants'), keepSource));
@@ -215,6 +258,34 @@ export function createQueueStudio({api, refresh}) {
       resolution.addEventListener('change', syncRetexture);
     }
     textureMethod=appendTextureMethod(recipe.body,runtime,{...profileSettings,...row},texture,'queueTextureMethod');
+    if (pixalReason) recipe.body.append(el('small', 'hint', t(pixalReason)));
+    recipe.body.append(headField, headHelp);
+    const syncEngine = () => {
+      const pixal = engine.value === 'pixal3d_single';
+      if (lastEngine !== engine.value) {
+        if (pixal && lastEngine) Object.assign(trellisValues, {resolution: resolution.value, size: texture.value, remove: removeBg.checked});
+        const setOptions = (control, choices, value) => control.replaceChildren(...select(choices, value).options);
+        const res = pixal ? '1024' : trellisValues.resolution;
+        const size = pixal ? String(Math.min(Number(texture.value || row.texture_size), 2048)) : trellisValues.size;
+        setOptions(resolution, resolutionChoices(pixal ? [1024] : runtime.supported_resolutions), res);
+        resolution.value = res;
+        setOptions(texture, textureChoices(pixal ? [1024,2048] : runtime.texture_sizes), size);
+        texture.value = textureMethod.value === 'ultratex' ? '2048' : size;
+        if (!texture.value) texture.selectedIndex = 0;
+        if (!resolution.value) resolution.selectedIndex = 0;
+        removeBg.checked = pixal || trellisValues.remove;
+        removeBg.disabled = resolution.disabled = pixal;
+        lastEngine = engine.value;
+        if (supportsRetexture) syncRetexture();
+      }
+      headField.hidden = headHelp.hidden = runtime.edition !== 'desktop' && !head.checked;
+      faceReason = faceRestriction(runtime.edition === 'desktop' && runtime.facial_head_enhancement,
+        {engine: engine.value, type: type.value, resolution: resolution.value, texture: textureMethod.value, finishing: row.master_finishing});
+      head.disabled = !!faceReason && !head.checked;
+      headHelp.textContent = t(faceReason || 'Use a front-facing T- or A-pose. Rebuilds the face before native PBR texturing.');
+    };
+    [engine, type, head, resolution, textureMethod].forEach(control => control.addEventListener('change', syncEngine));
+    syncEngine();
     recipe.body.append(el('p', 'hint',
       t('Sampling and finishing controls come from this image’s profile. Save a custom profile in Create for a different recipe.')));
     recipe.foot.replaceChildren(apply);
@@ -224,7 +295,12 @@ export function createQueueStudio({api, refresh}) {
   function applyProfile(row, id) {
     const profile = profileOf(id);
     if (!profile) return;
-    if (row.profile_id !== id) delete row.workflow_options;
+    if (row.profile_id !== id) {
+      delete row.workflow_options;
+      row.engine = 'trellis2';
+      row.asset_type = 'object';
+      row.facial_head_enhancement = false;
+    }
     row.profile_id = id;
     if (profile.workflow) return;
     const {remove_bg, triangles, texture_size, resolution, advanced, master_finishing, retexture_after_refinement} = profile.settings;
@@ -264,7 +340,10 @@ export function createQueueStudio({api, refresh}) {
       const syncProfile = () => {
         const workflow = workflowOf(row.profile_id);
         seedField.hidden = seed.disabled = !!workflow;
-        status.textContent = unavailableWorkflow(row.profile_id) ? workflow.reason : '';
+        const reason = draftRestriction(row, latestRuntime);
+        status.textContent = workflow ? t(reason || workflow.label) : [
+          t(row.engine === 'pixal3d_single' ? 'Pixal3D · Single image' : 'TRELLIS.2 · Single image'),
+          row.facial_head_enhancement && t('Enhance face (TOPOS)'), t(reason)].filter(Boolean).join(' · ');
         status.hidden = !status.textContent;
         syncBatchSubmit();
       };
@@ -316,14 +395,10 @@ export function createQueueStudio({api, refresh}) {
       return;
     }
     const form = new FormData();
-    form.set('specifications', JSON.stringify(drafts.map(({file, url, ...spec}) => {
-      if (workflowOf(spec.profile_id)) {
-        const {name, profile_id, height_m, priority, workflow_options} = spec;
-        return {name, profile_id, height_m, priority, workflow_options};
-      }
-      if (spec.master_finishing === 'none') delete spec.triangles;
-      return spec;
-    })));
+    latestRuntime = await api('/api/status');
+    const reason = drafts.map(row => draftRestriction(row, latestRuntime)).find(Boolean);
+    if (reason) { renderDrafts(); throw Error(t(reason)); }
+    form.set('specifications', JSON.stringify(drafts.map(row => batchSpecification(row, workflowOf(row.profile_id)))));
     for (const row of drafts) form.append('images', row.file);
     await api('/api/queue/batch', {method: 'POST', body: form});
     drafts.forEach(row => URL.revokeObjectURL(row.url));
@@ -342,44 +417,45 @@ export function createQueueStudio({api, refresh}) {
   function retryActions(item, changes, available = true) {
     const log = el('pre', 'queue-log');
     log.hidden = true;
-    const showLog = button('Show log', 'list', 'quiet');
+    const showLog = button(t('Show log'), 'list', 'quiet');
     showLog.onclick = () => action(retry, showLog, async () => {
       const result = await api('/api/jobs/' + item.id + '/log');
-      log.textContent = result.text || 'No calculation log is available.';
+      log.textContent = result.text || t('No calculation log is available.');
       log.hidden = false;
       showLog.hidden = true;
     });
     retry.body.append(showLog, log);
 
-    const send = button('Add retry to queue', 'rotate', 'primary');
+    const send = button(t('Add retry to queue'), 'rotate', 'primary');
     send.disabled = !available;
     send.onclick = () => action(retry, send, async () => {
       const payload = changes();
       if (!payload) return;
       const result = await api('/api/queue/' + item.id + '/retry', json('POST', payload));
       retry.close();
-      ui.notice.textContent = result.paused ? 'New attempt queued. Resume the queue to start it.' : 'New attempt queued.';
+      ui.notice.textContent = t(result.paused ? 'New attempt queued. Resume the queue to start it.' : 'New attempt queued.');
       await poll();
       await refresh();
     });
-    retry.foot.replaceChildren(button('Back', 'close', 'secondary', () => retry.close()), send);
+    retry.foot.replaceChildren(button(t('Back', undefined, 'navigation'), 'close', 'secondary', () => retry.close()), send);
     retry.show();
   }
 
   async function editRetry(item) {
     const saved = item.settings;
-    const profile = profileOf(saved.profile?.id || saved.workflow_id);
-    const workflow = profile?.workflow;
-    if (saved.workflow_id || workflow) {
+    if (saved.workflow_id) {
+      const profile = profileOf(saved.workflow_id);
+      const workflow = profile?.workflow;
       const height = heightInput(saved.height_m);
       const priority = prioritySelect(item.priority);
       const unavailable = workflow?.available !== true;
       const details = unavailable ? workflow?.reason || 'Choose a current profile to run a new generation.' : 'Reuses the saved reference image.';
-      const recorded = workflow && {...workflow, resolution: saved.resolution ?? workflow.resolution,
+      const recorded = workflow && {...workflow, label: saved.profile?.name || workflow.label,
+        resolution: saved.resolution ?? workflow.resolution,
         target_faces: saved.triangles ?? workflow.target_faces, texture_size: saved.texture_size ?? workflow.texture_size};
       retry.body.replaceChildren(el('strong', '', item.name), el('p', 'queue-failure', item.error || item.stage),
         el('p', 'hint', recorded ? workflowSummary(recorded, saved.texture_method ?? profile.settings.texture_method) : saved.profile?.name),
-        el('p', 'hint', details), field('Height · m', height), field('Priority', priority));
+        el('p', 'hint', t(details)), field(t('Height · m'), height), field(t('Priority'), priority));
       const container = el('div');
       const editor = workflow && createWorkflowFields(container, workflow.advanced, saved.workflow_options);
       if (editor) retry.body.append(container);
@@ -429,7 +505,7 @@ export function createQueueStudio({api, refresh}) {
     retry.body.replaceChildren(title, failure, el('p', 'hint', context),
       field(t('Geometry resolution'), resolution, refinish ? t('Uses the saved geometry cache.') : pixal ? t('Pixal3D uses 1024³.')
         : saved.retexture_after_refinement ? t('The saved texture pass requires a 1024³ source.') : ''),
-      fullMesh ? el('p', 'hint', fullMeshNote)
+      fullMesh ? el('p', 'hint', t(fullMeshNote))
         : field(saved.adaptive_finishing || master ? t('Maximum triangles') : t('Triangle target'), triangles,
           master ? t('Fixed by HD Master Finishing.') : ''), field(t('Texture size'), texture), field(t('Height · m'), height),
       field(t('Priority'), priority));
@@ -502,6 +578,9 @@ export function createQueueStudio({api, refresh}) {
     const recipeSummary = [
       generatedMotion ? t('Motion generation') : motionTransfer ? t('Saved motion transfer') : animation ? t('Animation update') : null,
       item.settings.workflow_id ? item.settings.profile?.name || 'ComfyUI' : null,
+      !animation && !item.settings.workflow_id && ['trellis2', 'pixal3d', 'pixal3d_single'].includes(item.settings.engine)
+        ? t(item.settings.engine === 'trellis2' ? 'TRELLIS.2 · Single image' : item.settings.view_mode === 'multi' ? 'Pixal3D · Multi-view' : 'Pixal3D · Single image') : null,
+      item.settings.facial_head_enhancement && t('Enhance face (TOPOS)'),
       generatedMotion && Number.isFinite(item.duration) ? Number(item.duration).toLocaleString(formatLocale) + ' s' : null,
       generatedMotion && Number.isFinite(item.fps) ? item.fps + ' fps' : null,
       !animation && item.settings.resolution ? item.settings.resolution + '³' : null,
@@ -604,9 +683,11 @@ export function createQueueStudio({api, refresh}) {
     }
   }
 
-  ui.element.addEventListener('close', () => clearInterval(timer));
+  const queuePoll = visiblePoll(poll, () => snapshot?.items.some(item => item.state === 'running') ? 1500 : 6000);
+  ui.element.addEventListener('close', () => queuePoll.stop());
   return {
     setRuntime(runtime, stage) {
+      latestRuntime = runtime;
       runtimeInfo.textContent = runtimeSummary(runtime, stage);
     },
     async open(prepare = false) {
@@ -623,8 +704,7 @@ export function createQueueStudio({api, refresh}) {
       renderDrafts();
       tab(prepare);
       ui.show();
-      clearInterval(timer);
-      timer = setInterval(poll, 1500);
+      queuePoll.start();
       await poll();
     },
     update() {

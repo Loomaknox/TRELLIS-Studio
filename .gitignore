@@ -28,6 +28,7 @@
 !/creature_swim_skin.py
 !/creature_motion.py
 !/studio_release.py
+!/studio_model_assets.py
 !/asset_taxonomy.py
 !/asset_work.py
 !/export_blender.py
@@ -40,6 +41,7 @@
 !/normal_glb.py
 !/generation_profiles.py
 !/figure_master_repair.py
+!/collection_sync.py
 !/collection_preview.py
 !/collection_preview_renderer.py
 !/glb_data.py
@@ -66,6 +68,7 @@
 !/server_app.py
 !/server_runtime.py
 !/server_store.py
+!/server_factors.py
 !/server_setup.py
 !/studio_assets.py
 !/studio_import.py
@@ -178,6 +181,8 @@
 !/web/advanced-controls.js
 !/web/animation-studio.css
 !/web/animation-studio.js
+!/web/motion-obstacle.js
+!/web/side-vault-preview.glb
 !/web/rig-setup-viewer.js
 !/web/creature-rig-editor.js
 !/web/creature-rig-viewer.js
@@ -216,6 +221,8 @@
 !/web/presentation-studio.js
 !/web/print-copy.js
 !/web/profiles.js
+!/web/single-image-recipe.js
+!/web/studio-poll.js
 !/web/queue-studio.js
 !/web/studio-panels.css
 !/web/studio-tools.css
@@ -450,7 +457,14 @@
 !/web/fr-server.js
 !/web/language-selector.js
 !/web/language-selector.css
+!/tests/queue_recipe_browser.py
+!/tests/queue_recipe_browser.js
+!/tests/studio_poll.mjs
+!/tests/collection_sync.py
 !/tests/i18n.mjs
+!/tests/motion_obstacle.mjs
+!/motion_guides.py
+!/tests/motion_vault_edit.py
 !/tests/creature_tentacles.py
 !/tests/creature_swim.py
 !/docs/RELEASE_3.12.0.md
@@ -515,6 +529,7 @@
 !/web/standard-workflow-graph.js
 !/native_ultratex/
 /native_ultratex/*
+!/native_ultratex/dependencies.py
 !/native_ultratex/native_ultratex_models.py
 !/native_ultratex/existing_mesh.py
 !/native_ultratex/native_ultratex_recipe.py
@@ -535,6 +550,8 @@
 !/animation_diagnostics.py
 !/tests/collection_preview_stability.py
 !/tests/animation_diagnostics.py
+!/vault_motion.py
+!/tests/side_vault.py
 !/tests/quality_diagnostics.py
 !/facial_head_runtime.py
 !/facial_head_infer.py
@@ -554,3 +571,7 @@
 !/tests/facial_head_color.py
 !/tests/facial_head_installer.py
 !/docs/FACIAL_HEAD.md
+!/tests/workspace_recovery.py
+
+
+!/docs/RELEASE_3.15.2.md

@@ -9,7 +9,7 @@ from mathutils import Vector, Quaternion
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from retarget_motions import author as author_natural_motions
 from rig_landmarks import RIG_PROFILES
-from studio_import import blender_animation_source, rewrite_animation_names
+from studio_import import blender_animation_source, rewrite_animation_names, validate_glb
 
 def export_result(job, arm, meshes, preserved_names, result):
     bpy.ops.object.select_all(action='DESELECT')
@@ -25,7 +25,18 @@ def export_result(job, arm, meshes, preserved_names, result):
     supported = bpy.ops.export_scene.gltf.get_rna_type().properties.keys()
     if 'FINISHED' not in bpy.ops.export_scene.gltf(**{k:v for k,v in args.items() if k in supported}):
         raise ValueError('Exporting the animated model failed.')
-    rewrite_animation_names(output, output, preserved_names)
+    clip_extras = {}
+    for clip in validate_glb(job/'rig-work'/'rigged.glb').get('animations', []):
+        extra = clip.get('extras', {})
+        if isinstance(extra,dict) and 'trellis_obstacle' in extra:
+            clip_extras[clip.get('name')] = {k:v for k,v in extra.items() if k in ('trellis_obstacle','trellis_contact')}
+    for item in result.get('animation_set', []):
+        if item.get('obstacle') and item.get('contact'):
+            if 'palm_bind' in item['contact'] and not item['contact'].get('palm_offset'):
+                from vault_motion import gltf_palm_offset
+                item['contact']['palm_offset'] = gltf_palm_offset(validate_glb(output),item['contact'])
+            clip_extras[item['clip']] = {'trellis_obstacle':item['obstacle'],'trellis_contact':item['contact']}
+    rewrite_animation_names(output, output, preserved_names, clip_extras=clip_extras)
     for action in bpy.data.actions:
         if action.name in preserved_names:
             action['studio_original_clip_name'] = preserved_names[action.name]
@@ -194,7 +205,11 @@ requests=settings.get('animation_clips',[])
 if 'regenerate_ids' in settings:requests=[r for r in requests if r['id'] in settings['regenerate_ids']]
 authored=[]
 if mapping and requests:
-    authored=author_natural_motions(scene,arm,mapping,requests,height,profile=profile)
+    try:
+        authored=author_natural_motions(scene,arm,mapping,requests,height,profile=profile,floor=low.z)
+    except ValueError as error:
+        (work/'animation-error.json').write_text(json.dumps({'message':str(error)}), encoding='utf-8')
+        raise
 elif not mapping:
     warning+=' Humanoid joints could not be identified confidently.'
 if 'previous_animation_set' in settings:

@@ -46,7 +46,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
  let rigSourceCheck=null,openingRig=null,rigSourcePreview=null;
  let selecting=false,selectionTarget=null,submitting=false;
  let clipNotice=null,removal=null;
- let swimCheck=null,pendingSwim=null;
+ let swimCheck=null,pendingPlayback=null;
  const swimEditor=$('creatureSwimEditor'),swimStatus=$('creatureSwimStatus');
  const finalSwim=createSwimFields($('creatureFinalSwimFields'));
  const selectedClips=new Set();
@@ -201,7 +201,6 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
    swimEditor.open=false;
    swimStatus.textContent='';
   }
-  if(pendingSwim&&pendingSwim.id!==job?.id)pendingSwim=null;
   const visible=swimAvailable&&!editing&&!rigJobId&&!$('rigPanel').hidden
    &&isCreatureRig(job)&&!isCreatureRigDraft(job)&&job.state==='done';
   swimEditor.hidden=!visible||!swimCheck?.compatible;
@@ -222,14 +221,14 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   });
  }
 
- function playUpdatedSwim(){
+ function playUpdatedClip(){
   const job=getJob();
-  if(!pendingSwim||pendingSwim.id!==job?.id||pendingSwim.previous===job.result?.revision)return;
+  if(!pendingPlayback||pendingPlayback.id!==job?.id||pendingPlayback.previous===job.result?.revision)return;
   const loaded=getClips(job);
-  const index=loaded?.findIndex(clip=>clip.name===pendingSwim.clip);
+  const index=loaded?.findIndex(clip=>clip.name===pendingPlayback.clip);
   if(index>=0){
-   playClip(index,pendingSwim.clip);
-   pendingSwim=null;
+   playClip(index,pendingPlayback.clip);
+   pendingPlayback=null;
   }
  }
 
@@ -247,7 +246,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
     method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(options),
    });
    if(getJob()?.id===job.id){
-    pendingSwim={id:job.id,clip:revised.clip_name,previous:job.result?.revision};
+    pendingPlayback={id:job.id,clip:revised.clip_name,previous:job.result?.revision};
     setAnimationTab('Added');
     swimStatus.textContent=t('Swim updated.');
    }
@@ -256,7 +255,7 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   }finally{
    submitting=false;
    try{await refresh();}
-   finally{render();playUpdatedSwim();}
+   finally{render();playUpdatedClip();}
   }
  };
 
@@ -287,12 +286,18 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   }
  }
 
- function submitMotions(ids,batch=false){
+ async function submitMotions(ids,batch=false){
   const job=getJob();
   if(!canAdd(job)||!ids.length||(batch&&!batchAvailable))return;
   const duration=Number($('animationDuration').value);
   const clips=ids.map(clip=>({clip,duration}));
-  return editClips(job,'POST',batch?{clips}:clips[0],ids.length===1?t('Animation saved.'):t('Animations saved.'),batch);
+  const previous=job.result?.revision;
+  const result=await editClips(job,'POST',batch?{clips}:clips[0],ids.length===1?t('Animation saved.'):t('Animations saved.'),batch);
+  if(result.ok&&ids.length===1&&getJob()?.id===job.id){
+   pendingPlayback={id:job.id,clip:`TS_${ids[0]}_${duration.toFixed(1)}s`,previous};
+   playUpdatedClip();
+  }
+  return result;
  }
 
  function confirmRemoval(job,clip){
@@ -648,10 +653,11 @@ export async function createAnimationStudio({api,getJob,isBusy,startJob,refresh,
   },
   modelLoaded(){
    if(isCreatureRigDraft(getJob())||tab==='added'||!Array.isArray(getJob()?.media?.animation_items))render();
-   playUpdatedSwim();
+   playUpdatedClip();
   },
   update(){
    const job=getJob();
+   if(pendingPlayback&&pendingPlayback.id!==job?.id)pendingPlayback=null;
    if((rigJobId&&rigJobId!==job?.id)||(openingRig&&openingRig.jobId!==job?.id))closeRig();
    const key=JSON.stringify([job?.id,job?.state,job?.operation,job?.rig_phase,job?.media?.available,job?.result?.creature_motion,job?.result?.bones,job?.result?.rigged,job?.result?.revision,
     job?.result?.rig_profile,job?.result?.rig_skipped_clips,rigProfiles,job?.media?.bones,job?.media?.animation_items,

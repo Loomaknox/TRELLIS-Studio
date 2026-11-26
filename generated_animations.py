@@ -4,7 +4,7 @@ from tempfile import TemporaryDirectory
 import hashlib, json, re, shutil, time, uuid, zipfile
 import numpy as np
 from api_contract import GeneratedAnimationCreate
-from studio_workspace import ID, read, write
+from studio_workspace import ID, job_status, read, write
 
 SOURCE_FILES = ('motion.npz', 'skeleton.json', 'preview.glb')
 PROVENANCE_FIELDS = {'engine','model','runtime','model_sha256','text_encoder_sha256','source_revision',
@@ -88,7 +88,7 @@ def clip_name(identifier, name):
     return 'Generated_'+identifier[:8]+'_'+label[:60]
 
 def record(folder):
-    folder=Path(folder);manifest=read(folder/'manifest.json',{});state=read(folder/'status.json',{})
+    folder=Path(folder);manifest=read(folder/'manifest.json',{});state=job_status(folder)
     if not manifest:return None
     result={key:manifest.get(key) for key in ('name','prompt','duration','seed','fps','frames','created','clip_name','provenance','preview_root')}
     result.update(id=folder.name,state=state.get('state','error'),stage=state.get('stage',''),progress=state.get('progress',0),

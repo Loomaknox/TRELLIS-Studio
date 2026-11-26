@@ -1,4 +1,5 @@
 import {t} from './i18n.js';
+import {createObstaclePreview, motionObstacles, obstacleFraming} from './motion-obstacle.js';
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {clone} from 'three/addons/utils/SkeletonUtils.js';
@@ -12,6 +13,14 @@ export function createMotionPreviews(){
  const cache=new Map();let cards=[],last=0;
  const load=url=>{if(!cache.has(url))cache.set(url,new GLTFLoader().loadAsync(url));return cache.get(url);};
  function frameRootMotion(card,clip,animation){
+  if(card.obstacle){
+   const bounds=new THREE.Box3().setFromObject(card.model,true);
+   card.obstacle.expandBounds(bounds);
+   const frame=obstacleFraming(bounds,camera,card.obstacle.heading);
+   card.center=frame.center;
+   card.eye=frame.eye;
+   return;
+  }
   if(!clip.preview_root)return;
   const track=animation.tracks.find(track=>track.name===`${clip.preview_root}.position`);
   if(!track)return;
@@ -22,10 +31,13 @@ export function createMotionPreviews(){
   const offset=previewEye.clone().sub(previewCenter);
   card.eye=offset.setLength(offset.length()+travel.length()).add(card.center);
  }
- function render(card,time){if(!card.model)return;scene.add(card.model);card.mixer.setTime(time%Math.max(card.clipDuration,.001));camera.position.copy(card.eye??previewEye);camera.lookAt(card.center??previewCenter);renderer.render(scene,camera);card.context.clearRect(0,0,240,270);card.context.drawImage(renderer.domElement,0,0);scene.remove(card.model);}
+ function render(card,time){if(!card.model)return;scene.add(card.model);card.obstacle?.sync();if(card.obstacle)floor.visible=false;card.mixer.setTime(time%Math.max(card.clipDuration,.001));camera.position.copy(card.eye??previewEye);camera.lookAt(card.center??previewCenter);renderer.render(scene,camera);card.context.clearRect(0,0,240,270);card.context.drawImage(renderer.domElement,0,0);scene.remove(card.model);floor.visible=true;if(card.obstacle)card.obstacle.hide();}
  function tick(time){requestAnimationFrame(tick);if(time-last<90||document.hidden)return;last=time;for(const card of cards){const rect=card.canvas.getBoundingClientRect();if(rect.bottom>0&&rect.top<innerHeight)render(card,time/1000);}}
  requestAnimationFrame(tick);
  return {attach(container,clip){const canvas=document.createElement('canvas');canvas.width=240;canvas.height=270;canvas.setAttribute('role','img');canvas.setAttribute('aria-label',t('Animated preview: {name}',{name:t(clip.name)}));container.append(canvas);const card={canvas,context:canvas.getContext('2d')};cards.push(card);
-  load(clip.preview_url).then(gltf=>{if(!cards.includes(card))return;const model=clone(gltf.scene),mixer=new THREE.AnimationMixer(model),action=gltf.animations.find(c=>c.name===clip.source_clip);if(!action)return;card.model=model;card.mixer=mixer;card.clipDuration=action.duration;frameRootMotion(card,clip,action);mixer.clipAction(action).play();render(card,.25);}).catch(()=>{container.dataset.error=t('Preview unavailable');});
- },clear(){cards.forEach(c=>c.mixer?.stopAllAction());cards=[];}};
+  load(clip.preview_url).then(gltf=>{if(!cards.includes(card))return;const model=clone(gltf.scene),mixer=new THREE.AnimationMixer(model),action=gltf.animations.find(c=>c.name===(clip.preview_clip||clip.source_clip));if(!action)throw Error('Missing preview clip');card.model=model;
+  const box=motionObstacles(gltf)[gltf.animations.indexOf(action)];
+  if(box){card.obstacle=createObstaclePreview(scene);card.obstacle.set(model,box);}
+  card.mixer=mixer;card.clipDuration=action.duration;frameRootMotion(card,clip,action);mixer.clipAction(action).play();render(card,.25);}).catch(()=>{container.dataset.error=t('Preview unavailable');});
+ },clear(){cards.forEach(c=>{c.mixer?.stopAllAction();c.obstacle?.clear();});cards=[];}};
 }

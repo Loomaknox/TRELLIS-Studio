@@ -20,8 +20,8 @@ def isolated_workspace(name):
                 if value is None:os.environ.pop(key,None)
                 else:os.environ[key]=value
 
-with isolated_workspace('humanoid_profiles'):
-    import copy, io, json, requests, socket, threading, time, uvicorn
+with isolated_workspace('humanoid_profiles') as workspace:
+    import asyncio, copy, io, json, requests, socket, threading, time, uvicorn
     from contextlib import contextmanager
     from unittest.mock import patch
     from PIL import Image
@@ -30,6 +30,7 @@ with isolated_workspace('humanoid_profiles'):
     from generation_profiles import ProfileStore, builtin_profiles
     from generation_options import DENSE_MASTER, DEFAULT_GENERATION, DEFAULT_PROFILE, options_for_job
     from pixal3d_worker import sampling_options
+    from server_runtime import PrivateStudio
 
     before = copy.deepcopy(builtin_profiles()[0])
     refinement_profiles = {p['id']: p['settings']['multiview_texture_refinement'] for p in builtin_profiles()}
@@ -60,10 +61,10 @@ with isolated_workspace('humanoid_profiles'):
         def post(self,path,**kwargs):return self.request('POST',path,**kwargs)
         def put(self,path,**kwargs):return self.request('PUT',path,**kwargs)
     @contextmanager
-    def connection():
+    def connection(application=app.app):
         with socket.socket() as probe:
             probe.bind(('127.0.0.1',0));port=probe.getsockname()[1]
-        server=uvicorn.Server(uvicorn.Config(app.app,host='127.0.0.1',port=port,log_level='error',lifespan='off'))
+        server=uvicorn.Server(uvicorn.Config(application,host='127.0.0.1',port=port,log_level='error',lifespan='off'))
         thread=threading.Thread(target=server.run,daemon=True);thread.start()
         try:
             for _ in range(100):
@@ -324,6 +325,8 @@ with isolated_workspace('humanoid_profiles'):
         send(client,'/api/generate-multiview',expected=400,files=files,data={'profile_id':'unknown'})
         send(client,'/api/v1/generations/multiview',expected=422,json={'upload_id':front,'left_upload_id':side,'profile_id':'unknown'})
         with patch.object(app, 'workflow_capability', return_value={'available': True, 'reason': ''}), \
+             patch('native_game_profile.runtime_status', return_value={'available': True, 'reason': ''}), \
+             patch('native_high_detail.runtime_status', return_value={'available': True, 'reason': ''}), \
              patch('native_high_detail.ultratex_status', return_value={'available': True}) as ultratex:
             catalogue = client.get('/api/v1/profiles').json()
             assert catalogue['startup_profile'] == 'high_detail_native'
@@ -353,6 +356,82 @@ with isolated_workspace('humanoid_profiles'):
                 assert (app.OUTPUT / retry['id'] / settings(identifier)['workflow_input']).read_bytes() == png
                 send(client, '/api/v1/generations', expected=400, json={
                     'upload_id': front, 'profile_id': profile_id, 'seed': 42})
+
+            native_copies = (
+                ('game_asset_native', {'316': {'value': True}, '3': {'seed': '99', 'cfg': 6.5},
+                    '335': {'target_tris': 16_000}, '377': {'texture_size': 1024}},
+                    {'3': {'steps': 16}}, ('335', 'target_tris'),
+                    dict(geometry_backend='trellis2', texture_method='ultratex', triangles=16_000,
+                         texture_size=1024, seed=56)),
+                ('high_detail_native', {'17': {'seed': 99, 'shape_steps': 30},
+                    '12': {'remove_background': False}, '22': {'target_face_num': 500_000},
+                    '25': {'texture_method': 'trellis', 'texture_size': 2048}},
+                    {'17': {'shape_guidance_strength': 5}}, ('22', 'target_face_num'),
+                    dict(geometry_backend='trellis2_gguf', texture_method='trellis', triangles=500_000,
+                         texture_size=2048, seed=12345)),
+            )
+            for base, options, overrides, (target_stage, target_field), summary in native_copies:
+                payload = dict(name=workflows[base]['name'] + ' custom fixture',
+                               settings=dict(preset=base, workflow_options=options))
+                custom = send(client, '/api/profiles', expected=201, json=payload)
+                custom_id = custom['id']
+                assert custom_id.startswith('user_') and custom['builtin'] is False
+                triangles = summary['triangles']
+                assert custom['workflow']['available'] and custom['workflow']['target_faces'] == triangles
+                assert custom['settings']['texture_size'] == summary['texture_size']
+                assert custom['settings']['texture_method'] == summary['texture_method']
+                stored = next(profile for profile in app.PROFILES.list() if profile['id'] == custom_id)
+                assert set(stored['settings']) == {'preset', 'workflow_options'}
+                assert all('seed' not in stage for stage in stored['settings']['workflow_options'].values())
+                assert next(profile for profile in client.get('/api/v1/profiles').json()['profiles']
+                            if profile['id'] == custom_id)['workflow'] == custom['workflow']
+                partial = send(client, '/api/v1/generations', json={'upload_id': front, 'profile_id': custom_id,
+                    'overrides': {'workflow_options': overrides}})
+                job_id = partial['id']
+                queued = settings(job_id)
+                assert queued['profile'] == {'id': custom_id, 'name': payload['name']}
+                assert queued['preset'] == queued['workflow_id'] == base
+                assert {key: queued[key] for key in summary} == summary
+                for stage, fields in {**options, **overrides}.items():
+                    expected = {**options.get(stage, {}), **fields}
+                    assert all(queued['workflow_options'][stage][field] == value
+                               for field, value in expected.items() if field != 'seed')
+
+                updated_options = copy.deepcopy(options)
+                updated_options[target_stage][target_field] = triangles + 1000
+                revised = client.put(f'/api/profiles/{custom_id}', json={
+                    'name': payload['name'] + ' v2',
+                    'settings': {'preset': base, 'workflow_options': updated_options},
+                })
+                assert revised.status_code == 200 and revised.json()['id'] == custom_id
+                assert revised.json()['workflow']['target_faces'] == triangles + 1000
+                assert next(profile for profile in client.get('/api/profiles').json()['profiles']
+                            if profile['id'] == base)['workflow'] == workflows[base]['workflow']
+                deleted = client.request('DELETE', f'/api/profiles/{custom_id}')
+                assert deleted.status_code == 200
+                assert custom_id not in {profile['id'] for profile in client.get('/api/profiles').json()['profiles']}
+                send(client, f'/api/jobs/{job_id}/cancel', expected=200)
+                replay = send(client, f'/api/queue/{job_id}/retry', json={})
+                assert settings(replay['id'])['profile'] == queued['profile']
+                assert settings(replay['id'])['workflow_options'] == queued['workflow_options']
+
+            private_studios = [PrivateStudio(workspace / label, label * 32) for label in ('a', 'b')]
+            try:
+                with connection(private_studios[0].studio.app) as owner, \
+                     connection(private_studios[1].studio.app) as other:
+                    private_payload = {'name': 'Private Game Asset fixture', 'settings': {
+                        'preset': 'game_asset_native', 'workflow_options': {'335': {'target_tris': 8500}},
+                    }}
+                    private_copy = send(owner, '/api/profiles', expected=201, json=private_payload)
+                    private_id = private_copy['id']
+                    assert private_id in {profile['id'] for profile in owner.get('/api/profiles').json()['profiles']}
+                    assert private_id not in {profile['id'] for profile in other.get('/api/profiles').json()['profiles']}
+                    assert other.put(f'/api/profiles/{private_id}', json=private_payload).status_code == 404
+                    assert other.request('DELETE', f'/api/profiles/{private_id}').status_code == 404
+            finally:
+                for studio in private_studios:
+                    asyncio.run(studio.close())
+
             high_request = {'upload_id': front, 'profile_id': 'high_detail_native'}
             explicit = send(client, '/api/v1/generations', json={**high_request,
                 'overrides': {'workflow_options': {'25': {'texture_method': 'trellis'}}}})

@@ -14,7 +14,7 @@ namespace TrellisStudio
     public static class PackageImporter
     {
         [Serializable] public class Maps { public string BaseColor, MetallicSmoothness, NormalOpenGL, Occlusion, Emissive; }
-        [Serializable] public class Surface { public string name, source_name, alpha_mode; public bool double_sided; public float[] base_color, emissive_factor; public float normal_scale=1; public Maps maps; }
+        [Serializable] public class Surface { public string name, source_name, alpha_mode; public bool double_sided, has_mask_occlusion_factors; public float[] base_color, emissive_factor; public float normal_scale=1, alpha_cutoff, occlusion_strength; public Maps maps; }
         [Serializable] public class DetailLevel { public int level; public string export_path; }
         [Serializable] public class DetailSet { public DetailLevel[] levels; public float[] screen_heights; }
         [Serializable] public class PhysicsProxy { public string kind; }
@@ -22,6 +22,7 @@ namespace TrellisStudio
         {
             public string target, name, id, unity_asset_id, unity_parent_id, motion_root;
             public int bones;
+            public bool unity_baked_contacts;
             public Surface[] materials;
             public DetailSet lods;
             public PhysicsProxy physics;
@@ -76,14 +77,20 @@ namespace TrellisStudio
             } finally {UnityEngine.Object.DestroyImmediate(asset);}
         }
 
-        static Texture2D Texture(string root, string relative, bool srgb, bool normal=false)
+        static Texture2D Texture(string root, string relative, bool srgb, bool normal=false, bool occlusion=false)
         {
             if (string.IsNullOrEmpty(relative)) return null;
             if (!TexturePath.IsMatch(relative)) throw new InvalidDataException("Invalid texture path: " + relative);
             string path=root+"/"+relative;
             AssetDatabase.ImportAsset(path,ImportAssetOptions.ForceUpdate);
             var importer=AssetImporter.GetAtPath(path) as TextureImporter;
-            if (importer!=null) { importer.textureType=normal?TextureImporterType.NormalMap:TextureImporterType.Default; importer.sRGBTexture=srgb; importer.SaveAndReimport(); }
+            if (importer!=null) {
+                importer.textureType=normal?TextureImporterType.NormalMap:TextureImporterType.Default;
+                importer.sRGBTexture=srgb;
+                // glTF reads occlusion from red. Both Standard and URP Lit sample green.
+                if (occlusion) importer.swizzleG=TextureImporterSwizzle.R;
+                importer.SaveAndReimport();
+            }
             return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
         }
         static Color Colour(float[] value, Color fallback) { return value!=null&&value.Length>=3?new Color(value[0],value[1],value[2],value.Length>3?value[3]:1):fallback; }
@@ -123,7 +130,8 @@ namespace TrellisStudio
                     importer.animationCompression=ModelImporterAnimationCompression.Off;
                     importer.animationType=package.bones>0?ModelImporterAnimationType.Generic:ModelImporterAnimationType.None;
                     importer.avatarSetup=package.bones>0?ModelImporterAvatarSetup.CreateFromThisModel:ModelImporterAvatarSetup.NoAvatar;
-                    if(!string.IsNullOrEmpty(package.motion_root))importer.motionNodeName=package.motion_root;
+                    if(package.unity_baked_contacts) importer.motionNodeName="";
+                    else if(!string.IsNullOrEmpty(package.motion_root)) importer.motionNodeName=package.motion_root;
                     changed = true;
                 }
                 if (changed) { importer.SaveAndReimport(); count++; }
@@ -148,11 +156,23 @@ namespace TrellisStudio
             foreach (string property in new[]{"_Smoothness","_GlossMapScale","_Glossiness"}) if (material.HasProperty(property)) material.SetFloat(property,1);
             var normal=Texture(root,maps.NormalOpenGL,false,true);
             if (normal!=null) { material.SetTexture("_BumpMap",normal);material.SetFloat("_BumpScale",surface.normal_scale);material.EnableKeyword("_NORMALMAP"); }
-            material.SetTexture("_OcclusionMap",Texture(root,maps.Occlusion,false));
+            var occlusion=Texture(root,maps.Occlusion,false,occlusion:true);
+            if (occlusion!=null) {
+                material.SetTexture("_OcclusionMap",occlusion);
+                material.SetFloat("_OcclusionStrength",surface.has_mask_occlusion_factors?surface.occlusion_strength:1f);
+                material.EnableKeyword("_OCCLUSIONMAP");
+            }
             material.SetTexture("_EmissionMap",Texture(root,maps.Emissive,true));
             var emission=Colour(surface.emissive_factor,Color.black);material.SetColor("_EmissionColor",emission);
             if (emission.maxColorComponent>0) material.EnableKeyword("_EMISSION");
-            if (surface.alpha_mode=="MASK") { material.SetFloat("_AlphaClip",1);material.SetFloat("_Cutoff",.5f);material.EnableKeyword("_ALPHATEST_ON"); }
+            if (surface.alpha_mode=="MASK") {
+                if (material.HasProperty("_AlphaClip")) material.SetFloat("_AlphaClip",1);
+                if (material.HasProperty("_Mode")) material.SetFloat("_Mode",1);
+                material.SetFloat("_Cutoff",surface.has_mask_occlusion_factors?surface.alpha_cutoff:.5f);
+                material.EnableKeyword("_ALPHATEST_ON");
+                material.SetOverrideTag("RenderType","TransparentCutout");
+                material.renderQueue=(int)UnityEngine.Rendering.RenderQueue.AlphaTest;
+            }
             if (surface.alpha_mode=="BLEND") { material.SetFloat("_Surface",1);material.SetFloat("_SrcBlend",5);material.SetFloat("_DstBlend",10);material.SetFloat("_ZWrite",0);material.renderQueue=3000;material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT"); }
             if (material.HasProperty("_Cull")) material.SetFloat("_Cull",surface.double_sided?0:2);
             AssetDatabase.CreateAsset(material,path);
@@ -291,6 +311,9 @@ namespace TrellisStudio
                     throw new InvalidDataException("The ordered material slots differ in " + prefix + "model.fbx. Import it separately to review its assignments.");
                 if (model)
                 {
+                    var importer=AssetImporter.GetAtPath(root+"/"+prefix+"model.fbx") as ModelImporter;
+                    if (next.unity_baked_contacts && !string.IsNullOrEmpty(importer?.motionNodeName))
+                        throw new InvalidDataException("The contact animation already moves its skeleton. This FBX extracts a second root motion. Import separately or clear its Root Motion Node before updating.");
                     if (previous.bones != next.bones || (previous.motion_root ?? "") != (next.motion_root ?? ""))
                         throw new InvalidDataException("The skeleton size or root-motion setup differs. Import this model separately to review its rig.");
                     Add(prefix + "model.fbx");

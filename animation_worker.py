@@ -57,11 +57,19 @@ def run_blender(script, timeout):
     blender = find_blender()
     if not blender:
         raise RuntimeError('Blender is unavailable.')
-    subprocess.run(
-        [str(blender), '--background', '--factory-startup', '--disable-autoexec', '--python-exit-code', '1',
-         '--python', str(ROOT / script), '--', str(stage)],
-        stdout=sys.stdout, stderr=subprocess.STDOUT, check=True, timeout=timeout,
-        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    try:
+        subprocess.run(
+            [str(blender), '--background', '--factory-startup', '--disable-autoexec', '--python-exit-code', '1',
+             '--python', str(ROOT / script), '--', str(stage)],
+            stdout=sys.stdout, stderr=subprocess.STDOUT, check=True, timeout=timeout,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except subprocess.CalledProcessError as error:
+        report = stage/'rig-work'/'animation-error.json'
+        if script == 'standard_animations.py' and report.is_file():
+            message = json.loads(report.read_text(encoding='utf-8')).get('message')
+            if isinstance(message,str) and message.strip():
+                raise ValueError(message) from error
+        raise
     if not (stage / 'model.blend').is_file():
         raise ValueError('Blender did not save the edited model.')
 

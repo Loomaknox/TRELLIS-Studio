@@ -252,7 +252,7 @@ def install_rig(manifest, distribution):
 
 def verify(rig=True,workshop_only=False):
     python=ROOT/'.venv/Scripts/python.exe'
-    run(python,'-c',"import cv2,fastapi,uvicorn,numpy,psutil,scipy,trimesh; from PIL import Image; from studio_rest import install; from retarget_catalogue import ANIMATIONS, BY_ID; assert callable(cv2.QRCodeEncoder_create); assert len(ANIMATIONS)==len(BY_ID)==84; print('Workshop libraries, QR encoder and animation catalogue ready')")
+    run(python,'-c',"import cv2,fastapi,uvicorn,numpy,psutil,scipy,trimesh; from PIL import Image; from studio_rest import install; from retarget_catalogue import ANIMATIONS, BY_ID; assert callable(cv2.QRCodeEncoder_create); assert len(ANIMATIONS)==len(BY_ID) and {'idle','side_vault'}<=BY_ID.keys(); print('Workshop libraries, QR encoder and animation catalogue ready')")
     run(python,'-c',GAME_COPY_CHECK,label='Checking CPU game-copy reduction...')
     run(ROOT/'.mcp-venv/Scripts/python.exe','-c','from mcp.server import MCPServer;import httpx;print("MCP ready")')
     if not bundled_web():run('node','--check','web/studio.js')
@@ -308,6 +308,7 @@ def main():
         return
     if args.verify_only:verify(not args.skip_rig and not args.workshop_only,args.workshop_only);return
     if not args.uv or not args.uv.is_file():raise RuntimeError('Run Install TRELLIS Studio.cmd to provision uv/Python first.')
+    os.environ['UV_LINK_MODE'] = 'copy'
     if not bundled_web():
         for tool in ('node','npm.cmd'):
             if not shutil.which(tool):raise RuntimeError('Missing prerequisite: '+tool+'. See INSTALLATION.md.')

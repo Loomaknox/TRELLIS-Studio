@@ -39,7 +39,9 @@ def material_maps(data,binary,destination):
         name=f'{prefix}_MetallicSmoothness.png';Image.fromarray(packed).save(target/name);maps['MetallicSmoothness']='Textures/'+name
         materials.append(dict(name=prefix,source_name=entry.get('name',f'Material {i+1}'),base_color=pbr.get('baseColorFactor',[1,1,1,1]),
             metallic_factor=pbr.get('metallicFactor',1),roughness_factor=pbr.get('roughnessFactor',1),emissive_factor=entry.get('emissiveFactor',[0,0,0]),
-            normal_scale=entry.get('normalTexture',{}).get('scale',1),alpha_mode=entry.get('alphaMode','OPAQUE'),double_sided=entry.get('doubleSided',False),maps=maps))
+            normal_scale=entry.get('normalTexture',{}).get('scale',1),alpha_mode=entry.get('alphaMode','OPAQUE'),
+            has_mask_occlusion_factors=True,alpha_cutoff=entry.get('alphaCutoff',.5),
+            occlusion_strength=entry.get('occlusionTexture',{}).get('strength',1),double_sided=entry.get('doubleSided',False),maps=maps))
     return materials
 
 def conversion_glb(data,binary,path):
@@ -108,6 +110,9 @@ def export_asset(source,destination,target,notify=lambda fraction,stage:None,*,p
         manifest['preflight']=preflight
     if target=='unity':
         manifest.update(unity_asset_id=source.name,unity_parent_id=settings.get('parent_id',''))
+        manifest['unity_baked_contacts']=any(isinstance(clip.get('extras'),dict) and
+            clip['extras'].get('trellis_contact') and clip['extras'].get('trellis_obstacle')
+            for clip in data.get('animations',[]))
     if (source/'physics.json').is_file():
         manifest['physics']=json.loads((source/'physics.json').read_text(encoding='utf-8'))
         if (source/'Collisions').is_dir():shutil.copytree(source/'Collisions',destination/'Collisions',dirs_exist_ok=True)
@@ -159,6 +164,8 @@ def export_asset(source,destination,target,notify=lambda fraction,stage:None,*,p
           'An update accepts the same Studio card or an explicitly selected related variant. Incompatible material slots or lost Unity references stop the update.',
           'The helper uses Generic animation, Convert Units and URP Lit (or Standard). It does not create a Humanoid Avatar or controller.',
           'MetallicSmoothness: R=metallic, A=1-roughness; linear. BaseColor/emissive are sRGB. NormalOpenGL is a normal map.']
+        if manifest['unity_baked_contacts']:
+            lines.append('Contact clips carry the authored travel on the skeleton. Keep the Model Importer Root Motion Node empty so the palm stays on the obstacle. The actor GameObject can be positioned independently.')
     elif target=='unreal':
         lines+=['Import model.fbx with Convert Scene and Convert Scene Unit enabled. Use +X forward / Z up in the engine.',
           'For a rig: import the skeletal mesh and animations; reuse that skeleton when importing clips.',

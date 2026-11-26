@@ -8,11 +8,23 @@ TRELLIS Studio est une application communautaire indépendante qui s’appuie su
 
 Les calculs s’exécutent sur la machine qui héberge Studio, où restent les images de référence et les modèles. **Desktop** est destiné à un seul utilisateur. **Server** donne à chaque compte approuvé sa propre bibliothèque et permet un accès par le réseau local ou par un domaine avec HTTPS.
 
-## Version Windows en essai · novembre 2026
+## Version source 3.15.2
+
+Dans **Créer**, ajustez les réglages d’un profil High Detail ou Game Asset et enregistrez une copie sous le nom de votre choix. Vous pouvez ensuite la sélectionner dans **Créer** ou dans la **File**. Cette version corrige aussi le calcul des indices par FlexGEMM sur les grands maillages et améliore la détection de WSL2 pour UniRig et Kimodo. [Notes de version 3.15.2](docs/RELEASE_3.15.2.md)
+
+Sous Windows, sur une RTX 5070 Ti équipée du moteur High Detail natif, le fork a généré Aélis en **5 min 29 s** avec TRELLIS.2 GGUF. Le GLB exporté contient **1 995 435 triangles** et deux textures embarquées de **4 096 × 4 096 pixels**. Les empreintes SHA-256 des 86 fichiers contrôlés correspondent aux valeurs attendues. La mise à jour de cette installation a réutilisé tous ses poids de modèles. [Guide des profils natifs](docs/NATIVE_PROFILES.md)
+
+## Installeur Windows · Preview 3.15.1
 
 L’installeur Preview correspond au commit `da4d367`. Ses sept lots couvrent la génération, les diagnostics du squelette, les exports, l’espace disque, l’interface française, l’isolation des comptes Serveur et l’installation. Sur RTX 5070 Ti, Aélis a été générée en High Detail natif en **5 min 40 s**. Unity 6 a réimporté le personnage à 1,72 m avec ses 52 os et joué sa marche. Le comparatif montre une armure plus détaillée, des doigts plus épais et un regard moins fidèle. [Voir les comparatifs, la marche dans Unity et les résultats](https://github.com/Loomaknox/TRELLIS-Studio/blob/preview/qualification-3.15.1/docs/qualification/README.fr.md)
 
 Téléchargez la **Preview Windows x64** non signée et vérifiez son SHA-256 avec celui publié sur la page de téléchargement. Dans l’installeur, sélectionnez la génération TRELLIS.2 et le composant facultatif **High Detail GGUF avec PBR natif**. Dans Studio, choisissez **Créer → High Detail → TRELLIS.2 GGUF → TRELLIS.2 PBR**. Le support hors ligne comprend l’Atelier, MCP et les animations standard. Des avis de sécurité restent ouverts pour PyTorch et Transformers. [Télécharger la Preview](https://github.com/Loomaknox/TRELLIS-Studio/releases/tag/v3.15.1-preview.1) · [Guide du profil natif à cette révision](https://github.com/Loomaknox/TRELLIS-Studio/blob/da4d367/docs/NATIVE_PROFILES.md#windows-setup) · [Suivi des dépendances](https://github.com/Loomaknox/TRELLIS-Studio/blob/da4d367/SECURITY.md)
+
+## Correctifs du fork 3.15.1
+
+Dans **File → Préparer un lot → Réglages**, chaque image peut utiliser TRELLIS.2 ou Pixal3D mono-image. Pour activer TOPOS, choisissez un humanoïde en 1024³, les textures PBR natives et une finition directe ou standard. La file indique le moteur et les incompatibilités. La consultation de la collection se met en veille quand l’onglet est masqué.
+
+Les transferts vérifient le contenu de l’archive avant publication. L’importateur Unity protège les terrains peints ou sculptés lors des réimports. L’atelier de mouvement recalcule les repères d’appui après une modification du clip. Les prérequis et la sauvegarde des facteurs d’authentification du mode Serveur sont détaillés dans le guide. [Guide Serveur](docs/SERVER.md) · [Suivi des dépendances](SECURITY.md)
 
 ## Interface en français
 
@@ -20,7 +32,7 @@ Sous Windows, le raccourci **TRELLIS Studio** du bureau ou du menu Démarrer ouv
 
 Le sélecteur de langue dans l’en-tête permet de choisir **Français** ou **English**. Studio démarre en français si c’est la langue préférée de ton navigateur. Il mémorise ensuite ton choix dans ce navigateur. Quelques réglages de génération apparaissent encore en anglais, dont **Use Profile Settings**.
 
-Cette version du fork est basée sur **TRELLIS Studio 3.15.1**. Elle intègre le graphe de génération, la finition multivue, UltraTex 2K et les nouveaux outils de la collection et des créatures. [Notes de version](docs/RELEASE_3.15.1.md) · [Profils de génération autonomes](docs/NATIVE_PROFILES.md)
+Cette version du fork est basée sur **TRELLIS Studio 3.15.2**. Elle intègre le graphe de génération, la finition multivue, UltraTex 2K et les outils de la collection et des créatures. [Notes de version](docs/RELEASE_3.15.2.md) · [Profils de génération autonomes](docs/NATIVE_PROFILES.md)
 
 ## Vérifications sur le fork 3.15.1
 
@@ -85,8 +97,10 @@ L’en-tête et la file affichent l’activité et les capacités libres du PC. 
 
 1. Sélectionne un personnage et ouvre l’espace d’animation. S’il est déjà équipé d’un squelette, Studio peut conserver le squelette et les clips intégrés à son GLB.
 2. Pour ajouter un squelette, oriente le personnage de face et positionne les repères du menton, des épaules, des coudes, des poignets, de l’entrejambe, des genoux et des chevilles. Après le calcul UniRig, inspecte les articulations, les mains et les pieds sur la copie créée.
-3. Ajoute plusieurs des **84 animations humanoïdes standard** de Quaternius au même modèle ou utilise des mouvements enregistrés dans ta bibliothèque si tu as configuré Kimodo. L’atelier permet de raccourcir les clips, de travailler les boucles et de choisir entre un mouvement sur place et un déplacement de la racine.
+3. Choisis parmi les **84 animations de Quaternius** et le **Franchissement latéral à une main**. Pour ce mouvement, le personnage prend son élan, pose la main droite sur une caisse, passe les jambes sur le côté puis reprend appui au sol. La caisse apparaît comme repère pendant la lecture dans l’aperçu et dans **Comparer**. Tu peux aussi utiliser des mouvements enregistrés dans ta bibliothèque si tu as configuré Kimodo. L’atelier permet de raccourcir les clips, de travailler les boucles et de choisir entre un mouvement sur place et un déplacement de la racine.
 4. Vérifie les déformations, les appuis des pieds et les contacts avec les objets sur le personnage final. Le contrôleur qui enchaîne les clips en jeu se règle dans le projet Unity ou Unreal.
+
+Le **Franchissement latéral à une main** se trouve dans **Sauts et acrobaties**. Il requiert un humanoïde dont les bras, mains, jambes et pieds sont identifiés. Conserve le déplacement du personnage pour que la paume reste sur la caisse. Pour placer une caisse dans une autre scène, ses dimensions, son centre et le vecteur de déplacement figurent en mètres dans `extras.trellis_obstacle` du clip GLB, selon les axes glTF.
 
 Lorsque les **profils de squelette** sont activés, **Auto** utilise le parcours UniRig actuel. **Simple** garde 22 os corporels et des mains rigides. **Standard** utilise 52 os sur un maillage aux doigts séparés. **Avancé** ajoute deux os de torsion des avant-bras et propose de choisir le type de mains, pour un total de 24 ou 54 os. Les repères restent ajustables. Chaque profil crée une variante liée à sa source vérifiée et peut recalculer les clips standard du modèle sélectionné.
 

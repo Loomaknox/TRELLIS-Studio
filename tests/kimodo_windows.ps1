@@ -23,12 +23,26 @@ public static class KimodoFixtureProgram {
             if (args.Length > 1 && args[1] == "find") Console.WriteLine(Environment.GetEnvironmentVariable("TRELLIS_KIMODO_TEST_PYTHON"));
             return;
         }
+        if (args.Length > 3 && args[0] == "-d" && args[2] == "--exec") {
+            // WSL reads host options before passing the Linux command to the distribution.
+            if (Environment.CommandLine.Contains("\"-d\"") || Environment.CommandLine.Contains("\"--exec\"")) Environment.Exit(127);
+            if (args[3] == "uname") Console.WriteLine(args[1] == "Fixture-ARM" ? "aarch64" : "x86_64");
+            Environment.Exit(int.Parse(Environment.GetEnvironmentVariable("TRELLIS_KIMODO_TEST_EXIT") ?? "0"));
+            return;
+        }
         File.WriteAllLines(Environment.GetEnvironmentVariable("TRELLIS_KIMODO_TEST_ARGS"), args);
         Environment.Exit(int.Parse(Environment.GetEnvironmentVariable("TRELLIS_KIMODO_TEST_EXIT") ?? "0"));
     }
 }
 '@ -OutputAssembly $env:TRELLIS_KIMODO_TEST_PYTHON -OutputType ConsoleApplication
     . (Join-Path $taskRoot 'installer\windows\Install-Kimodo.ps1')
+    $taskRigProbe=Invoke-SetupProcess -FilePath $env:TRELLIS_KIMODO_TEST_PYTHON -Arguments @('-d','Fixture-Default','--exec','true')
+    Assert-True ($taskRigProbe.ExitCode -eq 0) 'The UniRig probe must pass bare WSL host options.'
+    Assert-True (Test-KimodoWslArchitecture $env:TRELLIS_KIMODO_TEST_PYTHON 'Fixture-Default') 'Kimodo rejected a successful Linux x64 probe.'
+    Assert-True (-not (Test-KimodoWslArchitecture $env:TRELLIS_KIMODO_TEST_PYTHON 'Fixture-ARM')) 'Kimodo accepted a non-x64 distribution.'
+    $env:TRELLIS_KIMODO_TEST_EXIT='7'
+    Assert-True (-not (Test-KimodoWslArchitecture $env:TRELLIS_KIMODO_TEST_PYTHON 'Fixture-Default')) 'Kimodo accepted x64 output from a failed process.'
+    $env:TRELLIS_KIMODO_TEST_EXIT='0'
     function Get-Command { param($Name,$ErrorAction); if($Name -eq 'wsl.exe'){[pscustomobject]@{Source='fixture-wsl.exe'}} }
     function Get-KimodoWslDistributions { @([pscustomobject]@{Name='Fixture-Other';Default=$false},[pscustomobject]@{Name='Fixture-Default';Default=$true}) }
     $script:taskProbes=@()
