@@ -13,6 +13,18 @@ test('browser language, preference and parameter substitution', async () => {
   try {
     const {language, t, localizeStatic} = await import('../web/i18n.js?fr-test');
     assert.equal(language, 'fr');
+    const {translateStage} = await import('../web/i18n.js?fr-test');
+    assert.equal(translateStage('mr 0 degrees, step 2/4'), 'Carte Métallicité et rugosité à 0° · étape 2/4');
+    assert.equal(translateStage('Baking the 4096px UltraTex albedo and material maps'), 'Cuisson des cartes UltraTex d’albédo et de matériau en 4096 px');
+    const {readFile} = await import('node:fs/promises');
+    for (const profile of ['high_detail_native', 'game_asset_native']) {
+      const schema = JSON.parse(await readFile(new URL('../native_workflows/' + profile + '.json', import.meta.url)));
+      for (const stage of schema.stages) {
+        for (const field of stage.fields) {
+          if (field.hint) assert.notEqual(t(field.hint), field.hint, profile + '/' + field.name);
+        }
+      }
+    }
     const faceMessages = [
       'Enhance face (TOPOS)',
       'Use a front-facing T- or A-pose. Rebuilds the face before native PBR texturing.',

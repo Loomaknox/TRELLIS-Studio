@@ -3,6 +3,7 @@ import animationFrench from './fr-animation.js';
 import studioFrench from './fr-studio.js';
 import controlsFrench from './fr-controls.js';
 import qualityFrench from './fr-quality.js';
+import workflowFrench from './fr-workflows.js';
 import serverFrench from './fr-server.js';
 
 const storageKey = 'trellis.studio.language';
@@ -25,7 +26,7 @@ function languagePreference() {
 
 export const language = chooseLanguage(languagePreference(), globalThis.navigator?.language);
 export const formatLocale = language === 'fr' ? 'fr-FR' : 'en-US';
-const french = { ...staticFrench, ...studioFrench, ...animationFrench, ...controlsFrench, ...serverFrench, ...qualityFrench };
+const french = { ...staticFrench, ...studioFrench, ...animationFrench, ...controlsFrench, ...workflowFrench, ...serverFrench, ...qualityFrench };
 
 export function t(message, values, context) {
   const key = context && Object.hasOwn(french, context + '|' + message) ? context + '|' + message : message;
@@ -33,6 +34,20 @@ export function t(message, values, context) {
   if (!values) return translated;
   return translated.replace(/\{([A-Za-z]\w*)\}/g, (match, key) =>
     Object.hasOwn(values, key) ? String(values[key]) : match);
+}
+
+export function translateStage(message) {
+  if (language !== 'fr' || typeof message !== 'string') return message;
+  const sampling = /^(albedo|mr) (-?\d+(?:\.\d+)?) degrees, step (\d+)\/(\d+)$/.exec(message);
+  if (sampling) {
+    const [, map, angle, step, total] = sampling;
+    return t('{map} {angle} degrees, step {step}/{total}', {map: t(map), angle, step, total});
+  }
+  const preparation = /^Preparing (albedo|mr) at (-?\d+(?:\.\d+)?) degrees$/.exec(message);
+  if (preparation) return t('Preparing {map} at {angle} degrees', {map: t(preparation[1]), angle: preparation[2]});
+  const bake = /^Baking the (\d+)px UltraTex albedo and material maps$/.exec(message);
+  if (bake) return t('Baking the {size}px UltraTex albedo and material maps', {size: bake[1]});
+  return t(message);
 }
 
 export function setLanguage(value) {

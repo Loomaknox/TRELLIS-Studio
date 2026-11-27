@@ -1,4 +1,4 @@
-import {formatLocale,language,t} from './i18n.js';
+import {formatLocale,language,t, translateStage} from './i18n.js';
 import {icon} from './card-menu.js?v=3.4.0';
 export const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 export function button(text,glyph,cls='secondary',action){const b=el('button',cls);b.type='button';b.append(icon(glyph),document.createTextNode(text));if(action)b.onclick=action;return b;}
@@ -22,7 +22,7 @@ export function runtimeSummary(runtime, stage) {
   const metrics = fields.filter(([key]) => Number.isFinite(usage[key]))
     .map(([key, label]) => t(label, {value: usage[key].toLocaleString(formatLocale)}));
   const tasks = [];
-  if (runtime.active) tasks.push(t(stage || 'Local job in progress'));
+  if (runtime.active) tasks.push(translateStage(stage || 'Local job in progress'));
   if (runtime.export_active) tasks.push(t('Export in progress'));
   if (runtime.preview_active) tasks.push(t('Rendering collection preview'));
   return [...(tasks.length ? tasks : [t('Idle')]), ...metrics].join(' · ');

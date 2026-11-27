@@ -87,7 +87,7 @@ export function createHdMasterFinishing({api, startJob}) {
             if (current(version)) ui.close();
             await startJob(result.id);
         } catch (error) {
-            if (current(version)) ui.notice.textContent = error.message;
+            if (current(version)) ui.notice.textContent = t(error.message);
         } finally {
             if (current(version)) {
                 pending = false;
@@ -131,7 +131,7 @@ export function createHdMasterFinishing({api, startJob}) {
             ui.notice.textContent = '';
             updateSubmit();
         } catch (error) {
-            if (current(version)) ui.notice.textContent = error.message;
+            if (current(version)) ui.notice.textContent = t(error.message);
         }
     }};
 }

@@ -42,7 +42,7 @@ export function createExportStudio({api,printCopy,openAction}){
    $('prepareExport').hidden=true;$('cancelExportTask').hidden=!running;$('newExport').hidden=running;$('downloadExport').hidden=state.state!=='done';if(state.state==='done'){$('downloadExport').href=`/api/exports/${task}/download`;$('downloadExport').replaceChildren(icon('download'),document.createTextNode(t('Download package')));}
    beacon.hidden=false;beacon.replaceChildren(icon(state.state==='done'?'check':running?'download':'alert'),document.createTextNode(running?'Export · '+(state.progress||0)+'%':state.state==='done'?t('Export ready'):t('Export task')));
    if(running)timer=setTimeout(poll,1000);
-  }catch(error){state={state:'error'};$('newExport').hidden=false;$('prepareExport').hidden=true;$('cancelExportTask').hidden=true;$('exportNotice').textContent=error.message;beacon.hidden=false;beacon.replaceChildren(icon('alert'),document.createTextNode(t('Export unavailable')));}}
+  }catch(error){state={state:'error'};$('newExport').hidden=false;$('prepareExport').hidden=true;$('cancelExportTask').hidden=true;$('exportNotice').textContent=t(error.message);beacon.hidden=false;beacon.replaceChildren(icon('alert'),document.createTextNode(t('Export unavailable')));}}
  function reset(){clearTimeout(timer);task=null;state=null;remember();preflight.reset();$('exportTask').hidden=true;$('downloadExport').hidden=true;$('cancelExportTask').hidden=true;$('newExport').hidden=true;$('prepareExport').hidden=false;$('exportNotice').textContent='';beacon.hidden=true;tiles();}
  $('prepareExport').onclick=async()=>{
   if(target==='print'&&jobs.length===1&&needsPrintCopy()){dialog.close();printCopy.open(jobs[0]);return;}
@@ -51,9 +51,9 @@ export function createExportStudio({api,printCopy,openAction}){
   try{
    const r=await api('/api/exports',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:jobs.map(j=>j.id),target,include_revisions:includeRevisions,preflight:preflight.exportData})});
    task=r.id;remember();tiles();poll();
-  }catch(error){$('exportNotice').textContent=error.message;$('prepareExport').disabled=false;}
+  }catch(error){$('exportNotice').textContent=t(error.message);$('prepareExport').disabled=false;}
  };
- $('newExport').onclick=reset;$('cancelExportTask').onclick=async()=>{try{$('cancelExportTask').disabled=true;await api(`/api/exports/${task}/cancel`,{method:'POST'});clearTimeout(timer);await poll();}catch(error){$('exportNotice').textContent=error.message;}finally{$('cancelExportTask').disabled=false;}};
+ $('newExport').onclick=reset;$('cancelExportTask').onclick=async()=>{try{$('cancelExportTask').disabled=true;await api(`/api/exports/${task}/cancel`,{method:'POST'});clearTimeout(timer);await poll();}catch(error){$('exportNotice').textContent=t(error.message);}finally{$('cancelExportTask').disabled=false;}};
  dialog.querySelector('[data-close]').onclick=()=>dialog.close();beacon.onclick=()=>{if(!dialog.open)dialog.showModal();};
  const stored=sessionStorage.getItem('trellis.exportTask');if(stored&&/^[a-f0-9]{32}$/.test(stored)){task=stored;poll();}
  return {openArchive(selected,includeHistory=false){if(task&&(!state||['queued','running'].includes(state.state))){if(!dialog.open)dialog.showModal();return;}archiveMode=true;includeRevisions=includeHistory;target='library';jobs=selected;reset();$('exportTitle').textContent=t('Back up collection');$('exportSelection').textContent=t('{count} models · portable archive',{count:jobs.length});if(!dialog.open)dialog.showModal();},open(selected,destination){if(task&&(!state||['queued','running'].includes(state.state))){if(!dialog.open)dialog.showModal();return;}

@@ -576,10 +576,10 @@ export function createTextureProjection({ api, startJob }) {
     const sizeControls = ['Width', 'Height'].map((axis, index) => {
         const control = input('range', 1, { min: placementScaleLimits[0], max: placementScaleLimits[1], step: 0.01 });
         control.id = index ? 'projectionPlacementHeight' : 'projectionPlacementScale';
-        control.setAttribute('aria-label', t('Overlay ' + axis.toLowerCase()));
+        control.setAttribute('aria-label', t('Overlay {axis}', {axis: axis.toLowerCase()}));
         const value = el('output', 'tp-zoom-value', '100%');
         value.setAttribute('for', control.id);
-        const wrapper = field(t('Overlay ' + axis.toLowerCase()), control);
+        const wrapper = field(t('Overlay {axis}', {axis: axis.toLowerCase()}), control);
         wrapper.classList.add('tp-size-control');
         wrapper.append(value);
         return {control, value, wrapper};

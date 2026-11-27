@@ -198,7 +198,7 @@ if (studioHeader) {
     } catch (error) {
       if (error.status === 401) location.replace('/server/login');
       else {
-        notice.textContent = error.message;
+        notice.textContent = t(error.message);
         notice.hidden = false;
       }
     } finally { logout.disabled = false; }

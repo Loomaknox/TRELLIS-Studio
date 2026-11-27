@@ -1,3 +1,4 @@
+import {t} from './i18n.js';
 import * as THREE from 'three';
 // One shared renderer for the visible cards; previews use the actual clip recipes.
 export function createMotionPreviews(){
@@ -26,5 +27,5 @@ export function createMotionPreviews(){
   for(const card of cards){if(!card.canvas.isConnected)continue;const rect=card.canvas.getBoundingClientRect();if(rect.bottom<0||rect.top>innerHeight)continue;renderCard(card,now);}
  }
  requestAnimationFrame(draw);
- return {attach(container,clip){const canvas=document.createElement('canvas');canvas.width=240;canvas.height=270;canvas.setAttribute('aria-label','Animated preview: '+clip.name);canvas.setAttribute('role','img');container.append(canvas);const card={canvas,clip,context:canvas.getContext('2d')};cards.push(card);renderCard(card,500);},clear(){cards=[];}};
+ return {attach(container,clip){const canvas=document.createElement('canvas');canvas.width=240;canvas.height=270;canvas.setAttribute('aria-label',t('Animated preview: {name}',{name:t(clip.name)}));canvas.setAttribute('role','img');container.append(canvas);const card={canvas,clip,context:canvas.getContext('2d')};cards.push(card);renderCard(card,500);},clear(){cards=[];}};
 }

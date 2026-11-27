@@ -9,7 +9,7 @@ const commonHelp={
   "preset": "Game - Default targets 28,000 triangles. Dense Master measures surface error to choose a lighter working mesh within a default ceiling of 1.2 million triangles. It saves the decoded source for later finishing.",
   "resolution": "3D generation grid: 512\u00b3, 1024\u00b3 or 1536\u00b3. Higher values require more time and memory. Texture size is independent.",
   "height": "Final model height in metres. Dimensions scale proportionally, with the origin placed at ground level.",
-  "textureSize": "Square texture size. Pixels are shared across all surfaces. UltraTex uses a fixed 2K atlas.",
+  "textureSize": "Pixels in the square atlas are shared across all surfaces. UltraTex Preview uses 2K. For native UltraTex, choose the atlas size in the High Detail texturing settings.",
   "removeBg": "Removes an opaque background. Images that are already transparent keep their cutout.",
   "triangles": "Triangle budget for the final mesh. Higher values can retain details that are already present in the generated surface. Enter zero to use the profile budget.",
   "seed": "Random seed for geometry generation. Keep it fixed to compare settings; small GPU variations may remain.",
@@ -39,14 +39,14 @@ export function optionHelp(label, fieldName, hint) {
   const field = element('div', 'option-with-help');
   const heading = element('div', 'option-help-heading');
   const button = element('button', 'option-help-button', '?');
-  const explanation = element('p', 'hint option-help-text', hint);
+  const explanation = element('p', 'hint option-help-text', t(hint));
   let pinned = false;
   let dismissTimer;
   explanation.id = control.id + 'OptionHelp';
   explanation.setAttribute('popover', 'manual');
   explanation.setAttribute('role', 'tooltip');
   button.type = 'button';
-  button.setAttribute('aria-label', t('Help for {field}',{field:fieldName}));
+  button.setAttribute('aria-label', t('Help for {field}',{field:t(fieldName)}));
   button.setAttribute('aria-describedby', explanation.id);
   button.setAttribute('aria-expanded', 'false');
 
@@ -141,8 +141,8 @@ function attachCommonHelp() {
       if (label.firstChild.nodeType === Node.TEXT_NODE) label.firstChild.replaceWith(element('span', '', fieldName));
       optionHelp(label, fieldName, hint);
     } else {
-      input.title = hint;
-      if (label) label.title = hint;
+      input.title = t(hint);
+      if (label) label.title = t(hint);
     }
   }
 }
@@ -150,7 +150,7 @@ function attachCommonHelp() {
 let workflowEditorId = 0;
 function addWorkflowField(grid, field, name, control) {
   const label = element('label', field.kind === 'boolean' ? 'check option-boolean' : 'field');
-  const text = element('span', '', name);
+  const text = element('span', '', t(name));
   if (field.kind === 'boolean') label.append(control, text);
   else label.append(text, control);
   grid.append(label);
@@ -181,14 +181,14 @@ export function createWorkflowFields(container, stages, values = {}, {workspace,
   for (const group of groups) {
     const section = element('details', 'workflow-option-section');
     section.open = group.title === 'Geometry';
-    section.append(element('summary', '', group.title));
+    section.append(element('summary', '', t(group.title)));
     group.stages.forEach(stage => groupsByStage.set(stage.id, section));
     container.append(section);
   }
   for (const [index, stage] of stages.entries()) {
     const details = element('details', 'option-group');
     details.open = index === 0 || stage.id === '316' || stage.id === '44';
-    details.append(element('summary', '', stage.title));
+    details.append(element('summary', '', t(stage.title)));
     const grid = element('div', 'option-grid');
     const entries = new Map();
     for (const field of stage.fields) {
@@ -199,9 +199,9 @@ export function createWorkflowFields(container, stages, values = {}, {workspace,
       const fixed = control.disabled;
       if (field.kind === 'choice') {
         control.replaceChildren(...field.choices.map((choice, number) => {
-          const option = new Option(choice.label, String(number));
+          const option = new Option(t(choice.label), String(number));
           option.disabled = choice.available === false;
-          if (choice.reason) option.title = choice.reason;
+          if (choice.reason) option.title = t(choice.reason);
           return option;
         }));
         control.selectedIndex = field.choices.findIndex(choice => Object.is(choice.value, value));
@@ -320,13 +320,13 @@ export async function createAdvancedControls(container,{groupId,title,idPrefix='
           const [phaseName,parameter]=field.label.split(' · ');
           if(phaseName!==phase){
             phase=phaseName;
-            grid.append(element('h3','option-phase',phase));
+            grid.append(element('h3','option-phase',t(phase)));
           }
           fieldName=parameter[0].toUpperCase()+parameter.slice(1);
         }
         const label=element('label',field.type==='boolean'?'check option-boolean':'field');
         const input=element(field.type==='choice'?'select':'input');input.id=idPrefix+field.key;
-        if(field.type==='choice')for(const choice of field.choices){const option=element('option','',choice.label);option.value=choice.value;input.append(option);}
+        if(field.type==='choice')for(const choice of field.choices){const option=element('option','',t(choice.label));option.value=choice.value;input.append(option);}
         else if(field.type==='boolean')input.type='checkbox';
         else{input.type='number';input.min=field.min;input.max=field.max;input.step=field.step;input.required=true;}
         if(field.type==='boolean'){input.checked=field.default;label.append(input,element('span','',t(fieldName)));}

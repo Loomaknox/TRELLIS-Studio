@@ -1,3 +1,4 @@
+import {t} from './i18n.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -47,7 +48,7 @@ export async function openReductionRegionPreview(container, {
         const canvas = renderer.domElement;
         canvas.tabIndex = 0;
         canvas.setAttribute('role', 'group');
-        canvas.setAttribute('aria-label', '3D model preview');
+        canvas.setAttribute('aria-label', t('3D model preview'));
         canvas.setAttribute('aria-describedby', statusId);
         container.prepend(canvas, reticle);
 

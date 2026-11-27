@@ -455,6 +455,7 @@
 !/web/fr-studio.js
 !/web/fr-controls.js
 !/web/fr-server.js
+!/web/fr-workflows.js
 !/web/language-selector.js
 !/web/language-selector.css
 !/tests/queue_recipe_browser.py

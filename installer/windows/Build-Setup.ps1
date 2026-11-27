@@ -81,7 +81,7 @@ $taskRequired+=@('motion_guides.py','collection_sync.py','web/studio-poll.js','w
 $taskRequired+=@('figure_master_repair.py','ultratex_runtime.py','ultratex_worker.py','web/texture-methods.js',
     'installer/install_ultratex.py','installer/ultratex-manifest.json','installer/requirements-ultratex-comfy.txt',
     'installer/requirements-ultratex-gguf.txt','licenses/FLUX.2-klein-base-9B-LICENSE.md','docs/ULTRATEX.md')
-$taskRequired+=@('README.fr.md','web/i18n.js','web/fr-static.js','web/fr-animation.js','web/fr-studio.js','web/fr-controls.js','web/fr-server.js',
+$taskRequired+=@('README.fr.md','web/i18n.js','web/fr-static.js','web/fr-animation.js','web/fr-studio.js','web/fr-controls.js','web/fr-server.js','web/fr-quality.js','web/fr-workflows.js',
     'web/language-selector.css','web/language-selector.js')
 $taskRequired+=@('rig_expert_blender.py','creature_api.py','creature_tentacles.py','creature_swim.py','creature_swim_skin.py')
 $taskRequired+=@('generation_view_projection.py','licenses/AssetFurnace-Apache-2.0.txt',

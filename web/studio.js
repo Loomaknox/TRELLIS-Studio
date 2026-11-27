@@ -117,7 +117,7 @@ profileControls=await createProfileControls(advancedControls,{
 });
 
 function node(tag,className,value){const el=document.createElement(tag);if(className)el.className=className;if(value!==undefined)el.textContent=value;return el;}
-async function api(url,options){const r=await fetch(url,options),v=await r.json();if(!r.ok)throw Error(typeof v.detail==='string'?v.detail:t('This operation is unavailable.'));return v;}
+async function api(url,options){const r=await fetch(url,options),v=await r.json();if(!r.ok)throw Error(typeof v.detail==='string'?t(v.detail):t('This operation is unavailable.'));return v;}
 function errorAt(id,e){$(id).textContent=t(e?.message||String(e));}
 function duration(s){if(!s)return '—';const m=Math.floor(s/60);s=Math.floor(s%60);return m?`${m} min ${String(s).padStart(2,'0')} s`:`${s} s`;}
 try{
@@ -497,7 +497,7 @@ function renderLibrary() {
           await refresh();
           renderLibrary();
         } catch (error) {
-          restore.textContent = error.message;
+          restore.textContent = t(error.message);
           restore.disabled = false;
         }
       };
@@ -613,7 +613,7 @@ async function reuseJob(j){
     $('referencePrompt').value=j.metadata?.reference_prompt||'';
     if(profileControls.restoreWorkflow(s)){
       detailControls.hint();
-      $('notice').textContent='Reference and workflow settings restored.';
+      $('notice').textContent=t('Reference and workflow settings restored.');
       return;
     }
     if(s.workflow_id)throw Error('This model’s workflow is missing from the current profile catalogue.');
@@ -765,7 +765,7 @@ async function openRefinish(job) {
     }
   } catch (error) {
     if (request === refinishRequest && refinishPanel.matches(':popover-open')) {
-      $('refinishStatus').textContent = error.message || String(error);
+      $('refinishStatus').textContent = t(error.message) || String(error);
       positionRefinish();
     }
   }

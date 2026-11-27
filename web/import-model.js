@@ -7,7 +7,7 @@ export function createModelImport({api,startJob}){
  $('importForm').onsubmit=async e=>{e.preventDefault();if(uploading)return;const file=$('importFile').files[0];if(!file)return;if(file.size>500*1024*1024){$('importNotice').textContent=t('The file exceeds 500 MB.');return;}
   uploading=true;$('confirmImport').disabled=true;$('closeImport').disabled=true;$('importNotice').textContent=t('Uploading to the local studio…');
   try{const result=await api('/api/import',{method:'POST',body:new FormData($('importForm'))});$('importDialog').close();await startJob(result.id);}
-  catch(e){$('importNotice').textContent=e.message;}
+  catch(e){$('importNotice').textContent=t(e.message);}
   finally{uploading=false;$('confirmImport').disabled=false;$('closeImport').disabled=false;}
  };
  $('importDialog').addEventListener('cancel',e=>{if(uploading)e.preventDefault();});

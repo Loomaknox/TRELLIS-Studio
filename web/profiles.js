@@ -161,7 +161,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     const isStartup=selected.id===startupProfile;
     startup.disabled=!selected.id||dirty||isStartup||Boolean(workflow&&workflow.available!==true);
     startup.setAttribute('aria-pressed',String(isStartup));
-    startup.textContent=isStartup?'Startup profile':'Use at startup';
+    startup.textContent=t(isStartup?'Startup profile':'Use at startup');
   }
   function syncFixedWorkflow(workflow){
     setWorkflow(workflow);
@@ -169,14 +169,14 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       $(id).hidden=!!workflow;
     }
     workflowBox.hidden=!workflow;
-    $('resetAdvanced').textContent=workflow?'Reset workflow settings':'Reset profile settings';
+    $('resetAdvanced').textContent=t(workflow?'Reset workflow settings':'Reset profile settings');
     $('seed').disabled=!!workflow;
     if(!workflow)return;
     const values=workflowFields?.read();
     const method=values?.['25']?.texture_method || selected.settings.texture_method;
     const texture=method==='ultratex'?'UltraTex':'TRELLIS.2 PBR';
     const status=$('generationProfileStatus');
-    const message=workflow.available===true ? selected.description : workflow.reason;
+    const message=(workflow.available===true && !selected.builtin ? selected.description : t(workflow.available===true ? selected.description : workflow.reason)) || '';
     status.classList.toggle('generation-method-notice',workflow.available!==true);
     if(status.textContent!==message)status.textContent=message;
     status.hidden=false;
@@ -193,9 +193,9 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     $('profileState').hidden=!dirty;
     $('profileState').classList.toggle('dirty',dirty);
     const {resolution,texture_size,triangles}=budget(undefined,values);
-    const meshSummary=triangles>0?`${number.format(triangles)} target triangles`:'Dense mesh';
-    $('profileSummary').textContent=`${resolution}³ · ${meshSummary} · ${texture_size ? `${texture} ${texture_size/1024}K` : 'Vertex colours'}`;
-    $('generationSummary').textContent=`${selected.name} · ${$('profileSummary').textContent}`;
+    const meshSummary=triangles>0?t('{count} target triangles',{count:number.format(triangles)}):t('Dense mesh');
+    $('profileSummary').textContent=`${resolution}³ · ${meshSummary} · ${texture_size ? `${texture} ${texture_size/1024}K` : t('Vertex colours')}`;
+    $('generationSummary').textContent=`${selected.builtin?t(selected.name):selected.name} · ${$('profileSummary').textContent}`;
     syncProfileActions(dirty);
   }
   function syncFacialHead(finishing) {
@@ -220,7 +220,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     const experimental=activePreset==='humanoid_experimental', dense=activePreset==='dense_master';
     const figureUnsupported=activePreset==='figure_master'&&usePixal();
     $('generationProfileStatus').classList.add('generation-method-notice');
-    $('generationProfileStatus').textContent=figureUnsupported?'Figure Master uses TRELLIS.2 · Single image. Choose that engine or another profile.':'';
+    $('generationProfileStatus').textContent=figureUnsupported?t('Figure Master uses TRELLIS.2 · Single image. Choose that engine or another profile.'):'';
     $('generationProfileStatus').hidden=!figureUnsupported;
     const finishing=$('denseMasterFinishing');
     const override=$('advancedMasterFinishing');
@@ -251,7 +251,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     retexture.disabled=!retextureEligible();
     retextureStatus.textContent=retexture.disabled
       ? t('Choose 1024³ for the 3D resolution to use this option.')
-      : detailTexturing.available!==true ? detailTexturing.reason||'The local texturing pipeline is unavailable.' : '';
+      : detailTexturing.available!==true ? t(detailTexturing.reason||'The local texturing pipeline is unavailable.') : '';
     retextureStatus.hidden=!retextureStatus.textContent;
     const textureModeRestriction=method=>textureMethodRestriction(method,textureSupport,!isMultiview());
     for(const option of textureMethod.options){
@@ -302,12 +302,12 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       const info=masterSupport[option.value];
       if(option.value==='none'){
         option.disabled=info?.available!==true;
-        option.title=option.disabled?info?.reason||'Requires server support for full mesh export.':'';
+        option.title=option.disabled?t(info?.reason||'Requires server support for full mesh export.'):'';
       }else if(detailRefinements[option.value]){
         option.disabled=!!detailSourceReason||info?.available!==true;
         option.title=option.disabled
           ? detailSourceReason||t(info?.reason || '')||t('Requires the Hi3D runtime.')
-          : detailRefinements[option.value].detail;
+          : t(detailRefinements[option.value].detail);
       }else{
         option.disabled=actual.resolution<1024||!(info?.available??(dense&&option.value==='studio_768'&&hdSupported));
         option.textContent=finishingName(option.value)+(option.value==='wtivo_1024'&&option.disabled?' · '+t('Unavailable'):'');
@@ -334,10 +334,10 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       hint+=' '+t('Use a transparent reference or enable background removal.');
     }
     if(wantsRetexture()){
-      hint+=' '+(retextureStatus.textContent||'A separate texture pass follows refinement.');
+      hint+=' '+(retextureStatus.textContent||t('A separate texture pass follows refinement.'));
     }
-    if(pixalFallback)hint+=' Hi3D requires TRELLIS.2 · Single image. This generation will use the finishing shown above.';
-    if(pixalAtlas!==null&&textureSize.value==='2048')hint+=' Pixal3D uses a 2K atlas for this recipe.';
+    if(pixalFallback)hint+=' '+t('Hi3D requires TRELLIS.2 · Single image. This generation will use the finishing shown above.');
+    if(pixalAtlas!==null&&textureSize.value==='2048')hint+=' '+t('Pixal3D uses a 2K atlas for this recipe.');
     $('denseMasterFinishingHint').textContent=hint;
     $('detailRefinementSource').hidden=!detail;
     if(detail){
@@ -355,7 +355,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     $('profileState').hidden=!$('profileState').textContent;
     $('profileState').classList.toggle('dirty',dirty);
     const meshSummary=fullMesh?t('Full mesh'):t(dense||reconstruction?'Up to {triangles} triangles':'{count} triangles',{triangles:number.format(actual.triangles),count:number.format(actual.triangles)});
-    $('profileSummary').textContent=`${actual.resolution}³ · ${meshSummary} · ${actual.texture_size/1024}K textures`;
+    $('profileSummary').textContent=`${actual.resolution}³ · ${meshSummary} · ${t('{size}K textures',{size:actual.texture_size/1024})}`;
     $('monoTrianglesLabel').textContent=dense||reconstruction?t('Maximum triangles'):t('Target triangles');
     $('monoTrianglesHint').textContent=detail?t('0 uses the profile ceiling, capped at 1,000,000.')
       : reconstruction?t('Up to 3,000,000. 0 uses the profile ceiling.')
@@ -429,7 +429,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     if(!selected.workflow&&(detailRefinements[s.master_finishing]||s.preset==='figure_master')){setWorkflow(null);useNativeMethod();}
     $('profileNotice').textContent='';sync();
   }
-  async function request(url,options){const r=await fetch(url,options),data=await r.json();if(!r.ok)throw Error(typeof data.detail==='string'?data.detail:t('Profiles unavailable.'));return data;}
+  async function request(url,options){const r=await fetch(url,options),data=await r.json();if(!r.ok)throw Error(typeof data.detail==='string'?t(data.detail):t('Profiles unavailable.'));return data;}
   const selectableProfiles=()=>profiles.filter(profile=>!profile.retired);
   const availableProfile=(...ids)=>{
     const selectable=selectableProfiles();
@@ -455,7 +455,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
     startupProfile=availableProfile(saved,serverStartup);
     options();apply(startupProfile);
     $('profileChoice').disabled=false;
-  }catch(e){$('profileNotice').textContent=e.message+' '+t('Restart TRELLIS if needed.');}
+  }catch(e){$('profileNotice').textContent=t(e.message)+' '+t('Restart TRELLIS if needed.');}
   $('profileChoice').onchange=()=>apply($('profileChoice').value);
   $('useProfileAtStartup').onclick=()=>{
     try{
@@ -523,7 +523,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
       $('profileChoice').focus();
       $('profileNotice').textContent=notice;
     }catch(error){
-      $('deleteProfileError').textContent=error.message;
+      $('deleteProfileError').textContent=t(error.message);
     }finally{
       deleting=false;
       $('confirmDeleteProfile').disabled=$('cancelDeleteProfile').disabled=false;
@@ -544,7 +544,7 @@ export async function createProfileControls(advanced,{changed=()=>{},usePixal=()
         body:JSON.stringify({name:$('profileName').value,settings})});
       loadCatalogue(await request('/api/profiles'));options();apply(profile.id);
       $('profileDialog').close();$('profileNotice').textContent=t('Profile saved on this computer.');
-    }catch(e){$('profileDialogError').textContent=e.message;}
+    }catch(e){$('profileDialogError').textContent=t(e.message);}
     finally{saving=false;$('confirmProfile').disabled=false;}
   };
   return {sync,reset:()=>apply(selected?.id||startupProfile),

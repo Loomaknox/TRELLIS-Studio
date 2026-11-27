@@ -38,12 +38,56 @@ internal static class Program
             bool created;
             using (var mutex = new Mutex(true, @"Local\TRELLIS-Tray-" + identity, out created))
             {
-                if (!created) { MessageBox.Show("This TRELLIS tray is already open. Look in the Windows notification area.", "TRELLIS Studio"); return; }
+                if (!created) { MessageBox.Show(TrayText.Get("This TRELLIS tray is already open. Look in the Windows notification area."), "TRELLIS Studio"); return; }
                 try { using (var context = new TrayContext(root, mode, start, browser)) Application.Run(context); }
                 finally { mutex.ReleaseMutex(); }
             }
         }
-        catch (Exception error) { MessageBox.Show(error.Message, "TRELLIS Studio", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        catch (Exception error) { MessageBox.Show(TrayText.Get(error.Message), "TRELLIS Studio", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+}
+
+internal static class TrayText
+{
+    private static readonly Dictionary<string, string> French = new Dictionary<string, string> {
+        { "Checking local status...", "Vérification de l’état local…" },
+        { "Start ", "Démarrer " },
+        { "Stop ", "Arrêter " },
+        { "Open in browser", "Ouvrir dans le navigateur" },
+        { "Configure Server...", "Configurer le serveur…" },
+        { "Check HTTPS certificate...", "Vérifier le certificat HTTPS…" },
+        { "Open local Studio tray", "Ouvrir le menu de Studio local" },
+        { "Open Server tray", "Ouvrir le menu du serveur" },
+        { "Quit tray (keep application running)", "Quitter le menu et laisser l’application en service" },
+        { "Running - calculation active", "En service · calcul en cours" },
+        { "Server + HTTPS proxy running locally", "Serveur et proxy HTTPS en service localement" },
+        { "Running locally", "En service localement" },
+        { "Stopped", "À l’arrêt" },
+        { "Partially running", "Partiellement en service" },
+        { "Server not configured", "Serveur à configurer" },
+        { "Status unavailable / port occupied", "État indisponible ou port occupé" },
+        { "Status unavailable", "État indisponible" },
+        { "Starting...", "Démarrage…" },
+        { "Stopping...", "Arrêt…" },
+        { "Checking HTTPS...", "Vérification HTTPS…" },
+        { "Configuring...", "Configuration…" },
+        { "This TRELLIS tray is already open. Look in the Windows notification area.", "Le menu TRELLIS est déjà ouvert dans la zone de notification Windows." },
+        { "Keep the tray executable in the TRELLIS installation folder.", "Conservez l’exécutable du menu dans le dossier d’installation de TRELLIS." },
+        { "The command is taking longer than expected. It is still running; no service was forcibly stopped.", "La commande prend plus de temps que prévu. Elle se poursuit et les services restent en cours d’exécution." },
+        { "The command failed. Check the application logs.", "La commande a échoué. Consultez les journaux de l’application." },
+        { "Another TRELLIS startup or installation is running. Wait for it to finish.", "Un démarrage ou une installation de TRELLIS est déjà en cours. Attendez sa fin." },
+        { "Choose Server mode to configure network access.", "Choisissez le mode Serveur pour configurer l’accès réseau." },
+        { "Choose Server Internet mode to check HTTPS.", "Choisissez le mode Serveur Internet pour vérifier HTTPS." },
+        { "The bridge port is used by another application.", "Une autre application utilise le port de la passerelle." },
+        { "The Studio port is used by another application.", "Une autre application utilise le port de Studio." },
+        { "The listener did not identify itself as local Studio.", "Le service sur ce port ne s’est pas identifié comme Studio local." },
+    };
+
+    internal static string Get(string text)
+    {
+        string translation;
+        return System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "fr"
+            && French.TryGetValue(text, out translation) ? translation : text;
     }
 }
 
@@ -64,14 +108,14 @@ internal sealed class TrayContext : ApplicationContext
         script = Path.Combine(root, "installer", "windows", "Tray-Control.ps1");
         string title = mode == "server" ? "TRELLIS Server" : "TRELLIS Studio";
         icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
-        status = new ToolStripMenuItem("Checking local status...") { Enabled = false };
-        start = new ToolStripMenuItem("Start " + title) { Enabled = false };
-        stop = new ToolStripMenuItem("Stop " + title) { Enabled = false };
-        open = new ToolStripMenuItem("Open in browser") { Enabled = false };
-        configure = new ToolStripMenuItem("Configure Server...") { Visible = mode == "server" };
-        testHttps = new ToolStripMenuItem("Check HTTPS certificate...") { Visible = false };
-        var other = new ToolStripMenuItem(mode == "server" ? "Open local Studio tray" : "Open Server tray");
-        var quit = new ToolStripMenuItem("Quit tray (keep application running)");
+        status = new ToolStripMenuItem(TrayText.Get("Checking local status...")) { Enabled = false };
+        start = new ToolStripMenuItem(TrayText.Get("Start ") + title) { Enabled = false };
+        stop = new ToolStripMenuItem(TrayText.Get("Stop ") + title) { Enabled = false };
+        open = new ToolStripMenuItem(TrayText.Get("Open in browser")) { Enabled = false };
+        configure = new ToolStripMenuItem(TrayText.Get("Configure Server...")) { Visible = mode == "server" };
+        testHttps = new ToolStripMenuItem(TrayText.Get("Check HTTPS certificate...")) { Visible = false };
+        var other = new ToolStripMenuItem(TrayText.Get(mode == "server" ? "Open local Studio tray" : "Open Server tray"));
+        var quit = new ToolStripMenuItem(TrayText.Get("Quit tray (keep application running)"));
         menu = new ContextMenuStrip();
         menu.Items.AddRange(new ToolStripItem[] { status, new ToolStripSeparator(), start, stop, open, configure, testHttps,
             other, new ToolStripSeparator(), quit });
@@ -108,6 +152,7 @@ internal sealed class TrayContext : ApplicationContext
 
     private void Status(string value)
     {
+        value = TrayText.Get(value);
         status.Text = value;
         string text = (mode == "server" ? "TRELLIS Server: " : "TRELLIS Studio: ") + value;
         tray.Text = text.Length > 63 ? text.Substring(0, 63) : text;
@@ -219,7 +264,7 @@ internal sealed class TrayContext : ApplicationContext
     }
     private static void ShowError(string message)
     {
-        MessageBox.Show(message, "TRELLIS Studio", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        MessageBox.Show(TrayText.Get(message), "TRELLIS Studio", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
     protected override void Dispose(bool disposing)
     {

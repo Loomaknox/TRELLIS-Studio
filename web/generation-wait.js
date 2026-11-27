@@ -1,4 +1,4 @@
-import {localizeStatic,t} from './i18n.js';
+import {localizeStatic,t, translateStage} from './i18n.js';
 /** A reference projection while computing; never a fabricated intermediate mesh. */
 export function createGenerationWait(viewport,{getMode,setMode}={}){
   const layer=document.createElement('section');
@@ -39,7 +39,7 @@ export function createGenerationWait(viewport,{getMode,setMode}={}){
     const generating=!['import','rig','animation','animation_copy','generated_animation','refinish'].includes(sourceKind)&&!job.operation;
     title.textContent=queued?t('Ready for its turn'):generating?t('Creating your model'):t('Preparing your model');
     eyebrow.textContent=queued?t('IN THE QUEUE'):hasModel?t('MODEL IN PROGRESS'):t('LOCAL CREATION');
-    const nextStage=queued?t('Waiting for the current computation to finish.'):t(job.stage||'Processing your model…');
+    const nextStage=queued?t('Waiting for the current computation to finish.'):translateStage(job.stage||'Processing your model…');
     if(stage.textContent!==nextStage)stage.textContent=nextStage;
     const progress=Number(job.progress),determinate=!queued&&Number.isFinite(progress)&&progress>=0;
     percent.textContent=determinate?Math.min(100,Math.round(progress))+'%':queued?t('Queued'):'';

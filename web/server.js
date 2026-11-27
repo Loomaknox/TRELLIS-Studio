@@ -1,5 +1,5 @@
 import './language-selector.js';
-import {t, formatLocale} from './i18n.js';
+import {t, formatLocale, translateStage} from './i18n.js';
 import {
   request, getUser, element, avatar, nameOf, diskLimit, diskUsed, availableCredits, formatBytes, formatNumber,
 } from './server-shell.js?v=3.4.0';
@@ -617,7 +617,7 @@ function adminPage(actor) {
           await loadMetrics();
         })));
       }
-      return activity(job.name || job.id, [job.user_name || job.email, t(job.stage || ''),
+      return activity(job.name || job.id, [job.user_name || job.email, translateStage(job.stage || ''),
         job.state === 'running' && Number.isFinite(job.progress) ? t('{value}%', {value: formatNumber(job.progress)}) : '']
         .filter(Boolean).join(' · '), side);
     });

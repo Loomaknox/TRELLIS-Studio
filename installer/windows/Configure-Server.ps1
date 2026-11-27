@@ -1,5 +1,9 @@
 ﻿param([Parameter(Mandatory=$true)][string]$ConfigPath, [Parameter(Mandatory=$true)][string]$Python)
 $ErrorActionPreference='Stop'
+function Get-ServerUiText([string]$English, [string]$French) {
+    if ([Globalization.CultureInfo]::CurrentUICulture.TwoLetterISOLanguageName -eq 'fr') {return $French}
+    return $English
+}
 $taskRoot=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 & (Join-Path $PSScriptRoot 'check-idle.ps1') -InstallRoot $taskRoot -IgnoreCurrentProcess -IgnoreTray
 try {$taskConfigureLock=[IO.File]::Open((Join-Path $taskRoot '.component-install.lock'),'OpenOrCreate','ReadWrite','None')}
@@ -21,7 +25,7 @@ if($taskPreview -and $taskExisting -and ($taskExisting.host -ne '127.0.0.1' -or 
     throw 'The Setup Test is restricted to its own local server data and loopback access. Existing settings were preserved.'
 }
 $taskForm=New-Object Windows.Forms.Form
-$taskForm.Text='TRELLIS Server Setup'
+$taskForm.Text=(Get-ServerUiText 'TRELLIS Server Setup' 'Configuration du serveur TRELLIS')
 $taskForm.StartPosition='CenterScreen'
 $taskForm.AutoScaleMode='Font'
 $taskForm.ClientSize=New-Object Drawing.Size(780,660)
@@ -44,7 +48,7 @@ function Add-Field([string]$Name,[string]$Value,[int]$Y,[string]$Picker='') {
     $browse=$null
     if($Picker) {
         $browse=New-Object Windows.Forms.Button
-        $browse.Text='Browse'
+        $browse.Text=(Get-ServerUiText 'Browse' 'Parcourir')
         $browse.SetBounds(674,($Y-1),84,27)
         $browse.Add_Click({
             if($Picker -eq 'folder') {
@@ -74,56 +78,56 @@ function Existing([string]$Name,[string]$Default='') {
     if($taskExisting -and $null -ne $taskExisting.$Name){return [string]$taskExisting.$Name}
     return $Default
 }
-$title=Add-Label 'Configure TRELLIS Server' 20 14 738 32
+$title=Add-Label (Get-ServerUiText 'Configure TRELLIS Server' 'Configurer le serveur TRELLIS') 20 14 738 32
 $title.Font=New-Object Drawing.Font($title.Font.FontFamily,15,[Drawing.FontStyle]::Bold)
-[void](Add-Label 'Create the administrator locally in your browser. Two-factor authentication is required for administrators; other users can enable it.' 20 52 738 42)
-$data=Add-Field 'Library data folder' (Existing 'data_dir' $taskDefaultData) 104 'folder'
+[void](Add-Label (Get-ServerUiText 'Create the administrator locally in your browser. Two-factor authentication is required for administrators; other users can enable it.' 'Créez le compte administrateur localement dans votre navigateur. La double authentification est obligatoire pour les administrateurs et facultative pour les autres utilisateurs.') 20 52 738 42)
+$data=Add-Field (Get-ServerUiText 'Library data folder' 'Dossier de la bibliothèque') (Existing 'data_dir' $taskDefaultData) 104 'folder'
 $data.ReadOnly=$taskPreview -or [bool]$taskExisting
 if($data.ReadOnly){$data.Tag.Browse.Enabled=$false}
-[void](Add-Label 'Access mode' 20 146 206)
+[void](Add-Label (Get-ServerUiText 'Access mode' 'Mode d''accès') 20 146 206)
 $access=New-Object Windows.Forms.ComboBox
 $access.DropDownStyle='DropDownList'
-[void]$access.Items.Add('This PC only (accounts, no network)')
-if(-not $taskPreview){$access.Items.AddRange(@('Local network / own HTTPS certificate','Internet / automatic HTTPS with Caddy'))}
+[void]$access.Items.Add((Get-ServerUiText 'This PC only (accounts, no network)' 'Ce PC uniquement (comptes locaux, hors réseau)'))
+if(-not $taskPreview){$access.Items.AddRange(@((Get-ServerUiText 'Local network / own HTTPS certificate' 'Réseau local avec votre certificat HTTPS'),(Get-ServerUiText 'Internet / automatic HTTPS with Caddy' 'Internet avec HTTPS automatique via Caddy')))}
 $access.SetBounds(230,142,528,27)
 $taskForm.Controls.Add($access)
-$bind=Add-Field 'IPv4 listen address' (Existing 'host' '127.0.0.1') 184
-$port=Add-Field 'Server port' (Existing 'port' $taskDefaultPort) 220
-$url=Add-Field 'Browser address' (Existing 'public_url' ('http://127.0.0.1:'+$taskDefaultPort)) 256
+$bind=Add-Field (Get-ServerUiText 'IPv4 listen address' 'Adresse IPv4 d''écoute') (Existing 'host' '127.0.0.1') 184
+$port=Add-Field (Get-ServerUiText 'Server port' 'Port du serveur') (Existing 'port' $taskDefaultPort) 220
+$url=Add-Field (Get-ServerUiText 'Browser address' 'Adresse dans le navigateur') (Existing 'public_url' ('http://127.0.0.1:'+$taskDefaultPort)) 256
 $url.ReadOnly=$taskPreview
-$cert=Add-Field 'HTTPS certificate (PEM)' (Existing 'tls_cert') 292 'file'
-$key=Add-Field 'Private key (PEM)' (Existing 'tls_key') 328 'file'
+$cert=Add-Field (Get-ServerUiText 'HTTPS certificate (PEM)' 'Certificat HTTPS (PEM)') (Existing 'tls_cert') 292 'file'
+$key=Add-Field (Get-ServerUiText 'Private key (PEM)' 'Clé privée (PEM)') (Existing 'tls_key') 328 'file'
 $oldDomain=''; $oldPublicPort='443'
 if($taskExisting.reverse_proxy) {
     $oldUri=[Uri]$taskExisting.public_url
     $oldDomain=$oldUri.DnsSafeHost; $oldPublicPort=[string]$oldUri.Port
 }
-$domain=Add-Field 'Your public domain' $oldDomain 184
-$publicPort=Add-Field 'Public HTTPS port' $oldPublicPort 220
-$proxyPort=Add-Field 'HTTPS port on this PC' (Existing 'proxy_port' '443') 256
-$backendPort=Add-Field 'Private backend port' $(if($taskExisting.reverse_proxy){[string]$taskExisting.port}else{'7863'}) 292
-$adminPort=Add-Field 'Private proxy admin port' (Existing 'proxy_admin_port' '2019') 328
+$domain=Add-Field (Get-ServerUiText 'Your public domain' 'Votre domaine public') $oldDomain 184
+$publicPort=Add-Field (Get-ServerUiText 'Public HTTPS port' 'Port HTTPS public') $oldPublicPort 220
+$proxyPort=Add-Field (Get-ServerUiText 'HTTPS port on this PC' 'Port HTTPS sur ce PC') (Existing 'proxy_port' '443') 256
+$backendPort=Add-Field (Get-ServerUiText 'Private backend port' 'Port privé du serveur') $(if($taskExisting.reverse_proxy){[string]$taskExisting.port}else{'7863'}) 292
+$adminPort=Add-Field (Get-ServerUiText 'Private proxy admin port' 'Port privé de gestion du proxy') (Existing 'proxy_admin_port' '2019') 328
 $advanced=New-Object Windows.Forms.CheckBox
-$advanced.Text='Advanced ports (public address, private backend and proxy admin)'
+$advanced.Text=(Get-ServerUiText 'Advanced ports (public address, private backend and proxy admin)' 'Ports avancés (adresse publique, serveur privé et gestion du proxy)')
 $advanced.SetBounds(230,256,528,27)
 $advanced.Checked=$taskExisting.reverse_proxy -and ($oldPublicPort -ne '443' -or $taskExisting.port -ne 7863 -or $taskExisting.proxy_admin_port -ne 2019)
 $taskForm.Controls.Add($advanced)
 $help=Add-Label '' 20 372 738 106
 $firewall=New-Object Windows.Forms.CheckBox
-$firewall.Text='Allow this HTTPS port in Windows Firewall (administrator approval)'
+$firewall.Text=(Get-ServerUiText 'Allow this HTTPS port in Windows Firewall (administrator approval)' 'Autoriser ce port HTTPS dans le pare-feu Windows (accord administrateur)')
 $firewall.SetBounds(20,488,738,27)
 $taskForm.Controls.Add($firewall)
 $autostart=New-Object Windows.Forms.CheckBox
-$autostart.Text='Start the server and its tray icon when I sign in to Windows'
+$autostart.Text=(Get-ServerUiText 'Start the server and its tray icon when I sign in to Windows' 'Démarrer le serveur et son icône de notification à l''ouverture de session')
 $autostart.Checked=[bool]$taskExisting.autostart
 $autostart.Enabled=-not $taskPreview
 $autostart.SetBounds(20,522,738,27)
 $taskForm.Controls.Add($autostart)
-$privacy=Add-Label 'Settings, accounts, libraries and certificates remain on this PC. Changing access mode preserves the existing server library.' 20 558 738 40
+$privacy=Add-Label (Get-ServerUiText 'Settings, accounts, libraries and certificates remain on this PC. Changing access mode preserves the existing server library.' 'Les réglages, les comptes, les bibliothèques et les certificats restent sur ce PC. La bibliothèque est conservée lors d''un changement de mode d''accès.') 20 558 738 40
 $cancel=New-Object Windows.Forms.Button
-$cancel.Text='Cancel'; $cancel.DialogResult='Cancel'; $cancel.SetBounds(548,614,98,29)
+$cancel.Text=Get-ServerUiText 'Cancel' 'Annuler'; $cancel.DialogResult='Cancel'; $cancel.SetBounds(548,614,98,29)
 $save=New-Object Windows.Forms.Button
-$save.Text='Continue'; $save.SetBounds(658,614,100,29)
+$save.Text=(Get-ServerUiText 'Continue' 'Continuer'); $save.SetBounds(658,614,100,29)
 $taskForm.Controls.Add($cancel); $taskForm.Controls.Add($save)
 $taskForm.CancelButton=$cancel; $taskForm.AcceptButton=$save
 function Update-AccessFields {
@@ -149,12 +153,12 @@ function Update-AccessFields {
     $cert.Enabled=$key.Enabled=$access.SelectedIndex -eq 1
     $cert.Tag.Browse.Enabled=$key.Tag.Browse.Enabled=$access.SelectedIndex -eq 1
     if($internet) {
-        $shownDomain=if($domain.Text.Trim()){$domain.Text.Trim()}else{'your domain'}
-        $help.Text="Point $shownDomain (DNS A, and AAAA only if IPv6 works) at your public IP. Forward router TCP 443 to this PC, port $($proxyPort.Text). Caddy obtains and renews the certificate using port 443. If the public browser port differs, forward it too to the same PC port. The router and DNS must be configured by you. Carrier-grade NAT requires an alternative route. Backend and proxy admin stay private on 127.0.0.1."
+        $shownDomain=if($domain.Text.Trim()){$domain.Text.Trim()}else{(Get-ServerUiText 'your domain' 'votre domaine')}
+        $help.Text=Get-ServerUiText "Point $shownDomain (DNS A, and AAAA only if IPv6 works) at your public IP. Forward router TCP 443 to this PC, port $($proxyPort.Text). Caddy obtains and renews the certificate using port 443. If the public browser port differs, forward it too to the same PC port. The router and DNS must be configured by you. Carrier-grade NAT requires an alternative route. Backend and proxy admin stay private on 127.0.0.1." "Faites pointer le DNS de $shownDomain vers votre IP publique (A, et AAAA si IPv6 fonctionne). Redirigez le port TCP 443 du routeur vers le port $($proxyPort.Text) de ce PC pour que Caddy obtienne et renouvelle le certificat. Si le navigateur utilise un autre port public, redirigez-le aussi vers ce port local. Configurez le DNS et le routeur. Avec un NAT opérateur, un autre accès est nécessaire. Le serveur privé et la gestion du proxy restent sur 127.0.0.1."
     } elseif($access.SelectedIndex -eq 1) {
-        $help.Text='Use this PC''s LAN IP or DNS name in the browser address, with a certificate trusted by client devices. The address must match the certificate. Use 0.0.0.0 to listen on all IPv4 interfaces. Allow the selected server TCP port in your firewall. No router forwarding is needed for LAN-only access.'
+        $help.Text=(Get-ServerUiText 'Use this PC''s LAN IP or DNS name in the browser address, with a certificate trusted by client devices. The address must match the certificate. Use 0.0.0.0 to listen on all IPv4 interfaces. Allow the selected server TCP port in your firewall. No router forwarding is needed for LAN-only access.' 'Saisissez l''adresse IP locale ou le nom DNS du PC dans le navigateur. Le certificat doit correspondre à cette adresse et être approuvé par les appareils clients. Pour écouter sur toutes les interfaces IPv4, utilisez 0.0.0.0. Autorisez le port TCP choisi dans le pare-feu. L''accès local ne nécessite aucune redirection sur le routeur.')
     } else {
-        $help.Text='Server accounts and separate libraries are available only on this PC. The browser address must use http://127.0.0.1:<port> or localhost. The single-user Desktop mode remains available from its own shortcut.'
+        $help.Text=(Get-ServerUiText 'Server accounts and separate libraries are available only on this PC. The browser address must use http://127.0.0.1:<port> or localhost. The single-user Desktop mode remains available from its own shortcut.' 'Les comptes et leurs bibliothèques sont accessibles sur ce PC via http://127.0.0.1:<port> ou localhost. Le raccourci Desktop ouvre le mode mono-utilisateur.')
     }
 }
 $access.Add_SelectedIndexChanged({
@@ -178,7 +182,7 @@ function Get-ServerPreferences {
     }
     if($settings.reverse_proxy) {
         $name=$domain.Text.Trim()
-        if($name -match '[/\\:@\s]'){throw 'Enter a domain only, without https://, a port or a path.'}
+        if($name -match '[/\\:@\s]'){throw (Get-ServerUiText 'Enter a domain only, without https://, a port or a path.' 'Saisissez uniquement le domaine, sans https://, port ni chemin.')}
         $suffix=if($publicPort.Text.Trim() -eq '443'){''}else{':'+$publicPort.Text.Trim()}
         $settings.host='127.0.0.1'; $settings.port=$backendPort.Text.Trim()
         $settings.public_url='https://'+$name+$suffix
@@ -206,7 +210,7 @@ function Invoke-SettingsCheck($Settings) {
         $bytes=[Text.UTF8Encoding]::new($false).GetBytes(($Settings|ConvertTo-Json -Compress))
         $process.StandardInput.BaseStream.Write($bytes,0,$bytes.Length)
         $process.StandardInput.BaseStream.Flush(); $process.StandardInput.Close()
-        if(-not $process.WaitForExit(15000)){throw 'Configuration validation timed out. Close setup and retry.'}
+        if(-not $process.WaitForExit(15000)){throw (Get-ServerUiText 'Configuration validation timed out. Close setup and retry.' 'Le contrôle de configuration a expiré. Fermez l''assistant puis réessayez.')}
         if($process.ExitCode -ne 0){throw $errorTask.Result.Trim()}
     } finally {$process.Dispose()}
 }
@@ -215,7 +219,7 @@ $save.Add_Click({
         $taskForm.Tag=Get-ServerPreferences
         Invoke-SettingsCheck $taskForm.Tag
         $taskForm.DialogResult='OK'
-    } catch {[void][Windows.Forms.MessageBox]::Show($taskForm,$_.Exception.Message,'Check your server settings','OK','Warning')}
+    } catch {[void][Windows.Forms.MessageBox]::Show($taskForm,$_.Exception.Message,(Get-ServerUiText 'Check your server settings' 'Vérifiez les réglages du serveur'),'OK','Warning')}
 })
 try {
     while($true) {
@@ -238,7 +242,7 @@ try {
             & (Join-Path $PSScriptRoot 'Manage-Shortcuts.ps1') -InstallRoot $taskRoot -Action ServerStartup
             break
         } catch {
-            $answer=[Windows.Forms.MessageBox]::Show($_.Exception.Message,'TRELLIS Server setup','RetryCancel','Warning')
+            $answer=[Windows.Forms.MessageBox]::Show($_.Exception.Message,(Get-ServerUiText 'TRELLIS Server setup' 'Configuration du serveur TRELLIS'),'RetryCancel','Warning')
             if($answer -ne 'Retry'){throw}
             $taskForm.DialogResult='None'
         }

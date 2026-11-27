@@ -70,7 +70,7 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
     });
     const refinementSettings = el('fieldset', 'finishing-hi3d-options');
     refinementSettings.hidden = refinementSettings.disabled = true;
-    refinementSettings.setAttribute('aria-label', 'Advanced Hi3D settings');
+    refinementSettings.setAttribute('aria-label', t('Advanced Hi3D settings'));
     const retextureField = el('div', 'finishing-retexture');
     retextureField.hidden = true;
     const retexture = input('checkbox', '', {id: 'boardRetextureAfterHi3d', 'aria-describedby': 'boardRetextureStatus'});
@@ -170,11 +170,11 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
                 const progress = el('progress');
                 progress.max = 100;
                 progress.value = variant.progress || 0;
-                progress.setAttribute('aria-label', 'Progress for ' + nameOf(variant));
+                progress.setAttribute('aria-label', t('Progress for {name}', {name: nameOf(variant)}));
                 copy.append(progress);
             }
             const actions = el('div', 'finishing-row-actions');
-            const compareCopy = button('Compare', 'compare', 'secondary', () => {
+            const compareCopy = button(t('Compare'), 'compare', 'secondary', () => {
                 const source = getRecords().find(job => job.id === base.id) || base;
                 if (!canCompare(source)) return;
                 ui.close();
@@ -208,15 +208,15 @@ export function createFinishingBoard({api, getRecords, refresh, compare}) {
         if (textureQueue.disabled) return;
         const token = opening;
         pending = true;
-        ui.notice.textContent = 'Queueing texture refinement…';
+        ui.notice.textContent = t('Queueing texture refinement…');
         update();
         try {
             const params = new URLSearchParams({texture_method: textureMethod.value});
             await api(`${textureEndpoint(base.id)}?${params}`, {method: 'POST'});
-            if (token === opening) ui.notice.textContent = 'Texture refinement queued. The new copy will appear here.';
+            if (token === opening) ui.notice.textContent = t('Texture refinement queued. The new copy will appear here.');
             await refresh();
         } catch (error) {
-            if (token === opening) ui.notice.textContent = error.message;
+            if (token === opening) ui.notice.textContent = t(error.message);
         } finally {
             if (token === opening) {
                 pending = false;

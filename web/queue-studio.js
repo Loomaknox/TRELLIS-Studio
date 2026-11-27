@@ -1,6 +1,6 @@
 import {batchSpecification, faceRestriction, pixalRestriction} from './single-image-recipe.js';
 import {visiblePoll} from './studio-poll.js';
-import {formatLocale, t} from './i18n.js';
+import {formatLocale, t, translateStage} from './i18n.js';
 import {button, dialog, el, field, input, select, action, runtimeSummary} from './workbench-ui.js?v=stability';
 import {createWorkflowFields, optionHelp} from './advanced-controls.js?v=standard-profiles';
 import {textureMethodAvailability,textureMethodChoices,textureMethodExplanation,textureMethodHelp,textureMethodOf,textureMethodRestriction} from './texture-methods.js?v=stability';
@@ -500,7 +500,7 @@ export function createQueueStudio({api, refresh}) {
     const bakeNormals = checkbox(!!saved.bake_normals);
 
     const title = el('strong', '', item.name);
-    const failure = el('p', 'queue-failure', t(item.error || item.stage || ''));
+    const failure = el('p', 'queue-failure', translateStage(item.error || item.stage || ''));
     const context = [t('Seed {seed}',{seed:saved.seed}),pixal?t(saved.views?.length===1?'{count} saved view':'{count} saved views',{count:saved.views?.length ?? 0}):t('Saved reference')].join(' · ');
     retry.body.replaceChildren(title, failure, el('p', 'hint', context),
       field(t('Geometry resolution'), resolution, refinish ? t('Uses the saved geometry cache.') : pixal ? t('Pixal3D uses 1024³.')
@@ -589,7 +589,7 @@ export function createQueueStudio({api, refresh}) {
       !animation && item.settings.texture_size ? item.settings.texture_size / 1024 + 'K' : null,
       progress + '%',
     ].filter(Boolean).join(' · ');
-    copy.append(el('strong', '', item.name), el('small', '', t(item.stage || '')), el('span', '', recipeSummary));
+    copy.append(el('strong', '', item.name), el('small', '', translateStage(item.stage || '')), el('span', '', recipeSummary));
     if (item.error) copy.append(el('p', 'queue-failure', t(item.error)));
     if ((generatedMotion || motionTransfer) && ['error', 'cancelled'].includes(item.state)) {
       copy.append(el('small', '', generatedMotion
