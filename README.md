@@ -11,6 +11,15 @@ TRELLIS Studio is an independent community application built around **Microsoft 
 
 > **Windows x64 preview.** The upstream maintainer tested Full Studio installation, generation and uninstallation on Windows 11 with an RTX 4070 Ti (12 GB VRAM). Installation verifies components, but output quality, deformation and target-engine suitability still need visual review. The Studio code is MIT; model and dependency licenses are separate, particularly DINOv3.
 
+## Native UltraTex 4K on Windows
+
+In **Create → High Detail → Texturing**, select **UltraTex multiview**, then **4K** under **UltraTex atlas size**. The six-view UltraTex Preview has a separate installer and exports a 2K atlas. To add native texturing to an existing High Detail installation, run these commands in the Studio folder after accepting the FLUX.2 Klein 9B terms. The second command verifies the pinned files and CUDA runtime. [FLUX.2 terms](licenses/FLUX.2-klein-base-9B-LICENSE.md)
+
+```powershell
+.\.venv\Scripts\python.exe installer/install_native_workflows.py --texture-only --accept-ultratex-license
+.\.venv\Scripts\python.exe installer/install_native_workflows.py --texture-only --verify-only
+```
+
 ## Source release 3.15.2
 
 In **Create**, adjust a High Detail or Game Asset workflow and save a named copy. You can select that profile again in **Create** or **Queue**. This release also fixes FlexGEMM indexing for large meshes and improves WSL2 detection for UniRig and Kimodo. [3.15.2 release notes](docs/RELEASE_3.15.2.md)

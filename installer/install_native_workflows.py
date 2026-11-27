@@ -69,6 +69,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=SOURCE)
     parser.add_argument('--verify-only', action='store_true')
+    parser.add_argument('--texture-only', action='store_true', help='Install or verify UltraTex for an existing High Detail installation.')
     parser.add_argument('--accept-ultratex-license', action='store_true')
     parser.add_argument('--accept-meshlib-license', action='store_true')
     args = parser.parse_args()
@@ -76,8 +77,12 @@ def main():
     if root != SOURCE:
         parser.error('Run the copy of this script in the installation being configured.')
     try:
-        run(root, verify_only=args.verify_only, accept_ultratex=args.accept_ultratex_license,
-            accept_meshlib=args.accept_meshlib_license)
+        if args.texture_only:
+            from installer.install_native_ultratex import setup_texture_only
+            setup_texture_only(root, verify_only=args.verify_only, accept_license=args.accept_ultratex_license)
+        else:
+            run(root, verify_only=args.verify_only, accept_ultratex=args.accept_ultratex_license,
+                accept_meshlib=args.accept_meshlib_license)
     except (RuntimeError, OSError, ValueError, subprocess.CalledProcessError) as error:
         parser.exit(1, f'NATIVE WORKFLOWS SETUP STOPPED: {error}\n')
 

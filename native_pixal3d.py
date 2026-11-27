@@ -28,7 +28,10 @@ def _config(backend, *, mask_only=False):
     if backend not in CHECKPOINTS:
         raise ValueError('Choose TRELLIS.2 or PiXal3D for geometry.')
     try:
-        data = json.loads(CONFIG.read_text(encoding='utf-8-sig'))
+        config = CONFIG
+        if mask_only and not config.exists():
+            config = config.with_name('native-ultratex-mask.json')
+        data = json.loads(config.read_text(encoding='utf-8-sig'))
         keys = ('python', 'weights', 'birefnet') if mask_only else ('python', 'architecture', 'weights', 'birefnet', 'moge')
         paths = {key: (CONFIG.parent / data[key]).resolve(strict=True) for key in keys}
         paths['dependencies'] = [(CONFIG.parent / path).resolve(strict=True) for path in data['dependencies']]

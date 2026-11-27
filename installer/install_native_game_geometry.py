@@ -98,6 +98,10 @@ def _install_operators(root, spec):
             _extract_sources(root, entry, stage / entry['filename'])
             _copy_selection(root, stage / entry['filename'], Path(entry['destination']), entry['files'])
 
+    install_reference_recipe(root)
+
+
+def install_reference_recipe(root):
     recipe = safe_path(root, RECIPE)
     recipe.parent.mkdir(parents=True, exist_ok=True)
     source = safe_path(root, 'comfy_workflows/game-asset-character-05.json')

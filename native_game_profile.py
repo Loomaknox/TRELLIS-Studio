@@ -21,8 +21,12 @@ TEXTURE_PYTHON = ROOT / '.tools/wtivo/runtime/Scripts/python.exe'
 
 
 def texture_runtime_status():
-    if not all(path.is_file() for path in (TEXTURE_RUNNER, TEXTURE_PYTHON, TEXTURE / 'source-manifest.json')):
-        return {'available': False, 'reason': 'The standalone UltraTex runtime is still being prepared.'}
+    if not TEXTURE_PYTHON.is_file():
+        return {'available': False, 'reason': 'Install the isolated Windows Python runtime for native UltraTex.'}
+    if not TEXTURE_RUNNER.is_file() or not (TEXTURE / 'source-manifest.json').is_file():
+        return {'available': False, 'reason': 'Repair the native UltraTex operators and their source manifest.'}
+    if not (ROOT / 'runtime/native-game-geometry/character-05-recipe.json').is_file():
+        return {'available': False, 'reason': 'Install the native UltraTex multiview reference recipe.'}
     try:
         models = json.loads((TEXTURE / 'model-manifest.json').read_text(encoding='utf-8'))
         if len(models) != 6 or not all(

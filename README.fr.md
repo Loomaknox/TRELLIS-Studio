@@ -8,6 +8,17 @@ TRELLIS Studio est une application communautaire indépendante qui s’appuie su
 
 Les calculs s’exécutent sur la machine qui héberge Studio, où restent les images de référence et les modèles. **Desktop** est destiné à un seul utilisateur. **Server** donne à chaque compte approuvé sa propre bibliothèque et permet un accès par le réseau local ou par un domaine avec HTTPS.
 
+## UltraTex natif 4K sur Windows
+
+Dans **Créer → High Detail → Texturage**, choisissez **UltraTex multivue**, puis **4K** dans **Taille de l’atlas UltraTex**. La résolution des vues, la taille de l’atlas et le nombre de triangles se règlent séparément. La Preview UltraTex à six vues possède son propre installateur et produit un atlas 2K.
+
+Pour ajouter uniquement le texturage à une installation High Detail existante, ouvrez PowerShell dans le dossier de Studio. Après acceptation des conditions FLUX.2 Klein 9B, exécutez la première commande. La seconde vérifie les poids, les sources et CUDA. [Conditions FLUX.2](licenses/FLUX.2-klein-base-9B-LICENSE.md)
+
+```powershell
+.\.venv\Scripts\python.exe installer/install_native_workflows.py --texture-only --accept-ultratex-license
+.\.venv\Scripts\python.exe installer/install_native_workflows.py --texture-only --verify-only
+```
+
 ## Version source 3.15.2
 
 Dans **Créer**, ajustez les réglages d’un profil High Detail ou Game Asset et enregistrez une copie sous le nom de votre choix. Vous pouvez ensuite la sélectionner dans **Créer** ou dans la **File**. Cette version corrige aussi le calcul des indices par FlexGEMM sur les grands maillages et améliore la détection de WSL2 pour UniRig et Kimodo. [Notes de version 3.15.2](docs/RELEASE_3.15.2.md)

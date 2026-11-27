@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
@@ -116,6 +117,54 @@ def verify(root):
     if sources != _source_receipt(data):
         raise ValueError('The installed UltraTex source manifest does not match the Setup version.')
     _probe(root, sources)
+
+
+def setup_texture_only(root, *, verify_only=False, accept_license=False):
+    """Complete texturing without installing the Game Asset mesh pipeline."""
+    from installer import install_native_game_geometry as geometry
+    from installer.native_workflow_python import install_runtime, verify_runtime
+    from native_pixal3d import BIREFNET, _config, texture_mask_status
+    from gpu_runtime import select_gpu
+
+    if os.name != 'nt':
+        raise RuntimeError('Native UltraTex Setup requires Windows x64.')
+    if not verify_only and not accept_license:
+        raise ValueError('Accept the FLUX.2 license before installing the UltraTex checkpoints.')
+    select_gpu(root)
+    if verify_only:
+        verify_runtime(root)
+        verify(root)
+    else:
+        _verify_license(root, manifest())
+        python = install_runtime(root)
+        geometry.install_reference_recipe(root)
+        if not texture_mask_status()['available']:
+            if (root / geometry.SHAPE_CONFIG).exists():
+                raise ValueError('Repair the existing native BiRefNet configuration before installing UltraTex.')
+            spec = geometry._manifest()
+            geometry._install_wheels(root, python, spec)
+            for entry in (*spec['vision_sources'], spec['birefnet_license']):
+                fetch_asset(root, entry, entry['destination'])
+            weight = next(entry for entry in spec['weights'] if entry['path'] == BIREFNET)
+            path = fetch_asset(root, weight, model_asset_path(root, 'native-pixal3d', BIREFNET))
+            shape = geometry._configurations()[geometry.SHAPE_CONFIG]
+            write_json(root, 'config/native-ultratex-mask.json', {
+                'python': shape['python'], 'birefnet': shape['birefnet'],
+                'dependencies': [shape['dependencies'][0]],
+                'weights': '../' + path.parents[1].relative_to(root).as_posix(),
+            })
+        install(root)
+        verify(root)
+    status = texture_mask_status()
+    if not status['available']:
+        raise ValueError(status['reason'])
+    paths = _config('pixal3d', mask_only=True)
+    spec = geometry._manifest()
+    for entry in spec['vision_sources']:
+        verify_asset(paths['birefnet'] / Path(entry['destination']).name, entry)
+    weight = next(entry for entry in spec['weights'] if entry['path'] == BIREFNET)
+    verify_asset(paths['weights'] / BIREFNET, weight)
+    print('Standalone UltraTex and foreground mask verified.', flush=True)
 
 
 def install(root):

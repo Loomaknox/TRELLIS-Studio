@@ -214,6 +214,10 @@ class NativeGeometryOptionsTests(unittest.TestCase):
                 self.assertTrue(native_pixal3d.texture_mask_status()['available'])
                 self.assertFalse(native_pixal3d.runtime_status()['available'])
                 path = native_pixal3d.prepare_texture_mask(image, root / 'work/foreground.npy')
+            config.rename(config.with_name('native-ultratex-mask.json'))
+            with patch.object(native_pixal3d, 'CONFIG', config):
+                self.assertTrue(native_pixal3d.texture_mask_status()['available'])
+                self.assertFalse(native_pixal3d.runtime_status()['available'])
             self.assertEqual(path.read_bytes(), b'mask fixture')
             self.assertEqual(list(path.parent.iterdir()), [path])
 
